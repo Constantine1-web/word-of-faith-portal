@@ -1,0 +1,95 @@
+.slideshowContainer {
+  background: linear-gradient(135deg, var(--color-white), var(--color-gray-50));
+  border-radius: var(--radius-md);
+  padding: 1.5rem 2rem;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-gray-200);
+  margin-bottom: 2rem;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  cursor: default;
+}
+
+@media (min-width: 768px) {
+  .slideshowContainer:hover {
+    transform: scale(1.02) translateY(-4px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.title {
+  color: var(--color-navy-blue);
+  font-size: 1.1rem;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 2px solid var(--color-primary-green);
+  padding-bottom: 0.5rem;
+  display: inline-block;
+}
+
+.quoteWrapper {
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quoteContent {
+  text-align: center;
+  transition: opacity 0.5s ease-in-out;
+}
+
+.fadeIn {
+  opacity: 1;
+}
+
+.fadeOut {
+  opacity: 0;
+}
+
+.quoteText {
+  font-size: 1.25rem;
+  color: var(--color-gray-800);
+  font-style: italic;
+  line-height: 1.6;
+  margin: 0 0 1rem 0;
+}
+
+.quoteAuthor {
+  font-size: 1rem;
+  color: var(--color-primary-green);
+  font-weight: bold;
+  margin: 0;
+}
+
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-gray-300);
+  transition: background-color 0.3s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+
+.dot:hover {
+  transform: scale(1.2);
+}
+
+.activeDot {
+  background-color: var(--color-primary-green);
+  transform: scale(1.2);
+}
