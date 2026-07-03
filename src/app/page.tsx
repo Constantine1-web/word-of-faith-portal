@@ -41,9 +41,11 @@ export default function Home() {
     <>
       <section className={styles.hero}>
         <div className={styles.heroContent}>
-          <h1 className={styles.heroTitle}>Word of Faith Schools</h1>
+          <h1 className={styles.heroTitle}>Welcome to Word of Faith Schools</h1>
           <p className={styles.heroSubtitle}>
-            Nurturing the spirit, body, and soul. Building a legacy of educational excellence and preparing students to thrive in a dynamic world.
+            We know that choosing the right environment for your child is one of the most important decisions a parent can make.
+            <br /><br />
+            At Word of Faith, we don't just teach the syllabus—we partner with families to raise grounded, capable, and confident children. We are proud to be a safe, faith-filled home for learning.
           </p>
             <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", justifyContent: "center" }}>
               <Link href="/admissions" className="btn btn-primary" style={{ padding: "1rem 2rem", fontSize: "1.1rem" }}>
@@ -79,22 +81,30 @@ export default function Home() {
           <p style={{ color: "var(--color-gray-600)", marginBottom: "2.5rem", fontSize: "1.1rem" }}>Join our community for the 2026/2027 Academic Session. Registration is open for the following levels:</p>
           
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }}>
-            <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid var(--color-primary-green)" }}>
-              <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Creche & Nursery</h3>
-              <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>Ages 11 months - 5 years</p>
-            </div>
-            <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid #3b82f6" }}>
-              <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Primary</h3>
-              <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>Basic 1 - Basic 5</p>
-            </div>
-            <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid #a855f7" }}>
-              <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Junior Secondary</h3>
-              <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>JSS 1 - JSS 3</p>
-            </div>
-            <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid #f97316" }}>
-              <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Senior Secondary</h3>
-              <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>SS 1 - SS 2 (No SS3 Intake)</p>
-            </div>
+            <Link href="/academics#early-years" style={{ textDecoration: "none" }}>
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid var(--color-primary-green)", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+                <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Creche & Nursery</h3>
+                <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>Ages 11 months - 5 years</p>
+              </div>
+            </Link>
+            <Link href="/academics#early-years" style={{ textDecoration: "none" }}>
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid #3b82f6", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+                <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Primary</h3>
+                <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>Basic 1 - Basic 5</p>
+              </div>
+            </Link>
+            <Link href="/academics#high-school" style={{ textDecoration: "none" }}>
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid #a855f7", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+                <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Junior Secondary</h3>
+                <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>JSS 1 - JSS 3</p>
+              </div>
+            </Link>
+            <Link href="/academics#high-school" style={{ textDecoration: "none" }}>
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid #f97316", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+                <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Senior Secondary</h3>
+                <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>SS 1 - SS 2 (No SS3 Intake)</p>
+              </div>
+            </Link>
           </div>
           
           <div style={{ marginTop: "2.5rem" }}>

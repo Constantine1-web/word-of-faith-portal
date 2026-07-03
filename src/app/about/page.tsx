@@ -35,7 +35,7 @@ export default function About() {
             <div style={{ width: "60px", height: "60px", background: "rgba(34, 197, 94, 0.1)", color: "var(--color-primary-green)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", marginBottom: "1.5rem" }}><FiTarget /></div>
             <h2 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem", fontSize: "1.8rem" }}>Our Vision</h2>
             <p style={{ color: "var(--color-gray-600)", lineHeight: 1.8 }}>
-              Developing the total child; Nurturing the spirit, body, and soul. We are dedicated to building a legacy of educational excellence and preparing our students to thrive in a dynamic, ever-changing world.
+              We look beyond test scores. Our goal is to nurture the whole child—spirit, body, and mind. We want our students to graduate ready to face the real world with strong Christian convictions, practical skills, and a genuine sense of purpose.
             </p>
           </div>
 
@@ -51,7 +51,7 @@ export default function About() {
             <div style={{ width: "60px", height: "60px", background: "rgba(59, 130, 246, 0.1)", color: "#3b82f6", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", marginBottom: "1.5rem" }}><FiHeart /></div>
             <h2 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem", fontSize: "1.8rem" }}>Our Mission</h2>
             <p style={{ color: "var(--color-gray-600)", lineHeight: 1.8 }}>
-              Shaping young minds with faith, knowledge, and strong moral values. We aim to provide a safe, supportive, and faith-filled environment that raises future leaders with godly character and academic brilliance.
+              To shape young minds in a supportive, Christ-centered environment. We are focused on raising students who combine academic brilliance with godly character, preparing them to lead by example wherever they go.
             </p>
           </div>
         </div>
@@ -61,17 +61,17 @@ export default function About() {
       <section style={{ background: "var(--bg-dark)", padding: "5rem 1rem", color: "white" }}>
         <div className="container" style={{ maxWidth: "1000px" }}>
           <div style={{ textAlign: "center", marginBottom: "4rem" }}>
-            <h2 style={{ fontSize: "2.5rem", color: "white", marginBottom: "1rem" }}>Our Core Values</h2>
-            <p style={{ color: "var(--color-gray-300)" }}>The pillars that hold up our institution's standards.</p>
+            <h2 style={{ fontSize: "2.5rem", color: "white", marginBottom: "1rem" }}>What We Stand For</h2>
+            <p style={{ color: "var(--color-gray-300)" }}>These five pillars guide everything we do, from the classroom to the playground</p>
           </div>
 
           <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
             {[
-              { title: "Faith", desc: "Embedding Christian truths and biblical principles in daily learning." },
-              { title: "Knowledge", desc: "Driving rigorous academic learning and practical wisdom." },
-              { title: "Excellence", desc: "Pursuing top-tier standards in character, sports, and academics." },
-              { title: "Discipline", desc: "Cultivating structured behaviors, self-regulation, and moral integrity." },
-              { title: "Creativity", desc: "Empowering students to build skills through hands-on entrepreneurship." }
+              { title: "Faith", desc: "Christian principles aren't just a subject we teach; they are the foundation of our daily school life." },
+              { title: "Knowledge", desc: "We push for deep, practical understanding, going far beyond standard memorization." },
+              { title: "Excellence", desc: "We expect the best from our students and staff—in academics, sports, and how we treat one another." },
+              { title: "Discipline", desc: "We teach self-respect, personal responsibility, and doing the right thing even when no one is watching." },
+              { title: "Creativity", desc: "We encourage hands-on problem solving and entrepreneurial thinking, giving students the freedom to build and create." }
             ].map((v, i) => (
               <div key={i} style={{ 
                 background: "rgba(255,255,255,0.05)", 

@@ -57,7 +57,7 @@ export default function Academics() {
           <div style={{ display: "flex", flexDirection: "column", gap: "4rem" }}>
             
             {/* Nursery */}
-            <div className="responsive-grid" style={{ gap: "3rem", alignItems: "center" }}>
+            <div id="early-years" className="responsive-grid" style={{ gap: "3rem", alignItems: "center" }}>
               <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-md)" }}>
                 <span style={{ color: "var(--color-primary-green)", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px" }}>Early Years</span>
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "2rem", margin: "1rem 0" }}>Creche & Nursery</h3>
@@ -91,7 +91,7 @@ export default function Academics() {
             </div>
 
             {/* Secondary */}
-            <div className="responsive-grid" style={{ gap: "3rem", alignItems: "center" }}>
+            <div id="high-school" className="responsive-grid" style={{ gap: "3rem", alignItems: "center" }}>
               <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-md)" }}>
                 <span style={{ color: "#a855f7", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px" }}>High School</span>
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "2rem", margin: "1rem 0" }}>Secondary School</h3>
