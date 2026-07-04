@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import styles from "./page.module.css";
 import { FiX, FiArrowRight } from "react-icons/fi";
@@ -40,7 +41,8 @@ export default function Home() {
   return (
     <>
       <section className={styles.hero}>
-        <div className={styles.heroContent}>
+        <div className="bg-glow"></div>
+        <motion.div className={styles.heroContent} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5 }}>
           <h1 className={styles.heroTitle}>Welcome to Word of Faith Schools</h1>
           <p className={styles.heroSubtitle}>
             We know that choosing the right environment for your child is one of the most important decisions a parent can make.
@@ -57,7 +59,7 @@ export default function Home() {
             </div>
 
             {/* Quick Stats to fill out the hero on mobile */}
-            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", justifyContent: "center", marginTop: "3rem" }}>
+            <div className={styles.quickStats}>
               <div style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", backdropFilter: "blur(10px)", padding: "1rem 1.5rem", borderRadius: "var(--radius-md)", color: "white", flex: "1 1 120px", maxWidth: "200px" }}>
                 <h3 style={{ fontSize: "1.5rem", color: "var(--color-primary-green-light)", margin: 0 }}>25+</h3>
                 <p style={{ fontSize: "0.85rem", opacity: 0.9, margin: 0 }}>Years Excellence</p>
@@ -71,16 +73,16 @@ export default function Home() {
                 <p style={{ fontSize: "0.85rem", opacity: 0.9, margin: 0 }}>Expert Staff</p>
               </div>
             </div>
-        </div>
+        </motion.div>
       </section>
 
       {/* Currently Offering Admission Section */}
       <section style={{ background: "var(--color-gray-50)", padding: "4rem 1rem", borderBottom: "1px solid var(--color-gray-200)" }}>
-        <div className="container" style={{ textAlign: "center" }}>
+        <motion.div className="container" style={{ textAlign: "center" }} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
           <h2 style={{ fontSize: "2rem", color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Currently Offering Admission</h2>
           <p style={{ color: "var(--color-gray-600)", marginBottom: "2.5rem", fontSize: "1.1rem" }}>Join our community for the 2026/2027 Academic Session. Registration is open for the following levels:</p>
           
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }}>
+          <div className={styles.mobileSwipeGrid} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }}>
             <Link href="/academics#early-years" style={{ textDecoration: "none" }}>
               <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid var(--color-primary-green)", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Creche & Nursery</h3>
@@ -110,11 +112,11 @@ export default function Home() {
           <div style={{ marginTop: "2.5rem" }}>
             <Link href="/admissions" className="btn btn-primary" style={{ padding: "0.75rem 2rem" }}>View Admission Requirements</Link>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <section className={styles.principalSection}>
-        <div className={`container ${styles.principalContent}`}>
+        <motion.div className={`container ${styles.principalContent}`} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
           <div className={styles.principalText}>
             <h2 style={{ fontSize: "2.5rem", color: "var(--color-navy-blue)", marginBottom: "1.5rem" }}>Welcome from the Administrator</h2>
             <p style={{ fontSize: "1.1rem", lineHeight: "1.8", color: "var(--color-gray-800)", marginBottom: "1.5rem" }}>
@@ -136,11 +138,11 @@ export default function Home() {
             boxShadow: "var(--shadow-md)" 
           }}>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <section className={styles.eventsSection}>
-        <div className="container">
+        <motion.div className="container" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
           <h2 style={{ textAlign: "center", fontSize: "2.5rem", color: "var(--color-navy-blue)", marginBottom: "3rem" }}>Upcoming Events</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", maxWidth: "800px", margin: "0 auto" }}>
             <div className={styles.eventCard}>
@@ -164,13 +166,13 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <section className="container">
-        <div className={styles.features}>
+        <motion.div className={styles.features} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
           <h2 style={{ textAlign: "center", fontSize: "2.5rem", color: "var(--color-navy-blue)" }}>Our Core Focus</h2>
-          <div className={styles.featuresGrid}>
+          <div className={`${styles.featuresGrid} ${styles.mobileSwipeGrid}`}>
             <div className={styles.featureCard}>
               <h3 className={styles.featureTitle}>Montessori Foundations</h3>
               <p>Creche and Nursery utilize the Montessori Philosophy for hands-on, self-paced learning in a nurturing environment.</p>
@@ -184,7 +186,7 @@ export default function Home() {
               <p>All subjects are built on a Biblical Standard Based Education, shaping young minds with faith and strong values.</p>
             </div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       <section className={styles.quotesSection}>
