@@ -279,42 +279,50 @@
   transform: scale(1.3);
 }
 
-.floatingAnnouncement {
-  position: fixed;
-  bottom: 2rem;
-  right: 2rem;
-  background-color: var(--color-primary-green);
-  color: var(--color-white);
-  padding: 1.25rem 1.5rem;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-floating);
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
+.heroBadge {
+  display: inline-flex;
+  align-items: center;
   gap: 0.5rem;
-  animation: modal-fade-in var(--transition-normal);
-  max-width: 320px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius-full);
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+  color: white;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-.announcementTitle {
-  font-weight: bold;
+@media (max-width: 768px) {
+  .heroBadge {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.8rem;
+    margin-bottom: 1.2rem;
+  }
+}
+
+.heroBadgeIcon {
   font-size: 1.1rem;
 }
 
-.closeAnnouncement {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.5rem;
-  background: transparent;
+.heroBadgeClose {
+  background: none;
   border: none;
-  color: var(--color-white);
+  color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
-  font-size: 1.25rem;
-  opacity: 0.8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: 0.25rem;
+  border-radius: 50%;
+  transition: all 0.2s;
 }
 
-.closeAnnouncement:hover {
-  opacity: 1;
+.heroBadgeClose:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
 .principalSection {
