@@ -86,25 +86,25 @@ export default function Home() {
           
           <AutoSlider className={styles.mobileSwipeGrid} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }} interval={5000}>
             <Link href="/academics#early-years" style={{ textDecoration: "none" }}>
-              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-md)", borderTop: "4px solid var(--color-primary-green)", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", borderTop: "4px solid var(--color-primary-green)", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Creche & Nursery</h3>
                 <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>Ages 11 months - 5 years</p>
               </div>
             </Link>
             <Link href="/academics#early-years" style={{ textDecoration: "none" }}>
-              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-md)", borderTop: "4px solid #3b82f6", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", borderTop: "4px solid #3b82f6", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Primary</h3>
                 <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>Basic 1 - Basic 5</p>
               </div>
             </Link>
             <Link href="/academics#high-school" style={{ textDecoration: "none" }}>
-              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-md)", borderTop: "4px solid #a855f7", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", borderTop: "4px solid #a855f7", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Junior Secondary</h3>
                 <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>JSS 1 - JSS 3</p>
               </div>
             </Link>
             <Link href="/academics#high-school" style={{ textDecoration: "none" }}>
-              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-md)", borderTop: "4px solid #f97316", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
+              <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", borderTop: "4px solid #f97316", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Senior Secondary</h3>
                 <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>SS 1 - SS 2 (No SS3 Intake)</p>
               </div>
