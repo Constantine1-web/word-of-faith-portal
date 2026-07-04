@@ -50,15 +50,6 @@ export default function Home() {
       <section className={styles.hero}>
         <div className="bg-glow"></div>
         <motion.div className={styles.heroContent} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5 }}>
-          {showAnnouncement && (
-            <div className={styles.heroBadge}>
-              <span className={styles.heroBadgeIcon}>✨</span>
-              <span>Admission for the 2026/2027 Academic Session is ongoing!</span>
-              <button onClick={() => setShowAnnouncement(false)} className={styles.heroBadgeClose} aria-label="Dismiss">
-                <FiX />
-              </button>
-            </div>
-          )}
           <h1 className={styles.heroTitle}>Welcome to Word of Faith Schools</h1>
           <WordFadeIn 
             className={styles.heroSubtitle} 
@@ -232,6 +223,19 @@ export default function Home() {
         </div>
       </section>
 
+      {showAnnouncement && (
+        <div className={styles.floatingAnnouncement}>
+          <button 
+            className={styles.closeAnnouncement} 
+            onClick={() => setShowAnnouncement(false)}
+            aria-label="Close"
+          >
+            <FiX />
+          </button>
+          <span className={styles.announcementTitle}>Important Update</span>
+          <span>Admission for the 2026/2027 Academic Session is ongoing! Secure your spot today.</span>
+        </div>
+      )}
     </>
   );
 }
