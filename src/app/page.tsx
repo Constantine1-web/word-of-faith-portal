@@ -5,6 +5,9 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import styles from "./page.module.css";
 import { FiX, FiArrowRight } from "react-icons/fi";
+import { AutoSlider } from "./components/AutoSlider";
+import { Counter } from "./components/Counter";
+import { WordFadeIn } from "./components/WordFadeIn";
 
 export default function Home() {
   const [showAnnouncement, setShowAnnouncement] = useState(true);
@@ -44,11 +47,10 @@ export default function Home() {
         <div className="bg-glow"></div>
         <motion.div className={styles.heroContent} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5 }}>
           <h1 className={styles.heroTitle}>Welcome to Word of Faith Schools</h1>
-          <p className={styles.heroSubtitle}>
-            We know that choosing the right environment for your child is one of the most important decisions a parent can make.
-            <br /><br />
-            At Word of Faith, we don't just teach the syllabus—we partner with families to raise grounded, capable, and confident children. We are proud to be a safe, faith-filled home for learning.
-          </p>
+          <WordFadeIn 
+            className={styles.heroSubtitle} 
+            text="We know that choosing the right environment for your child is one of the most important decisions a parent can make. At Word of Faith, we don't just teach the syllabus—we partner with families to raise grounded, capable, and confident children. We are proud to be a safe, faith-filled home for learning." 
+          />
             <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", justifyContent: "center" }}>
               <Link href="/admissions" className="btn btn-primary" style={{ padding: "1rem 2rem", fontSize: "1.1rem" }}>
                 Apply Now <FiArrowRight />
@@ -61,15 +63,15 @@ export default function Home() {
             {/* Quick Stats to fill out the hero on mobile */}
             <div className={styles.quickStats}>
               <div style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", backdropFilter: "blur(10px)", padding: "1rem 1.5rem", borderRadius: "var(--radius-md)", color: "white", flex: "1 1 120px", maxWidth: "200px" }}>
-                <h3 style={{ fontSize: "1.5rem", color: "var(--color-primary-green-light)", margin: 0 }}>25+</h3>
+                <h3 style={{ fontSize: "1.5rem", color: "var(--color-primary-green-light)", margin: 0 }}><Counter to={25} suffix="+" /></h3>
                 <p style={{ fontSize: "0.85rem", opacity: 0.9, margin: 0 }}>Years Excellence</p>
               </div>
               <div style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", backdropFilter: "blur(10px)", padding: "1rem 1.5rem", borderRadius: "var(--radius-md)", color: "white", flex: "1 1 120px", maxWidth: "200px" }}>
-                <h3 style={{ fontSize: "1.5rem", color: "var(--color-primary-green-light)", margin: 0 }}>100%</h3>
+                <h3 style={{ fontSize: "1.5rem", color: "var(--color-primary-green-light)", margin: 0 }}><Counter to={100} suffix="%" /></h3>
                 <p style={{ fontSize: "0.85rem", opacity: 0.9, margin: 0 }}>Pass Rate</p>
               </div>
               <div style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", backdropFilter: "blur(10px)", padding: "1rem 1.5rem", borderRadius: "var(--radius-md)", color: "white", flex: "1 1 120px", maxWidth: "200px" }}>
-                <h3 style={{ fontSize: "1.5rem", color: "var(--color-primary-green-light)", margin: 0 }}>50+</h3>
+                <h3 style={{ fontSize: "1.5rem", color: "var(--color-primary-green-light)", margin: 0 }}><Counter to={50} suffix="+" /></h3>
                 <p style={{ fontSize: "0.85rem", opacity: 0.9, margin: 0 }}>Expert Staff</p>
               </div>
             </div>
@@ -82,7 +84,7 @@ export default function Home() {
           <h2 style={{ fontSize: "2rem", color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Currently Offering Admission</h2>
           <p style={{ color: "var(--color-gray-600)", marginBottom: "2.5rem", fontSize: "1.1rem" }}>Join our community for the 2026/2027 Academic Session. Registration is open for the following levels:</p>
           
-          <div className={styles.mobileSwipeGrid} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }}>
+          <AutoSlider className={styles.mobileSwipeGrid} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }} interval={5000}>
             <Link href="/academics#early-years" style={{ textDecoration: "none" }}>
               <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderTop: "4px solid var(--color-primary-green)", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Creche & Nursery</h3>
@@ -107,7 +109,7 @@ export default function Home() {
                 <p style={{ color: "var(--color-gray-500)", fontSize: "0.9rem" }}>SS 1 - SS 2 (No SS3 Intake)</p>
               </div>
             </Link>
-          </div>
+          </AutoSlider>
           
           <div style={{ marginTop: "2.5rem" }}>
             <Link href="/admissions" className="btn btn-primary" style={{ padding: "0.75rem 2rem" }}>View Admission Requirements</Link>
@@ -172,7 +174,7 @@ export default function Home() {
       <section className="container">
         <motion.div className={styles.features} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
           <h2 style={{ textAlign: "center", fontSize: "2.5rem", color: "var(--color-navy-blue)" }}>Our Core Focus</h2>
-          <div className={`${styles.featuresGrid} ${styles.mobileSwipeGrid}`}>
+          <AutoSlider className={`${styles.featuresGrid} ${styles.mobileSwipeGrid}`} interval={5000}>
             <div className={styles.featureCard}>
               <h3 className={styles.featureTitle}>Montessori Foundations</h3>
               <p>Creche and Nursery utilize the Montessori Philosophy for hands-on, self-paced learning in a nurturing environment.</p>
@@ -185,7 +187,7 @@ export default function Home() {
               <h3 className={styles.featureTitle}>Biblical Integration</h3>
               <p>All subjects are built on a Biblical Standard Based Education, shaping young minds with faith and strong values.</p>
             </div>
-          </div>
+          </AutoSlider>
         </motion.div>
       </section>
 
