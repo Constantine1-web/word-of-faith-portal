@@ -257,25 +257,6 @@ export default function Faithbot() {
           50% { transform: translateY(-5px); }
           100% { transform: translateY(0px); }
         }
-        
-        @keyframes orb-glow {
-          0% { box-shadow: 0 0 15px 2px rgba(236, 72, 153, 0.5), inset 0 0 20px 5px rgba(59, 130, 246, 0.4); }
-          50% { box-shadow: 0 0 30px 5px rgba(59, 130, 246, 0.6), inset 0 0 30px 10px rgba(236, 72, 153, 0.5); }
-          100% { box-shadow: 0 0 15px 2px rgba(236, 72, 153, 0.5), inset 0 0 20px 5px rgba(59, 130, 246, 0.4); }
-        }
-        
-        @keyframes orb-bg-shift {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-        
-        .ai-orb-btn {
-          background: linear-gradient(135deg, #0a0520, #2a0845, #0a0520, #100520) !important;
-          background-size: 300% 300% !important;
-          border: 1px solid rgba(255, 255, 255, 0.15) !important;
-          animation: faithbot-float 3s ease-in-out infinite, orb-glow 4s ease-in-out infinite, orb-bg-shift 6s ease-in-out infinite !important;
-        }
       `}</style>
 
       <button 
@@ -284,30 +265,30 @@ export default function Faithbot() {
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className={(!isOpen && !isDragging) ? "ai-orb-btn" : ""}
         style={{
           position: "fixed",
           top: btnPos ? `${btnPos.y}px` : "auto",
           left: btnPos ? `${btnPos.x}px` : "2rem",
           bottom: btnPos ? "auto" : "2rem",
-          background: (isOpen || isDragging) ? "var(--bg-dark)" : undefined,
+          background: isOpen ? "var(--bg-dark)" : "#25D366",
           color: "white",
           borderRadius: "50%",
           width: "clamp(45px, 12vw, 60px)",
           height: "clamp(45px, 12vw, 60px)",
-          border: (isOpen || isDragging) ? "none" : undefined,
-          boxShadow: (isOpen || isDragging) ? "var(--shadow-lg)" : undefined,
+          border: "none",
+          boxShadow: "var(--shadow-lg)",
           cursor: isDragging ? "grabbing" : "pointer",
           zIndex: 9999,
           fontSize: "clamp(1.2rem, 4vw, 1.5rem)",
           display: isOpen && isFullScreen ? "none" : "flex",
           alignItems: "center",
           justifyContent: "center",
-          transition: isDragging ? "none" : "top 0.3s, left 0.3s",
+          transition: isDragging ? "none" : "top 0.3s, left 0.3s, background 0.3s",
+          animation: (isOpen || isDragging) ? "none" : "faithbot-float 3s ease-in-out infinite",
           touchAction: "none"
         }}
       >
-        <span style={{ position: "relative", zIndex: 2, display: "flex" }}>{isOpen ? <FiX /> : <FiMessageCircle />}</span>
+        {isOpen ? <FiX /> : <FiMessageCircle />}
       </button>
 
       {isOpen && (
