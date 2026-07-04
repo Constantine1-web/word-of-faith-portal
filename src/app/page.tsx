@@ -16,16 +16,16 @@ export default function Home() {
 
   const quotes = [
     {
-      text: "Education is not the learning of facts, but the training of the mind to think.",
-      author: "Albert Einstein"
+      text: "If your faith says yes, God cannot say no.",
+      author: "Archbishop Benson Idahosa"
     },
     {
-      text: "But still try, for who knows what is possible?",
-      author: "Michael Faraday"
+      text: "Train up a child in the way he should go: and when he is old, he will not depart from it.",
+      author: "Proverbs 22:6"
     },
     {
-      text: "The beautiful thing about learning is nobody can take it away from you.",
-      author: "B.B. King"
+      text: "The fear of the Lord is the beginning of wisdom, and knowledge of the Holy One is understanding.",
+      author: "Proverbs 9:10"
     }
   ];
 
