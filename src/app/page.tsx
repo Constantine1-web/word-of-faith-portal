@@ -20,12 +20,16 @@ export default function Home() {
       author: "Archbishop Benson Idahosa"
     },
     {
+      text: "Education is the key to unlock the golden door of freedom.",
+      author: "George Washington Carver"
+    },
+    {
       text: "Train up a child in the way he should go: and when he is old, he will not depart from it.",
       author: "Proverbs 22:6"
     },
     {
-      text: "The fear of the Lord is the beginning of wisdom, and knowledge of the Holy One is understanding.",
-      author: "Proverbs 9:10"
+      text: "Education is not the learning of facts, but the training of the mind to think.",
+      author: "Albert Einstein"
     }
   ];
 
