@@ -270,7 +270,7 @@ export default function Faithbot() {
           top: btnPos ? `${btnPos.y}px` : "auto",
           left: btnPos ? `${btnPos.x}px` : "2rem",
           bottom: btnPos ? "auto" : "2rem",
-          background: isOpen ? "var(--bg-dark)" : "#25D366",
+          background: isOpen ? "var(--bg-dark)" : "#000000",
           color: "white",
           borderRadius: "50%",
           width: "clamp(45px, 12vw, 60px)",
