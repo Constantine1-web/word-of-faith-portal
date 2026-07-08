@@ -3,6 +3,7 @@
 import prisma from "@/lib/db";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
 
 export async function getAdminDashboardStats() {
   const session = await getServerSession(authOptions);
