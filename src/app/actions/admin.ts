@@ -145,3 +145,92 @@ export async function deleteStudent(studentId: number) {
   }
 }
 
+export async function addTeacher(email: string) {
+  await requireAdmin();
+  const bcrypt = await import("bcryptjs");
+
+  try {
+    const defaultPassword = await bcrypt.hash("wofschools", 10);
+    
+    // Find Teacher role
+    const teacherRole = await prisma.role.findUnique({ where: { RoleName: "Teacher" } });
+    if (!teacherRole) throw new Error("Teacher role not found in database.");
+
+    // Create User
+    await prisma.user.create({
+      data: {
+        Email: email,
+        PasswordHash: defaultPassword,
+        RoleID: teacherRole.RoleID,
+        IsActive: true
+      }
+    });
+
+    revalidatePath("/portal/admin/teachers");
+    return { success: true };
+  } catch (error: any) {
+    console.error("Add teacher error:", error);
+    return { error: error.message || "Failed to add teacher." };
+  }
+}
+
+export async function deleteTeacher(userId: number) {
+  await requireAdmin();
+
+  try {
+    const user = await prisma.user.findUnique({ where: { UserID: userId } });
+    if (!user) throw new Error("Teacher not found.");
+
+    await prisma.$transaction(async (tx) => {
+      // Delete any mappings
+      await tx.teacher_Subject_Map.deleteMany({ where: { TeacherID: userId } });
+      await tx.user.delete({ where: { UserID: userId } });
+    });
+
+    revalidatePath("/portal/admin/teachers");
+    return { success: true };
+  } catch (error: any) {
+    console.error("Delete teacher error:", error);
+    return { error: error.message || "Failed to delete teacher." };
+  }
+}
+
+export async function addClass(className: string, level: string) {
+  await requireAdmin();
+
+  try {
+    await prisma.class.create({
+      data: {
+        ClassName: className,
+        Level: level
+      }
+    });
+
+    revalidatePath("/portal/admin/classes");
+    return { success: true };
+  } catch (error: any) {
+    console.error("Add class error:", error);
+    return { error: error.message || "Failed to add class." };
+  }
+}
+
+export async function deleteClass(classId: number) {
+  await requireAdmin();
+
+  try {
+    const classRecord = await prisma.class.findUnique({ where: { ClassID: classId }, include: { Students: true } });
+    if (!classRecord) throw new Error("Class not found.");
+
+    if (classRecord.Students.length > 0) {
+      throw new Error("Cannot delete a class that has students in it. Move the students first.");
+    }
+
+    await prisma.class.delete({ where: { ClassID: classId } });
+
+    revalidatePath("/portal/admin/classes");
+    return { success: true };
+  } catch (error: any) {
+    console.error("Delete class error:", error);
+    return { error: error.message || "Failed to delete class." };
+  }
+}

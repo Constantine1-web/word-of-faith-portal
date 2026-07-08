@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import AuthProvider from "@/components/AuthProvider";
 import Link from "next/link";
-import { FiHome, FiUsers, FiFileText, FiSettings, FiLogOut } from "react-icons/fi";
+import { FiHome, FiUsers, FiFileText, FiSettings, FiBriefcase, FiLayers } from "react-icons/fi";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -31,6 +31,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </Link>
             <Link href="/portal/admin/students" style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "0.75rem 1.5rem", color: "white", textDecoration: "none" }}>
               <FiUsers /> Students
+            </Link>
+            <Link href="/portal/admin/teachers" style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "0.75rem 1.5rem", color: "white", textDecoration: "none" }}>
+              <FiBriefcase /> Teachers
+            </Link>
+            <Link href="/portal/admin/classes" style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "0.75rem 1.5rem", color: "white", textDecoration: "none" }}>
+              <FiLayers /> Classes
             </Link>
             <Link href="/portal/admin/results" style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "0.75rem 1.5rem", color: "white", textDecoration: "none" }}>
               <FiFileText /> Upload Results
