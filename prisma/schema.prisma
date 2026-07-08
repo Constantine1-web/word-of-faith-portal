@@ -115,8 +115,9 @@ model Payment_Record {
   TermID        Int
   Term          Academic_Term @relation(fields: [TermID], references: [TermID])
   AmountPaid    Float
-  ReceiptUrl    String        // URL to uploaded receipt
-  Status        String        @default("Pending") // "Pending", "Approved", "Rejected"
+  ReceiptUrl    String?       // URL to uploaded receipt or null for online payment
+  Reference     String?       @unique // Paystack transaction reference
+  Status        String        @default("Pending") // "Pending", "Approved", "Rejected", "Successful"
   PaymentDate   DateTime      @default(now())
   Description   String        // e.g., "School Fees", "Uniforms"
 

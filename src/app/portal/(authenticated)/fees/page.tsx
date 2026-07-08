@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { processPayment } from "@/app/actions/payments";
-import { useRouter } from "next/navigation";
+import { initializePayment } from "@/app/actions/payments";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FiLock, FiCheckCircle } from "react-icons/fi";
 
 export default function PayFeesPage() {
@@ -13,7 +13,9 @@ export default function PayFeesPage() {
   const [amount, setAmount] = useState("50000");
   const [description, setDescription] = useState("First Term Tuition");
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  
+  const searchParams = useSearchParams();
+  const paymentStatus = searchParams.get("payment");
 
   const studentId = session?.user ? parseInt((session.user as any).id) : 1;
 
@@ -21,21 +23,19 @@ export default function PayFeesPage() {
     e.preventDefault();
     setLoading(true);
     
-    // Default Term ID 1 for mock
-    const res = await processPayment(studentId, parseFloat(amount), description, 1);
+    // Initialize Paystack Checkout
+    const res = await initializePayment({ amount: parseFloat(amount), description, termId: 1 });
     
-    setLoading(false);
-    if (res.success) {
-      setSuccess(true);
-      setTimeout(() => {
-        router.push("/portal/fees/status");
-      }, 2000);
-    } else {
+    if (res.error) {
       alert(res.error);
+      setLoading(false);
+    } else if (res.authorizationUrl) {
+      // Redirect to Paystack Gateway
+      window.location.href = res.authorizationUrl;
     }
   };
 
-  if (success) {
+  if (paymentStatus === "verify") {
     return (
       <div style={{ padding: "4rem 2rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
         <div style={{ fontSize: "5rem", color: "var(--color-primary-green)", marginBottom: "1rem" }}>
@@ -62,13 +62,13 @@ export default function PayFeesPage() {
         position: "relative",
         overflow: "hidden"
       }}>
-        {/* Mock Gateway Header */}
+        {/* Paystack Gateway Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "1.5rem", marginBottom: "1.5rem" }}>
           <h2 style={{ color: "var(--color-navy-blue)", display: "flex", alignItems: "center", gap: "0.5rem", margin: 0 }}>
             <FiLock style={{ color: "var(--color-primary-green)" }}/> Secure Checkout
           </h2>
           <span style={{ background: "rgba(34, 197, 94, 0.1)", color: "var(--color-primary-green)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
-            Test Mode
+            Paystack
           </span>
         </div>
 
@@ -107,14 +107,9 @@ export default function PayFeesPage() {
             </div>
           </div>
 
-          {/* Mock Card Input */}
           <div style={{ background: "var(--color-gray-50)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", marginTop: "1rem" }}>
-            <p style={{ fontSize: "0.9rem", color: "var(--color-gray-600)", marginBottom: "1rem" }}>Enter your card details (Mock Environment - enter anything)</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-              <input style={{ gridColumn: "1 / -1", padding: "0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-300)" }} placeholder="Card Number (0000 0000 0000 0000)" required />
-              <input style={{ padding: "0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-300)" }} placeholder="MM/YY" required />
-              <input style={{ padding: "0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-300)" }} placeholder="CVV" required />
-            </div>
+            <p style={{ fontSize: "0.95rem", color: "var(--color-gray-700)", marginBottom: "0.5rem" }}>You will be securely redirected to Paystack to complete your payment.</p>
+            <p style={{ fontSize: "0.85rem", color: "var(--color-gray-500)" }}>We do not store your credit card details.</p>
           </div>
 
           <button 

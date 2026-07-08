@@ -68,3 +68,80 @@ export async function getAdminDashboardStats() {
     return { success: false, error: "Failed to fetch admin stats" };
   }
 }
+
+// Ensure the user is an admin
+async function requireAdmin() {
+  const session = await getServerSession(authOptions);
+  if (!session || (session.user.role !== "Admin" && session.user.role !== "admin")) {
+    throw new Error("Unauthorized. Only admins can perform this action.");
+  }
+}
+
+export async function addStudent(data: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  admissionNo: string;
+  classId: number;
+}) {
+  await requireAdmin();
+  const bcrypt = await import("bcryptjs");
+
+  try {
+    const defaultPassword = await bcrypt.hash("wofschools", 10);
+    
+    // Create User and Student in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Find Student role
+      const studentRole = await tx.role.findUnique({ where: { RoleName: "Student" } });
+      if (!studentRole) throw new Error("Student role not found in database.");
+
+      const user = await tx.user.create({
+        data: {
+          Email: data.email,
+          PasswordHash: defaultPassword,
+          RoleID: studentRole.RoleID,
+          IsActive: true
+        }
+      });
+
+      await tx.student.create({
+        data: {
+          UserID: user.UserID,
+          AdmissionNo: data.admissionNo,
+          ClassID: data.classId,
+          DateOfBirth: new Date(), // Mocking DOB for simplicity
+          ParentContact: "08000000000", // Default phone
+          PreferredName: `${data.firstName} ${data.lastName}`
+        }
+      });
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Add student error:", error);
+    return { error: error.message || "Failed to add student." };
+  }
+}
+
+export async function deleteStudent(studentId: number) {
+  await requireAdmin();
+
+  try {
+    const student = await prisma.student.findUnique({ where: { StudentID: studentId } });
+    if (!student) throw new Error("Student not found.");
+
+    await prisma.$transaction(async (tx) => {
+      await tx.student.delete({ where: { StudentID: studentId } });
+      if (student.UserID) {
+        await tx.user.delete({ where: { UserID: student.UserID } });
+      }
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Delete student error:", error);
+    return { error: error.message || "Failed to delete student." };
+  }
+}
+
