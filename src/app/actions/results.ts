@@ -23,7 +23,7 @@ export async function saveResult(data: {
   examScore: number;
 }) {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "teacher") {
+  if (!session || (session.user.role !== "Teacher" && session.user.role !== "teacher")) {
     return { success: false, error: "Unauthorized. Only teachers can submit grades." };
   }
 

@@ -11,12 +11,10 @@ export default function ResultsPage() {
   const [resultData, setResultData] = useState<any>(null);
   const [status, setStatus] = useState("");
 
-  const studentId = session?.user ? parseInt((session.user as any).id) : 1;
-
   const handleCheckResult = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("Verifying PIN...");
-    const res = await verifyScratchCard(pin, studentId, termId);
+    const res = await verifyScratchCard(pin, termId);
     
     if (res.success) {
       setResultData(res.data);

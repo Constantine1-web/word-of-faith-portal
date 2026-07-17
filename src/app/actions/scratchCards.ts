@@ -2,13 +2,29 @@
 
 import prisma from "@/lib/db";
 import crypto from "crypto";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
 
 // Hash the PIN deterministically using SHA-256 for direct DB lookup
 function hashPin(pin: string) {
   return crypto.createHash("sha256").update(pin).digest("hex");
 }
 
-export async function verifyScratchCard(pin: string, studentId: number, termId: number) {
+export async function verifyScratchCard(pin: string, termId: number) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const studentRecord = await prisma.student.findFirst({
+    where: { UserID: session.user.id }
+  });
+
+  if (!studentRecord) {
+    return { success: false, error: "Student profile not found." };
+  }
+
+  const studentId = studentRecord.StudentID;
   const pinHash = hashPin(pin);
 
   try {
