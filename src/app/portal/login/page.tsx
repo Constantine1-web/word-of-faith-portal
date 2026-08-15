@@ -28,7 +28,13 @@ export default function Login() {
     });
 
     if (result?.error) {
-      setError(result.error);
+      // Map raw NextAuth error codes to friendly messages
+      const errorMessages: Record<string, string> = {
+        CredentialsSignin: "Invalid email or password. Please try again.",
+        SessionRequired: "You must be logged in to access this page.",
+        Default: "An error occurred. Please try again.",
+      };
+      setError(errorMessages[result.error] ?? "Invalid email or password. Please try again.");
       setLoading(false);
     } else {
       setSuccess("Login successful!");
