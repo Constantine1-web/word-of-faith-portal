@@ -15,41 +15,46 @@ model Role {
 }
 
 model User {
-  UserID       Int       @id @default(autoincrement())
-  Email        String    @unique
-  PasswordHash String
-  RoleID       Int
-  Role         Role      @relation(fields: [RoleID], references: [RoleID])
-  IsActive     Boolean   @default(true)
-  Student      Student?
-  TeacherMaps  Teacher_Subject_Map[]
-  SentMessages     Message[] @relation("SentMessages")
-  ReceivedMessages Message[] @relation("ReceivedMessages")
+  UserID            Int       @id @default(autoincrement())
+  Email             String    @unique
+  PasswordHash      String
+  RoleID            Int
+  Role              Role      @relation(fields: [RoleID], references: [RoleID])
+  IsActive          Boolean   @default(true)
+  Student           Student?
+  TeacherMaps       Teacher_Subject_Map[]
+  FormMasterClasses Class[]   @relation("ClassFormMaster")
+  SentMessages      Message[] @relation("SentMessages")
+  ReceivedMessages  Message[] @relation("ReceivedMessages")
 }
 
 model Class {
-  ClassID     Int      @id @default(autoincrement())
-  ClassName   String   @unique // e.g., "JSS 1A", "Primary 4"
-  Level       String   // e.g., "Secondary", "Primary"
-  Students    Student[]
-  TeacherMaps Teacher_Subject_Map[]
+  ClassID      Int      @id @default(autoincrement())
+  ClassName    String   @unique // e.g., "JSS 1 Gold", "Primary 4 Diamond"
+  Level        String   // e.g., "Secondary", "Primary"
+  FormMasterID Int?
+  FormMaster   User?    @relation("ClassFormMaster", fields: [FormMasterID], references: [UserID])
+  Students     Student[]
+  TeacherMaps  Teacher_Subject_Map[]
 }
 
 model Student {
-  StudentID     Int       @id @default(autoincrement())
-  UserID        Int?      @unique
-  User          User?     @relation(fields: [UserID], references: [UserID])
-  AdmissionNo   String    @unique
-  ClassID       Int
-  Class         Class     @relation(fields: [ClassID], references: [ClassID])
-  DateOfBirth   DateTime
-  ParentContact String
-  AvatarUrl     String?
-  PreferredName String?
-  Results       Result[]
-  ScratchCards  Scratch_Card[]
+  StudentID      Int       @id @default(autoincrement())
+  UserID         Int?      @unique
+  User           User?     @relation(fields: [UserID], references: [UserID])
+  AdmissionNo    String    @unique
+  ClassID        Int
+  Class          Class     @relation(fields: [ClassID], references: [ClassID])
+  DateOfBirth    DateTime
+  ParentContact  String    // Parent Phone number
+  ParentEmail    String?   // Parent Email
+  AvatarUrl      String?
+  PreferredName  String?
+  HasPaidFees    Boolean   @default(false)
+  Results        Result[]
+  ScratchCards   Scratch_Card[]
   PaymentRecords Payment_Record[]
-  Attendances   Attendance[]
+  Attendances    Attendance[]
 }
 
 model Subject {
@@ -61,25 +66,32 @@ model Subject {
 }
 
 model Teacher_Subject_Map {
-  id        Int     @id @default(autoincrement())
+  id        Int            @id @default(autoincrement())
   TeacherID Int
-  Teacher   User    @relation(fields: [TeacherID], references: [UserID])
+  Teacher   User           @relation(fields: [TeacherID], references: [UserID])
   SubjectID Int
-  Subject   Subject @relation(fields: [SubjectID], references: [SubjectID])
+  Subject   Subject        @relation(fields: [SubjectID], references: [SubjectID])
   ClassID   Int
-  Class     Class   @relation(fields: [ClassID], references: [ClassID])
+  Class     Class          @relation(fields: [ClassID], references: [ClassID])
+  TermID    Int?
+  Term      Academic_Term? @relation(fields: [TermID], references: [TermID])
 
-  @@unique([TeacherID, SubjectID, ClassID])
+  @@unique([TeacherID, SubjectID, ClassID, TermID])
 }
 
 model Academic_Term {
-  TermID      Int      @id @default(autoincrement())
-  SessionName String   // e.g., "2025/2026"
-  TermName    String   // e.g., "First Term", "Second Term"
-  IsActive    Boolean  @default(false)
-  Results     Result[]
+  TermID         Int      @id @default(autoincrement())
+  SessionName    String   // e.g., "2026/2027"
+  TermName       String   // e.g., "First Term", "Second Term", "Third Term"
+  IsActive       Boolean  @default(false)
+  IsLocked       Boolean  @default(false) // Global freeze on scores across the school
+  StartDate      DateTime?
+  EndDate        DateTime?
+  Results        Result[]
   PaymentRecords Payment_Record[]
-  Attendances Attendance[]
+  Attendances    Attendance[]
+  TeacherMaps    Teacher_Subject_Map[]
+  ScratchCards   Scratch_Card[]
 }
 
 model Result {
@@ -99,13 +111,16 @@ model Result {
 }
 
 model Scratch_Card {
-  CardID       Int      @id @default(autoincrement())
-  PIN_Hash     String   @unique
-  SerialNumber String   @unique
-  UsageCount   Int      @default(0)
-  MaxUsage     Int      @default(3)
+  CardID       Int            @id @default(autoincrement())
+  PIN_Hash     String         @unique
+  SerialNumber String         @unique
+  UsageCount   Int            @default(0)
+  MaxUsage     Int            @default(5)
   UsedBy       Int?     
-  Student      Student? @relation(fields: [UsedBy], references: [StudentID])
+  Student      Student?       @relation(fields: [UsedBy], references: [StudentID])
+  TermID       Int?
+  Term         Academic_Term? @relation(fields: [TermID], references: [TermID])
+  CreatedAt    DateTime       @default(now())
 }
 
 model Payment_Record {
@@ -164,16 +179,17 @@ model Attendance {
 }
 
 model Admission_Application {
-  id              Int      @id @default(autoincrement())
-  childFirstName  String
-  childLastName   String
-  dateOfBirth     DateTime
-  gender          String
-  parentName      String
-  parentEmail     String
-  parentPhone     String
-  applyingClass   String
-  previousSchool  String?
-  status          String   @default("Pending") // "Pending", "Approved", "Rejected"
-  createdAt       DateTime @default(now())
+  id                Int      @id @default(autoincrement())
+  childFirstName    String
+  childLastName     String
+  dateOfBirth       DateTime
+  gender            String
+  parentName        String
+  parentEmail       String
+  parentPhone       String
+  applyingClass     String
+  previousSchool    String?
+  status            String   @default("Pending") // "Pending", "Approved", "Rejected"
+  createdAt         DateTime @default(now())
+  enrolledStudentId Int?
 }
