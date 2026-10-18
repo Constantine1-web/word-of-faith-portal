@@ -26,6 +26,7 @@ model User {
   FormMasterClasses Class[]   @relation("ClassFormMaster")
   SentMessages      Message[] @relation("SentMessages")
   ReceivedMessages  Message[] @relation("ReceivedMessages")
+  SubjectSubmissions Subject_Submission[]
 }
 
 model Class {
@@ -36,6 +37,7 @@ model Class {
   FormMaster   User?    @relation("ClassFormMaster", fields: [FormMasterID], references: [UserID])
   Students     Student[]
   TeacherMaps  Teacher_Subject_Map[]
+  SubjectSubmissions Subject_Submission[]
 }
 
 model Student {
@@ -55,6 +57,7 @@ model Student {
   ScratchCards   Scratch_Card[]
   PaymentRecords Payment_Record[]
   Attendances    Attendance[]
+  FormMasterReports Form_Master_Report[]
 }
 
 model Subject {
@@ -63,6 +66,7 @@ model Subject {
   ClassLevel  String   // e.g., "Primary", "JSS", "SSS"
   TeacherMaps Teacher_Subject_Map[]
   Results     Result[]
+  SubjectSubmissions Subject_Submission[]
 }
 
 model Teacher_Subject_Map {
@@ -92,6 +96,8 @@ model Academic_Term {
   Attendances    Attendance[]
   TeacherMaps    Teacher_Subject_Map[]
   ScratchCards   Scratch_Card[]
+  SubjectSubmissions Subject_Submission[]
+  FormMasterReports  Form_Master_Report[]
 }
 
 model Result {
@@ -106,8 +112,41 @@ model Result {
   ExamScore   Float
   TotalScore  Float
   Grade       String
+  Remark      String?
 
   @@unique([StudentID, SubjectID, TermID])
+}
+
+model Subject_Submission {
+  id          Int           @id @default(autoincrement())
+  TeacherID   Int
+  Teacher     User          @relation(fields: [TeacherID], references: [UserID])
+  SubjectID   Int
+  Subject     Subject       @relation(fields: [SubjectID], references: [SubjectID])
+  ClassID     Int
+  Class       Class         @relation(fields: [ClassID], references: [ClassID])
+  TermID      Int
+  Term        Academic_Term @relation(fields: [TermID], references: [TermID])
+  Status      String        @default("Submitted") // "Draft", "Submitted", "Approved"
+  SubmittedAt DateTime      @default(now())
+
+  @@unique([SubjectID, ClassID, TermID])
+}
+
+model Form_Master_Report {
+  id                 Int           @id @default(autoincrement())
+  StudentID          Int
+  Student            Student       @relation(fields: [StudentID], references: [StudentID])
+  TermID             Int
+  Term               Academic_Term @relation(fields: [TermID], references: [TermID])
+  FormMasterRemark   String?       // e.g. "An active, dedicated learner."
+  PrincipalRemark    String?       // e.g. "Satisfactory performance."
+  AffectiveTraits    String?       // JSON: { punctuality: 5, neatness: 4, ... }
+  PsychomotorTraits  String?       // JSON: { handwriting: 4, sports: 5, ... }
+  Status             String        @default("Draft") // "Draft", "SubmittedToAdmin", "Published"
+  UpdatedAt          DateTime      @updatedAt
+
+  @@unique([StudentID, TermID])
 }
 
 model Scratch_Card {
