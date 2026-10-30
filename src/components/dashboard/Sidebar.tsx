@@ -40,13 +40,21 @@ export default function Sidebar() {
     setOpenMenus(prev => ({ ...prev, [name]: !prev[name] }));
   };
 
-  const userRole = session?.user?.role?.toLowerCase() || "student";
+  const rawRole = session?.user?.role?.toLowerCase() || "student";
+  const userRoles: string[] = ((session?.user as any)?.roles || [session?.user?.role || "Student"]).map((r: string) =>
+    String(r).toLowerCase()
+  );
+  const isAdminStaff = userRoles.some(r => ["admin", "super_admin", "principal", "bursar", "admissions"].includes(r));
+  const isEducator = userRoles.some(r => ["teacher", "form_master"].includes(r));
+  const userRole = isAdminStaff ? "admin" : isEducator ? "teacher" : rawRole;
 
   // Build role-tailored navigation items
   const getNavItems = () => {
     if (userRole === "admin") {
       return [
         { name: "Overview", href: "/portal/dashboard", icon: <FiHome /> },
+        { name: "Admin Control Center", href: "/portal/admin", icon: <FiLayers /> },
+        { name: "Educator Workspace", href: "/portal/teacher", icon: <FiBookOpen /> },
         { 
           name: "Academic Setup", 
           icon: <FiCalendar />, 
@@ -86,12 +94,13 @@ export default function Sidebar() {
 
     if (userRole === "teacher") {
       return [
-        { name: "Teacher Dashboard", href: "/portal/dashboard", icon: <FiHome /> },
+        { name: "Educator Workspace", href: "/portal/teacher", icon: <FiHome /> },
         { 
           name: "Academics", 
           icon: <FiBookOpen />, 
           children: [
-            { name: "Score Entry & CA", href: "/portal/dashboard" },
+            { name: "Score Entry & CA", href: "/portal/teacher" },
+            { name: "Form Master Hub", href: "/portal/teacher?tab=form-master-hub" },
             { name: "CBT Exams", href: "/portal/cbt" },
           ]
         },

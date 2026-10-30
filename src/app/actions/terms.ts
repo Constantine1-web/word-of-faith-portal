@@ -1,15 +1,11 @@
 "use server";
 
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { requireRole, writeAuditLog } from "@/lib/authz";
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "Admin" && session.user.role !== "admin")) {
-    throw new Error("Unauthorized. Admin privileges required.");
-  }
+async function requireTermAdmin() {
+  return requireRole(["PRINCIPAL", "SUPER_ADMIN", "Admin"]);
 }
 
 export async function getTerms() {
@@ -22,9 +18,9 @@ export async function getTerms() {
             Results: true,
             ScratchCards: true,
             PaymentRecords: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
     return { success: true, terms };
   } catch (error: any) {
@@ -36,7 +32,7 @@ export async function getTerms() {
 export async function getActiveTerm() {
   try {
     const term = await prisma.academic_Term.findFirst({
-      where: { IsActive: true }
+      where: { IsActive: true },
     });
     return { success: true, term };
   } catch (error: any) {
@@ -52,17 +48,19 @@ export async function createAcademicTerm(data: {
   endDate?: string;
   makeActive?: boolean;
 }) {
-  await requireAdmin();
+  const actor = await requireTermAdmin();
 
   try {
     if (!data.sessionName || !data.termName) {
-      return { success: false, error: "Session and Term Name are required (e.g. 2026/2027 and First Term)" };
+      return {
+        success: false,
+        error: "Session and Term Name are required (e.g. 2026/2027 and First Term)",
+      };
     }
 
-    // If making active, deactivate all others first
     if (data.makeActive) {
       await prisma.academic_Term.updateMany({
-        data: { IsActive: false }
+        data: { IsActive: false },
       });
     }
 
@@ -74,11 +72,21 @@ export async function createAcademicTerm(data: {
         IsLocked: false,
         StartDate: data.startDate ? new Date(data.startDate) : null,
         EndDate: data.endDate ? new Date(data.endDate) : null,
-      }
+      },
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "TERM_CREATE",
+      targetTable: "Academic_Term",
+      targetId: String(term.TermID),
+      afterState: { sessionName: term.SessionName, termName: term.TermName, isActive: term.IsActive },
     });
 
     revalidatePath("/portal/admin/terms");
     revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/teacher");
     return { success: true, term };
   } catch (error: any) {
     console.error("createAcademicTerm error:", error);
@@ -87,21 +95,31 @@ export async function createAcademicTerm(data: {
 }
 
 export async function setActiveTerm(termId: number) {
-  await requireAdmin();
+  const actor = await requireTermAdmin();
 
   try {
     await prisma.$transaction([
       prisma.academic_Term.updateMany({
-        data: { IsActive: false }
+        data: { IsActive: false },
       }),
       prisma.academic_Term.update({
         where: { TermID: termId },
-        data: { IsActive: true }
-      })
+        data: { IsActive: true },
+      }),
     ]);
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "TERM_SET_ACTIVE",
+      targetTable: "Academic_Term",
+      targetId: String(termId),
+      afterState: { isActive: true },
+    });
 
     revalidatePath("/portal/admin/terms");
     revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/teacher");
     return { success: true };
   } catch (error: any) {
     console.error("setActiveTerm error:", error);
@@ -110,16 +128,26 @@ export async function setActiveTerm(termId: number) {
 }
 
 export async function toggleTermLock(termId: number, isLocked: boolean) {
-  await requireAdmin();
+  const actor = await requireTermAdmin();
 
   try {
     const updated = await prisma.academic_Term.update({
       where: { TermID: termId },
-      data: { IsLocked: isLocked }
+      data: { IsLocked: isLocked },
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: isLocked ? "TERM_FREEZE" : "TERM_UNFREEZE",
+      targetTable: "Academic_Term",
+      targetId: String(termId),
+      afterState: { isLocked: updated.IsLocked },
     });
 
     revalidatePath("/portal/admin/terms");
     revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/teacher");
     return { success: true, isLocked: updated.IsLocked };
   } catch (error: any) {
     console.error("toggleTermLock error:", error);

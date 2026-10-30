@@ -1,18 +1,13 @@
 "use server";
 
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
+import { requireRole, writeAuditLog } from "@/lib/authz";
 
-// Ensure the user is an admin
+// Ensure the user holds an authorized administrative role in Layer 3
 async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "Admin" && session.user.role !== "admin")) {
-    throw new Error("Unauthorized. Only admins can perform this action.");
-  }
-  return session;
+  return requireRole(["SUPER_ADMIN", "PRINCIPAL", "BURSAR", "ADMISSIONS", "Admin"]);
 }
 
 export async function getAdminDashboardStats() {
@@ -63,6 +58,11 @@ export async function getAdminDashboardStats() {
       where: { Status: "Pending" }
     });
 
+    const recentAuditLogs = await prisma.auditLog.findMany({
+      take: 8,
+      orderBy: { CreatedAt: "desc" }
+    });
+
     return {
       success: true,
       stats: {
@@ -74,6 +74,7 @@ export async function getAdminDashboardStats() {
         pendingPayments,
         activeTerm: activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "None"
       },
+      recentAuditLogs,
       charts: {
         monthlyRevenue,
         studentDistribution
@@ -162,12 +163,24 @@ export async function createUserAccount(data: {
 }
 
 export async function toggleUserStatus(userId: number, isActive: boolean) {
-  await requireAdmin();
+  const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
 
   try {
     const updated = await prisma.user.update({
       where: { UserID: userId },
-      data: { IsActive: isActive }
+      data: {
+        IsActive: isActive,
+        TokenVersion: { increment: 1 },
+      }
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: isActive ? "USER_ACTIVATE" : "USER_DEACTIVATE",
+      targetTable: "User",
+      targetId: String(userId),
+      afterState: { isActive: updated.IsActive, tokenVersion: updated.TokenVersion }
     });
 
     revalidatePath("/portal/admin/users");
@@ -179,15 +192,29 @@ export async function toggleUserStatus(userId: number, isActive: boolean) {
 }
 
 export async function adminResetPassword(userId: number, newPassword?: string) {
-  await requireAdmin();
+  const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
 
   try {
     const pass = newPassword || "wofschools2026";
-    const passwordHash = await bcrypt.hash(pass, 10);
+    const passwordHash = await bcrypt.hash(pass, 12);
 
-    await prisma.user.update({
+    const updated = await prisma.user.update({
       where: { UserID: userId },
-      data: { PasswordHash: passwordHash }
+      data: {
+        PasswordHash: passwordHash,
+        TokenVersion: { increment: 1 },
+        FailedLoginAttempts: 0,
+        LockedUntil: null
+      }
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "USER_PASSWORD_RESET",
+      targetTable: "User",
+      targetId: String(userId),
+      afterState: { tokenVersion: updated.TokenVersion }
     });
 
     revalidatePath("/portal/admin/users");

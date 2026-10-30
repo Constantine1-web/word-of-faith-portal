@@ -1,21 +1,17 @@
 "use server";
 
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { requireActiveUser, requireRole, writeAuditLog } from "@/lib/authz";
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || "sk_test_mocked_key";
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "Admin" && session.user.role !== "admin")) {
-    throw new Error("Unauthorized. Admin privileges required.");
-  }
+async function requirePaymentManager() {
+  return requireRole(["BURSAR", "SUPER_ADMIN", "PRINCIPAL", "Admin"]);
 }
 
 // ==========================================
-// ADMIN: AUDIT QUEUE & FEE CLEARANCE
+// ADMIN / BURSAR: AUDIT QUEUE & FEE CLEARANCE
 // ==========================================
 
 export async function getAdminPaymentAuditList(filters?: {
@@ -23,7 +19,7 @@ export async function getAdminPaymentAuditList(filters?: {
   termId?: number;
   search?: string;
 }) {
-  await requireAdmin();
+  await requirePaymentManager();
 
   try {
     let whereClause: any = {};
@@ -48,24 +44,24 @@ export async function getAdminPaymentAuditList(filters?: {
       where: whereClause,
       include: {
         Student: {
-          include: { Class: true, User: true }
+          include: { Class: true, User: true },
         },
-        Term: true
+        Term: true,
       },
-      orderBy: { PaymentDate: "desc" }
+      orderBy: { PaymentDate: "desc" },
     });
 
     const pendingCount = await prisma.payment_Record.count({ where: { Status: "Pending" } });
     const approvedTotal = await prisma.payment_Record.aggregate({
       where: { Status: "Approved" },
-      _sum: { AmountPaid: true }
+      _sum: { AmountPaid: true },
     });
 
     return {
       success: true,
       payments,
       pendingCount,
-      totalRevenue: approvedTotal._sum.AmountPaid || 0
+      totalRevenue: approvedTotal._sum.AmountPaid || 0,
     };
   } catch (error: any) {
     console.error("getAdminPaymentAuditList error:", error);
@@ -74,29 +70,42 @@ export async function getAdminPaymentAuditList(filters?: {
 }
 
 export async function approvePaymentRecord(paymentId: number) {
-  await requireAdmin();
+  const actor = await requirePaymentManager();
 
   try {
     const payment = await prisma.payment_Record.findUnique({
       where: { PaymentID: paymentId },
-      include: { Student: true }
+      include: { Student: true },
     });
 
     if (!payment) {
       return { success: false, error: "Payment record not found." };
     }
 
-    // Approve payment and grant student fee clearance for results
     await prisma.$transaction([
       prisma.payment_Record.update({
         where: { PaymentID: paymentId },
-        data: { Status: "Approved" }
+        data: {
+          Status: "Approved",
+          ReviewedBy: actor.UserID,
+          ReviewedAt: new Date(),
+        },
       }),
       prisma.student.update({
         where: { StudentID: payment.StudentID },
-        data: { HasPaidFees: true }
-      })
+        data: { HasPaidFees: true },
+      }),
     ]);
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "PAYMENT_APPROVE",
+      targetTable: "Payment_Record",
+      targetId: String(paymentId),
+      beforeState: { status: payment.Status },
+      afterState: { status: "Approved", studentId: payment.StudentID, amountPaid: payment.AmountPaid },
+    });
 
     revalidatePath("/portal/admin/payments");
     revalidatePath("/portal/fees");
@@ -108,12 +117,30 @@ export async function approvePaymentRecord(paymentId: number) {
 }
 
 export async function rejectPaymentRecord(paymentId: number) {
-  await requireAdmin();
+  const actor = await requirePaymentManager();
 
   try {
+    const payment = await prisma.payment_Record.findUnique({
+      where: { PaymentID: paymentId },
+    });
+
     await prisma.payment_Record.update({
       where: { PaymentID: paymentId },
-      data: { Status: "Rejected" }
+      data: {
+        Status: "Rejected",
+        ReviewedBy: actor.UserID,
+        ReviewedAt: new Date(),
+      },
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "PAYMENT_REJECT",
+      targetTable: "Payment_Record",
+      targetId: String(paymentId),
+      beforeState: { status: payment?.Status },
+      afterState: { status: "Rejected" },
     });
 
     revalidatePath("/portal/admin/payments");
@@ -129,14 +156,16 @@ export async function rejectPaymentRecord(paymentId: number) {
 // ==========================================
 
 export async function initializePayment(data: { amount: number; description: string; termId: number }) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+  let actor;
+  try {
+    actor = await requireActiveUser();
+  } catch {
     return { error: "Unauthorized" };
   }
 
   const student = await prisma.student.findFirst({
-    where: { UserID: session.user.id },
-    include: { User: true }
+    where: { UserID: actor.UserID },
+    include: { User: true },
   });
 
   if (!student) {
@@ -152,24 +181,26 @@ export async function initializePayment(data: { amount: number; description: str
         StudentID: student.StudentID,
         TermID: data.termId,
         AmountPaid: data.amount,
+        AmountKobo: BigInt(amountInKobo),
+        Channel: "PAYSTACK",
         Description: data.description,
         Reference: reference,
-        Status: "Pending"
-      }
+        Status: "Pending",
+      },
     });
 
     const response = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         email: student.User?.Email,
         amount: amountInKobo,
         reference: reference,
-        callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/portal/fees?payment=verify`
-      })
+        callback_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/portal/fees?payment=verify`,
+      }),
     });
 
     const paystackData = await response.json();

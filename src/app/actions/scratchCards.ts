@@ -2,36 +2,46 @@
 
 import prisma from "@/lib/db";
 import crypto from "crypto";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import {
+  requireActiveUser,
+  requireRole,
+  checkStudentFeeClearance,
+  writeAuditLog,
+} from "@/lib/authz";
 
-// Deterministic SHA-256 hash for PIN storage and lookups
+const PEPPER =
+  process.env.SCRATCH_CARD_PEPPER ||
+  process.env.NEXTAUTH_SECRET ||
+  "wof-default-pepper-2026";
+
+// HMAC-SHA256 hash with server-side pepper for PIN storage and lookups
 export async function hashPin(pin: string) {
+  return crypto
+    .createHmac("sha256", PEPPER)
+    .update(pin.trim())
+    .digest("hex");
+}
+
+function legacySha256Pin(pin: string) {
   return crypto.createHash("sha256").update(pin.trim()).digest("hex");
 }
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "Admin" && session.user.role !== "admin")) {
-    throw new Error("Unauthorized. Admin privileges required.");
-  }
+async function requireCardManager() {
+  return requireRole(["BURSAR", "SUPER_ADMIN", "PRINCIPAL", "Admin"]);
 }
 
-// Generate random 12-digit PIN
+// Generate cryptographically random 12-digit PIN
 function generate12DigitPin(): string {
-  // Generates 12 random digits formatted as string
-  const buf = crypto.randomBytes(6);
   let pin = "";
-  for (let i = 0; i < 6; i++) {
-    pin += (buf[i] % 10).toString();
-    pin += Math.floor(Math.random() * 10).toString();
+  for (let i = 0; i < 12; i++) {
+    pin += crypto.randomInt(0, 10).toString();
   }
-  return pin.slice(0, 12);
+  return pin;
 }
 
 // ==========================================
-// ADMIN: BATCH GENERATION & CARD MANAGEMENT
+// ADMIN / BURSAR: BATCH GENERATION & CARD MANAGEMENT
 // ==========================================
 
 export async function createBatchScratchCards(data: {
@@ -39,10 +49,10 @@ export async function createBatchScratchCards(data: {
   termId?: number;
   maxUsage?: number;
 }) {
-  await requireAdmin();
+  const actor = await requireCardManager();
 
   try {
-    const qty = Math.min(Math.max(1, data.quantity || 20), 500); // Between 1 and 500
+    const qty = Math.min(Math.max(1, data.quantity || 20), 500);
     const maxUsage = data.maxUsage || 5;
 
     let termId = data.termId;
@@ -58,6 +68,7 @@ export async function createBatchScratchCards(data: {
     const dbRecords: {
       SerialNumber: string;
       PIN_Hash: string;
+      Status: string;
       MaxUsage: number;
       TermID: number | null;
     }[] = [];
@@ -69,12 +80,11 @@ export async function createBatchScratchCards(data: {
       const serialNumber = `WOFS-${year}-${seq}`;
 
       let pin = generate12DigitPin();
-      let pinHash = crypto.createHash("sha256").update(pin).digest("hex");
+      let pinHash = await hashPin(pin);
 
-      // Ensure uniqueness within batch
       while (existingHashes.has(pinHash)) {
         pin = generate12DigitPin();
-        pinHash = crypto.createHash("sha256").update(pin).digest("hex");
+        pinHash = await hashPin(pin);
       }
       existingHashes.add(pinHash);
 
@@ -82,22 +92,31 @@ export async function createBatchScratchCards(data: {
       dbRecords.push({
         SerialNumber: serialNumber,
         PIN_Hash: pinHash,
+        Status: "ACTIVE",
         MaxUsage: maxUsage,
-        TermID: termId || null
+        TermID: termId || null,
       });
     }
 
-    // Insert records in batch
     await prisma.scratch_Card.createMany({
       data: dbRecords,
-      skipDuplicates: true
+      skipDuplicates: true,
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "SCRATCH_CARD_BATCH_CREATE",
+      targetTable: "Scratch_Card",
+      targetId: `batch-${year}-${currentCount + 1}`,
+      afterState: { quantity: createdCards.length, termId, maxUsage },
     });
 
     revalidatePath("/portal/admin/cards");
     return {
       success: true,
       count: createdCards.length,
-      cards: createdCards // Plaintext PINs returned once for printing / export
+      cards: createdCards,
     };
   } catch (error: any) {
     console.error("createBatchScratchCards error:", error);
@@ -111,7 +130,7 @@ export async function getScratchCardsList(filters?: {
   search?: string;
   page?: number;
 }) {
-  await requireAdmin();
+  await requireCardManager();
 
   try {
     const page = filters?.page || 1;
@@ -145,16 +164,15 @@ export async function getScratchCardsList(filters?: {
       where: whereClause,
       include: {
         Student: {
-          include: { Class: true }
+          include: { Class: true },
         },
-        Term: true
+        Term: true,
       },
       orderBy: { CardID: "desc" },
       skip: (page - 1) * pageSize,
-      take: pageSize
+      take: pageSize,
     });
 
-    // Summary statistics
     const stats = {
       total: await prisma.scratch_Card.count(),
       unused: await prisma.scratch_Card.count({ where: { UsedBy: null } }),
@@ -167,7 +185,7 @@ export async function getScratchCardsList(filters?: {
       totalCount,
       totalPages: Math.ceil(totalCount / pageSize),
       currentPage: page,
-      stats
+      stats,
     };
   } catch (error: any) {
     console.error("getScratchCardsList error:", error);
@@ -176,17 +194,19 @@ export async function getScratchCardsList(filters?: {
 }
 
 // ==========================================
-// STUDENT: RESULT CHECKER VERIFICATION
+// STUDENT: RESULT CHECKER VERIFICATION (HARDENED v3)
 // ==========================================
 
 export async function verifyScratchCard(pin: string, termId: number) {
-  const session = await getServerSession(authOptions);
-  if (!session) {
+  let actor;
+  try {
+    actor = await requireActiveUser();
+  } catch {
     return { success: false, error: "Unauthorized. Please log in." };
   }
 
   const studentRecord = await prisma.student.findFirst({
-    where: { UserID: session.user.id }
+    where: { UserID: actor.UserID },
   });
 
   if (!studentRecord) {
@@ -194,36 +214,81 @@ export async function verifyScratchCard(pin: string, termId: number) {
   }
 
   const studentId = studentRecord.StudentID;
-  const pinHash = crypto.createHash("sha256").update(pin.trim()).digest("hex");
+
+  // Enforce Layer 3 server-side fee-clearance check before returning results
+  const clearance = await checkStudentFeeClearance(studentId, termId);
+  if (!clearance.isCleared) {
+    return {
+      success: false,
+      error: "Tuition fee clearance is required for this academic term before checking terminal results.",
+    };
+  }
+
+  const hmacPinHash = await hashPin(pin);
+  const sha256PinHash = legacySha256Pin(pin);
 
   try {
-    const card = await prisma.scratch_Card.findUnique({
-      where: { PIN_Hash: pinHash },
+    let card = await prisma.scratch_Card.findUnique({
+      where: { PIN_Hash: hmacPinHash },
     });
 
     if (!card) {
-      return { success: false, error: "Invalid Scratch Card PIN. Please check the digits carefully." };
+      card = await prisma.scratch_Card.findUnique({
+        where: { PIN_Hash: sha256PinHash },
+      });
+    }
+
+    if (!card) {
+      return {
+        success: false,
+        error: "Invalid Scratch Card PIN. Please check the digits carefully.",
+      };
+    }
+
+    if (card.Status === "REVOKED") {
+      return { success: false, error: "This Scratch Card has been revoked by administration." };
     }
 
     if (card.UsedBy !== null && card.UsedBy !== studentId) {
-      return { success: false, error: "This Scratch Card is already bound to another student." };
+      return {
+        success: false,
+        error: "This Scratch Card is already bound to another student.",
+      };
     }
 
     if (card.UsageCount >= card.MaxUsage) {
-      return { success: false, error: `Scratch Card usage limit exceeded (Max ${card.MaxUsage} checks per card). Please obtain a new card.` };
+      return {
+        success: false,
+        error: `Scratch Card usage limit exceeded (Max ${card.MaxUsage} checks per card). Please obtain a new card.`,
+      };
     }
 
-    // Bind card if not bound, increment usage count, and bind Term
-    await prisma.scratch_Card.update({
-      where: { CardID: card.CardID },
+    // Atomic bind & usage increment
+    const activeWindowExpires =
+      card.ActiveWindowExpires || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+
+    const updated = await prisma.scratch_Card.updateMany({
+      where: {
+        CardID: card.CardID,
+        OR: [{ UsedBy: null }, { UsedBy: studentId }],
+        UsageCount: { lt: card.MaxUsage },
+      },
       data: {
         UsedBy: studentId,
         TermID: card.TermID || termId,
-        UsageCount: card.UsageCount + 1,
+        UsageCount: { increment: 1 },
+        ActiveWindowExpires: activeWindowExpires,
+        Status: card.UsageCount + 1 >= card.MaxUsage ? "EXHAUSTED" : "CONSUMED",
       },
     });
 
-    // Fetch student's terminal results
+    if (updated.count === 0) {
+      return {
+        success: false,
+        error: "Scratch card could not be consumed (already bound or usage limit reached).",
+      };
+    }
+
     const results = await prisma.result.findMany({
       where: {
         StudentID: studentId,
@@ -235,18 +300,27 @@ export async function verifyScratchCard(pin: string, termId: number) {
     });
 
     const term = await prisma.academic_Term.findUnique({
-      where: { TermID: termId }
+      where: { TermID: termId },
     });
 
     const student = await prisma.student.findUnique({
       where: { StudentID: studentId },
-      include: { Class: true, User: true }
+      include: { Class: true, User: true },
     });
 
-    return { 
-      success: true, 
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "SCRATCH_CARD_VERIFY_RESULT",
+      targetTable: "Scratch_Card",
+      targetId: String(card.CardID),
+      afterState: { studentId, termId, usageAfter: card.UsageCount + 1 },
+    });
+
+    return {
+      success: true,
       data: { results, term, student },
-      message: `Card validated successfully. Remaining checks on this card: ${card.MaxUsage - (card.UsageCount + 1)}`
+      message: `Card validated successfully. Remaining checks on this card: ${card.MaxUsage - (card.UsageCount + 1)}`,
     };
   } catch (error: any) {
     console.error("verifyScratchCard error:", error);

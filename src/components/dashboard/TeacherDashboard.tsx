@@ -7,7 +7,9 @@ import {
   saveSubjectScoresBatch,
   submitSubjectToFormMaster,
   saveFormMasterRemarks,
-  submitClassResultsToAdmin
+  submitClassResultsToAdmin,
+  requestSubjectSheetUnlock,
+  approveSubjectSheetUnlock,
 } from "@/app/actions/results";
 import { calculateGrade } from "@/lib/grading";
 import Link from "next/link";
@@ -91,13 +93,21 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
         setSubjectStudents(res.students || []);
         setIsSubjectSubmitted(res.isSubmitted || false);
 
-        // Populate score input dictionary
+        const storageKey = `wof_draft_${allocation.ClassID}_${allocation.SubjectID}_${dashboardData.activeTerm?.TermID}`;
+        let cachedDraft: Record<number, { ca: string; exam: string }> | null = null;
+        try {
+          const raw = localStorage.getItem(storageKey);
+          if (raw) cachedDraft = JSON.parse(raw);
+        } catch {}
+
+        // Populate score input dictionary (merge localStorage draft if not yet submitted)
         const initialMap: Record<number, { ca: string; exam: string }> = {};
         res.students?.forEach((st: any) => {
           const r = st.Results?.[0];
+          const draft = !res.isSubmitted ? cachedDraft?.[st.StudentID] : undefined;
           initialMap[st.StudentID] = {
-            ca: r?.CAScore !== undefined ? r.CAScore.toString() : "",
-            exam: r?.ExamScore !== undefined ? r.ExamScore.toString() : ""
+            ca: draft?.ca !== undefined ? draft.ca : r?.CAScore !== undefined ? r.CAScore.toString() : "",
+            exam: draft?.exam !== undefined ? draft.exam : r?.ExamScore !== undefined ? r.ExamScore.toString() : ""
           };
         });
         setScoreInputs(initialMap);
@@ -113,13 +123,44 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
   );
 
   const handleScoreChange = (studentId: number, field: "ca" | "exam", val: string) => {
-    setScoreInputs(prev => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        [field]: val
+    setScoreInputs(prev => {
+      const next = {
+        ...prev,
+        [studentId]: {
+          ...prev[studentId],
+          [field]: val
+        }
+      };
+      if (selectedAllocation && dashboardData?.activeTerm?.TermID) {
+        const storageKey = `wof_draft_${selectedAllocation.ClassID}_${selectedAllocation.SubjectID}_${dashboardData.activeTerm.TermID}`;
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(next));
+        } catch {}
       }
-    }));
+      return next;
+    });
+  };
+
+  const handleRequestUnlock = async () => {
+    if (!selectedAllocation || !dashboardData?.activeTerm) return;
+    const reason = prompt("Enter reason for requesting sheet unlock (Two-Person Rule - requires Form Master or Principal approval):");
+    if (!reason || reason.trim().length < 5) return;
+
+    setSavingScores(true);
+    setError("");
+    setSuccess("");
+    const res = await requestSubjectSheetUnlock(
+      selectedAllocation.SubjectID,
+      selectedAllocation.ClassID,
+      dashboardData.activeTerm.TermID,
+      reason.trim()
+    );
+    if (res.success) {
+      setSuccess("Unlock request logged and sent to Form Master / Principal for second-person approval.");
+    } else {
+      setError(res.error || "Failed to request sheet unlock");
+    }
+    setSavingScores(false);
   };
 
   const handleSaveDraft = async () => {
@@ -505,7 +546,18 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                   {isTermLocked ? "⚠️ Score entry is locked by administration." : "Auto-calculated grades match WAEC / Nigerian grading standards."}
                 </div>
 
-                <div style={{ display: "flex", gap: "1rem" }}>
+                <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                  {isSubjectSubmitted && !isTermLocked && (
+                    <button
+                      onClick={handleRequestUnlock}
+                      disabled={savingScores}
+                      className="btn btn-outline"
+                      style={{ display: "flex", alignItems: "center", gap: "0.5rem", borderColor: "#f59e0b", color: "#b45309" }}
+                    >
+                      <FiLock /> Request Sheet Unlock (2-Person Rule)
+                    </button>
+                  )}
+
                   <button
                     onClick={handleSaveDraft}
                     disabled={isTermLocked || savingScores || isSubjectSubmitted}

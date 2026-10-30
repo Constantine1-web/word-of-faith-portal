@@ -14,18 +14,31 @@ export default async function Dashboard() {
   }
 
   const role = (session.user as any)?.role;
+  const roles: string[] = (session.user as any)?.roles || [role];
   const userId = (session.user as any)?.id;
-  
+
+  const isAdmin = roles.some((r) =>
+    ["Admin", "SUPER_ADMIN", "PRINCIPAL", "BURSAR", "ADMISSIONS"].includes(r)
+  );
+  const isTeacher =
+    !isAdmin &&
+    roles.some((r) => ["Teacher", "TEACHER", "FORM_MASTER"].includes(r));
+
   let teacherAssignments: any = [];
-  if (role === 'Teacher' && userId) {
+  if (isTeacher && userId) {
     teacherAssignments = await getTeacherSubjects(parseInt(userId, 10));
   }
 
   return (
     <div style={{ padding: "1rem" }}>
-      {role === 'Admin' && <AdminDashboard />}
-      {role === 'Teacher' && <TeacherDashboard teacherId={userId} initialAssignments={teacherAssignments} />}
-      {role === 'Student' && <StudentDashboard session={session} />}
+      {isAdmin && <AdminDashboard />}
+      {isTeacher && (
+        <TeacherDashboard
+          teacherId={userId}
+          initialAssignments={teacherAssignments}
+        />
+      )}
+      {!isAdmin && !isTeacher && <StudentDashboard session={session} />}
     </div>
   );
 }
