@@ -62,7 +62,14 @@ async function main() {
     FOR EACH ROW EXECUTE FUNCTION trg_protect_audit_log();
   `);
 
-  console.log("✔ PostgreSQL CHECK constraints and AuditLog immutability trigger installed.");
+  // 1c. Section 5 Partial Unique Index: One active CBT attempt per student
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt
+    ON "CbtAttempt" ("studentId")
+    WHERE "status" = 'ACTIVE';
+  `);
+
+  console.log("✔ PostgreSQL CHECK constraints, AuditLog immutability trigger, and one_active_attempt index installed.");
 
   // 2. Ensure base Roles exist
   const baseRoles = [

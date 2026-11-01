@@ -6,29 +6,78 @@ import { revalidatePath } from "next/cache";
 import {
   requireActiveUser,
   requireRole,
+  can,
   checkStudentFeeClearance,
   writeAuditLog,
 } from "@/lib/authz";
 
-const PEPPER =
-  process.env.SCRATCH_CARD_PEPPER ||
-  process.env.NEXTAUTH_SECRET ||
-  "wof-default-pepper-2026";
+const PEPPER_KEYS: Record<string, string> = {
+  v1:
+    process.env.SCRATCH_CARD_PEPPER ||
+    process.env.NEXTAUTH_SECRET ||
+    "wof-default-pepper-2026-v1",
+};
 
-// HMAC-SHA256 hash with server-side pepper for PIN storage and lookups
-export async function hashPin(pin: string) {
+const CURRENT_KEY_ID = "v1";
+const BASE32_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // Unambiguous Base32 (no 0/O/1/I)
+
+/**
+ * Generates a cryptographically random Base32 serial number (Section 4 & 6.5: NOT sequential).
+ */
+function generateRandomBase32Serial(): string {
+  let part1 = "";
+  let part2 = "";
+  for (let i = 0; i < 4; i++) {
+    part1 += BASE32_ALPHABET[crypto.randomInt(0, BASE32_ALPHABET.length)];
+    part2 += BASE32_ALPHABET[crypto.randomInt(0, BASE32_ALPHABET.length)];
+  }
+  return `WOFS-${part1}-${part2}`;
+}
+
+/**
+ * Computes HMAC-SHA256(pepper[keyId], serial + ':' + pin) per Section 4 & 6.5.
+ */
+export async function computeSerialPinHmac(
+  serial: string,
+  pin: string,
+  keyId: string = CURRENT_KEY_ID
+): Promise<string> {
+  const secret = PEPPER_KEYS[keyId] || PEPPER_KEYS.v1;
+  const normalizedSerial = serial.trim().toUpperCase();
+  const normalizedPin = pin.trim();
   return crypto
-    .createHmac("sha256", PEPPER)
-    .update(pin.trim())
+    .createHmac("sha256", secret)
+    .update(`${normalizedSerial}:${normalizedPin}`)
     .digest("hex");
+}
+
+// Legacy HMAC/SHA256 helpers for backward compatibility with earlier seeded cards
+export async function hashPin(pin: string, keyId: string = CURRENT_KEY_ID) {
+  const secret = PEPPER_KEYS[keyId] || PEPPER_KEYS.v1;
+  return crypto.createHmac("sha256", secret).update(pin.trim()).digest("hex");
 }
 
 function legacySha256Pin(pin: string) {
   return crypto.createHash("sha256").update(pin.trim()).digest("hex");
 }
 
+function timingSafeHexEquals(hexA: string, hexB: string): boolean {
+  try {
+    const bufA = Buffer.from(hexA, "hex");
+    const bufB = Buffer.from(hexB, "hex");
+    if (bufA.length !== bufB.length || bufA.length === 0) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
 async function requireCardManager() {
-  return requireRole(["BURSAR", "SUPER_ADMIN", "PRINCIPAL", "Admin"]);
+  const actor = await requireRole(["BURSAR", "PRINCIPAL", "SUPER_ADMIN", "Admin"]);
+  if (!can(actor, "card:generate") && !actor.roles.has("SUPER_ADMIN")) {
+    throw new Error("Forbidden: Bursar or Principal authority required for scratch card operations.");
+  }
+  return actor;
 }
 
 // Generate cryptographically random 12-digit PIN
@@ -48,12 +97,14 @@ export async function createBatchScratchCards(data: {
   quantity: number;
   termId?: number;
   maxUsage?: number;
+  initialStatus?: "GENERATED" | "ISSUED";
 }) {
-  const actor = await requireCardManager();
-
   try {
+    const actor = await requireCardManager();
+
     const qty = Math.min(Math.max(1, data.quantity || 20), 500);
     const maxUsage = data.maxUsage || 5;
+    const status = data.initialStatus || "ISSUED";
 
     let termId = data.termId;
     if (!termId) {
@@ -61,40 +112,51 @@ export async function createBatchScratchCards(data: {
       termId = active?.TermID;
     }
 
-    const currentCount = await prisma.scratch_Card.count();
-    const year = new Date().getFullYear();
+    const batch = await prisma.scratchCardBatch.create({
+      data: {
+        createdById: actor.UserID,
+        size: qty,
+        pepperKeyId: CURRENT_KEY_ID,
+        status,
+      },
+    });
 
     const createdCards: { serialNumber: string; pin: string }[] = [];
     const dbRecords: {
       SerialNumber: string;
       PIN_Hash: string;
+      KeyId: string;
+      BatchId: string;
       Status: string;
       MaxUsage: number;
       TermID: number | null;
+      IssuedAt: Date | null;
+      IssuedBy: number | null;
     }[] = [];
 
-    const existingHashes = new Set<string>();
+    const existingSerials = new Set<string>();
 
     for (let i = 0; i < qty; i++) {
-      const seq = (currentCount + i + 1).toString().padStart(4, "0");
-      const serialNumber = `WOFS-${year}-${seq}`;
-
-      let pin = generate12DigitPin();
-      let pinHash = await hashPin(pin);
-
-      while (existingHashes.has(pinHash)) {
-        pin = generate12DigitPin();
-        pinHash = await hashPin(pin);
+      let serialNumber = generateRandomBase32Serial();
+      while (existingSerials.has(serialNumber)) {
+        serialNumber = generateRandomBase32Serial();
       }
-      existingHashes.add(pinHash);
+      existingSerials.add(serialNumber);
+
+      const pin = generate12DigitPin();
+      const pinHash = await computeSerialPinHmac(serialNumber, pin, CURRENT_KEY_ID);
 
       createdCards.push({ serialNumber, pin });
       dbRecords.push({
         SerialNumber: serialNumber,
         PIN_Hash: pinHash,
-        Status: "ACTIVE",
+        KeyId: CURRENT_KEY_ID,
+        BatchId: batch.id,
+        Status: status,
         MaxUsage: maxUsage,
         TermID: termId || null,
+        IssuedAt: status === "ISSUED" ? new Date() : null,
+        IssuedBy: status === "ISSUED" ? actor.UserID : null,
       });
     }
 
@@ -107,14 +169,15 @@ export async function createBatchScratchCards(data: {
       actorUserId: actor.UserID,
       actorRoles: actor.roles.join(","),
       action: "SCRATCH_CARD_BATCH_CREATE",
-      targetTable: "Scratch_Card",
-      targetId: `batch-${year}-${currentCount + 1}`,
-      afterState: { quantity: createdCards.length, termId, maxUsage },
+      targetTable: "ScratchCardBatch",
+      targetId: batch.id,
+      afterState: { quantity: createdCards.length, termId, maxUsage, status, keyId: CURRENT_KEY_ID },
     });
 
     revalidatePath("/portal/admin/cards");
     return {
       success: true,
+      batchId: batch.id,
       count: createdCards.length,
       cards: createdCards,
     };
@@ -124,19 +187,74 @@ export async function createBatchScratchCards(data: {
   }
 }
 
+export async function issueScratchCardBatch(batchId: string) {
+  try {
+    const actor = await requireCardManager();
+    const updated = await prisma.scratch_Card.updateMany({
+      where: { BatchId: batchId, Status: "GENERATED" },
+      data: {
+        Status: "ISSUED",
+        IssuedAt: new Date(),
+        IssuedBy: actor.UserID,
+      },
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "SCRATCH_CARD_BATCH_ISSUE",
+      targetTable: "ScratchCardBatch",
+      targetId: batchId,
+      afterState: { issuedCards: updated.count },
+    });
+
+    revalidatePath("/portal/admin/cards");
+    return { success: true, count: updated.count };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to issue card batch" };
+  }
+}
+
+export async function unlockScratchCard(cardId: number, reason: string) {
+  try {
+    const actor = await requireCardManager();
+    const card = await prisma.scratch_Card.update({
+      where: { CardID: Number(cardId) },
+      data: {
+        FailedAttempts: 0,
+        LockedUntil: null,
+      },
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: actor.roles.join(","),
+      action: "SCRATCH_CARD_UNLOCK",
+      targetTable: "Scratch_Card",
+      targetId: String(card.CardID),
+      reason: reason || "Bursar-assisted card unlock",
+      afterState: { serial: card.SerialNumber, failedAttempts: 0 },
+    });
+
+    revalidatePath("/portal/admin/cards");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to unlock scratch card" };
+  }
+}
+
 export async function getScratchCardsList(filters?: {
   termId?: number;
   status?: "all" | "unused" | "active" | "exhausted";
   search?: string;
   page?: number;
 }) {
-  await requireCardManager();
-
   try {
+    await requireCardManager();
     const page = filters?.page || 1;
     const pageSize = 50;
 
-    let whereClause: any = {};
+    const whereClause: any = {};
 
     if (filters?.termId) {
       whereClause.TermID = filters.termId;
@@ -194,10 +312,15 @@ export async function getScratchCardsList(filters?: {
 }
 
 // ==========================================
-// STUDENT: RESULT CHECKER VERIFICATION (HARDENED v3)
+// STUDENT: RESULT CHECKER VERIFICATION (Section 6.5)
 // ==========================================
 
-export async function verifyScratchCard(pin: string, termId: number) {
+export async function verifyScratchCard(
+  pin: string,
+  termId: number,
+  serialNumber?: string,
+  isRefresh: boolean = false
+) {
   let actor;
   try {
     actor = await requireActiveUser();
@@ -215,7 +338,7 @@ export async function verifyScratchCard(pin: string, termId: number) {
 
   const studentId = studentRecord.StudentID;
 
-  // Enforce Layer 3 server-side fee-clearance check before returning results
+  // Section 6.4: Enforce server-side derived fee-clearance check before returning results
   const clearance = await checkStudentFeeClearance(studentId, termId);
   if (!clearance.isCleared) {
     return {
@@ -224,29 +347,99 @@ export async function verifyScratchCard(pin: string, termId: number) {
     };
   }
 
-  const hmacPinHash = await hashPin(pin);
-  const sha256PinHash = legacySha256Pin(pin);
+  const cleanPin = (pin || "").trim();
+  const cleanSerial = serialNumber?.trim().toUpperCase();
+  const genericError = "Invalid or locked Scratch Card credentials. Please verify your card details.";
 
   try {
-    let card = await prisma.scratch_Card.findUnique({
-      where: { PIN_Hash: hmacPinHash },
-    });
+    let card: any = null;
 
-    if (!card) {
+    if (cleanSerial) {
       card = await prisma.scratch_Card.findUnique({
-        where: { PIN_Hash: sha256PinHash },
+        where: { SerialNumber: cleanSerial },
       });
+
+      if (!card) {
+        return { success: false, error: genericError };
+      }
+
+      if (card.LockedUntil && new Date(card.LockedUntil) > new Date()) {
+        return { success: false, error: genericError };
+      }
+
+      const expectedHmac = await computeSerialPinHmac(card.SerialNumber, cleanPin, card.KeyId || CURRENT_KEY_ID);
+      const legacyHmac = await hashPin(cleanPin, card.KeyId || CURRENT_KEY_ID);
+      const legacySha = legacySha256Pin(cleanPin);
+
+      const isMatch =
+        timingSafeHexEquals(card.PIN_Hash, expectedHmac) ||
+        timingSafeHexEquals(card.PIN_Hash, legacyHmac) ||
+        timingSafeHexEquals(card.PIN_Hash, legacySha);
+
+      if (!isMatch) {
+        const nextFailures = (card.FailedAttempts || 0) + 1;
+        const lockCard = nextFailures >= 5;
+        await prisma.scratch_Card.update({
+          where: { CardID: card.CardID },
+          data: {
+            FailedAttempts: nextFailures,
+            LockedUntil: lockCard ? new Date(Date.now() + 15 * 60 * 1000) : card.LockedUntil,
+          },
+        });
+        return { success: false, error: genericError };
+      }
+    } else {
+      // Lookup by PIN hash if serial was not provided in legacy form, or match against student's already-bound active card
+      const hmacPinHash = await hashPin(cleanPin);
+      const sha256PinHash = legacySha256Pin(cleanPin);
+
+      card = await prisma.scratch_Card.findFirst({
+        where: {
+          OR: [{ PIN_Hash: hmacPinHash }, { PIN_Hash: sha256PinHash }],
+        },
+      });
+
+      if (!card) {
+        // Also check recently generated cards where PIN_Hash includes serialNumber
+        const candidateCards = await prisma.scratch_Card.findMany({
+          where: {
+            OR: [{ UsedBy: studentId }, { UsedBy: null }],
+            Status: { in: ["ISSUED", "ACTIVE"] },
+          },
+          take: 200,
+          orderBy: { CardID: "desc" },
+        });
+
+        for (const candidate of candidateCards) {
+          const candidateHmac = await computeSerialPinHmac(
+            candidate.SerialNumber,
+            cleanPin,
+            candidate.KeyId || CURRENT_KEY_ID
+          );
+          if (timingSafeHexEquals(candidate.PIN_Hash, candidateHmac)) {
+            card = candidate;
+            break;
+          }
+        }
+      }
     }
 
     if (!card) {
+      return { success: false, error: genericError };
+    }
+
+    if (card.LockedUntil && new Date(card.LockedUntil) > new Date()) {
       return {
         success: false,
-        error: "Invalid Scratch Card PIN. Please check the digits carefully.",
+        error: "This Scratch Card is locked for 15 minutes due to 5 failed PIN attempts. Contact the Bursar to unlock.",
       };
     }
 
-    if (card.Status === "REVOKED") {
-      return { success: false, error: "This Scratch Card has been revoked by administration." };
+    if (card.Status === "GENERATED" || card.Status === "REVOKED") {
+      return {
+        success: false,
+        error: "This Scratch Card has not been activated for sale by the Bursar or has been revoked.",
+      };
     }
 
     if (card.UsedBy !== null && card.UsedBy !== studentId) {
@@ -256,36 +449,47 @@ export async function verifyScratchCard(pin: string, termId: number) {
       };
     }
 
-    if (card.UsageCount >= card.MaxUsage) {
+    if (card.ActiveWindowExpires && new Date(card.ActiveWindowExpires) < new Date()) {
       return {
         success: false,
-        error: `Scratch Card usage limit exceeded (Max ${card.MaxUsage} checks per card). Please obtain a new card.`,
+        error: "This Scratch Card's 30-day access window has expired. Please obtain a new card.",
       };
     }
 
-    // Atomic bind & usage increment
-    const activeWindowExpires =
-      card.ActiveWindowExpires || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    const incrementBy = isRefresh ? 0 : 1;
+    if (!isRefresh && card.UsageCount >= card.MaxUsage) {
+      return {
+        success: false,
+        error: `Scratch Card usage limit exceeded (Max ${card.MaxUsage} report generations per card).`,
+      };
+    }
+
+    // Section 6.5 (4): Conditional atomic UPDATE binding student + term and setting 30-day accessExpiresAt
+    const thirtyDaysFromNow =
+      card.ActiveWindowExpires || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     const updated = await prisma.scratch_Card.updateMany({
       where: {
         CardID: card.CardID,
+        Status: { in: ["ISSUED", "ACTIVE", "CONSUMED"] },
         OR: [{ UsedBy: null }, { UsedBy: studentId }],
-        UsageCount: { lt: card.MaxUsage },
+        ...(isRefresh ? {} : { UsageCount: { lt: card.MaxUsage } }),
       },
       data: {
         UsedBy: studentId,
         TermID: card.TermID || termId,
-        UsageCount: { increment: 1 },
-        ActiveWindowExpires: activeWindowExpires,
-        Status: card.UsageCount + 1 >= card.MaxUsage ? "EXHAUSTED" : "CONSUMED",
+        UsageCount: { increment: incrementBy },
+        FailedAttempts: 0,
+        LockedUntil: null,
+        ActiveWindowExpires: thirtyDaysFromNow,
+        Status: card.UsageCount + incrementBy >= card.MaxUsage ? "EXHAUSTED" : "ACTIVE",
       },
     });
 
     if (updated.count === 0) {
       return {
         success: false,
-        error: "Scratch card could not be consumed (already bound or usage limit reached).",
+        error: "Scratch card could not be redeemed (already bound or usage limit reached).",
       };
     }
 
@@ -314,13 +518,21 @@ export async function verifyScratchCard(pin: string, termId: number) {
       action: "SCRATCH_CARD_VERIFY_RESULT",
       targetTable: "Scratch_Card",
       targetId: String(card.CardID),
-      afterState: { studentId, termId, usageAfter: card.UsageCount + 1 },
+      afterState: {
+        serial: card.SerialNumber,
+        studentId,
+        termId,
+        usageAfter: card.UsageCount + incrementBy,
+        accessExpiresAt: thirtyDaysFromNow,
+      },
     });
 
     return {
       success: true,
       data: { results, term, student },
-      message: `Card validated successfully. Remaining checks on this card: ${card.MaxUsage - (card.UsageCount + 1)}`,
+      message: `Card validated (${card.SerialNumber}). Remaining report checks: ${
+        card.MaxUsage - (card.UsageCount + incrementBy)
+      }`,
     };
   } catch (error: any) {
     console.error("verifyScratchCard error:", error);

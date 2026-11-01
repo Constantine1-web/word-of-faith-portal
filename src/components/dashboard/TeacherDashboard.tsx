@@ -493,6 +493,7 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                                 type="number"
                                 min={0}
                                 max={40}
+                                step={1}
                                 disabled={isTermLocked || isSubjectSubmitted}
                                 className="form-input"
                                 style={{ width: "90px", textAlign: "center", fontWeight: "bold", margin: "0 auto" }}
@@ -506,6 +507,7 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                                 type="number"
                                 min={0}
                                 max={60}
+                                step={1}
                                 disabled={isTermLocked || isSubjectSubmitted}
                                 className="form-input"
                                 style={{ width: "90px", textAlign: "center", fontWeight: "bold", margin: "0 auto" }}
@@ -523,8 +525,8 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                                 borderRadius: "var(--radius-full)",
                                 fontSize: "0.85rem",
                                 fontWeight: "bold",
-                                background: grade === "A" || grade === "B" ? "#dcfce7" : grade === "C" ? "#dbeafe" : grade === "D" || grade === "E" ? "#fef3c7" : "#fee2e2",
-                                color: grade === "A" || grade === "B" ? "#15803d" : grade === "C" ? "#1e40af" : grade === "D" || grade === "E" ? "#b45309" : "#b91c1c"
+                                background: grade.startsWith("A") || grade.startsWith("B") ? "#dcfce7" : grade.startsWith("C") ? "#dbeafe" : grade.startsWith("D") || grade.startsWith("E") ? "#fef3c7" : "#fee2e2",
+                                color: grade.startsWith("A") || grade.startsWith("B") ? "#15803d" : grade.startsWith("C") ? "#1e40af" : grade.startsWith("D") || grade.startsWith("E") ? "#b45309" : "#b91c1c"
                               }}>
                                 {grade}
                               </span>

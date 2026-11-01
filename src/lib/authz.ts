@@ -1,6 +1,65 @@
 import prisma from "@/lib/db";
+import crypto from "crypto";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
+
+/**
+ * Normalizes login IDs (Unicode NFKC, trimmed, lowercase) before storing or comparing (Section 3).
+ */
+export function normalizeLoginId(input: string): string {
+  return String(input || "").normalize("NFKC").trim().toLowerCase();
+}
+
+export type PolicyAction =
+  | "user:manage"
+  | "term:freeze"
+  | "grade:score"
+  | "grade:approve"
+  | "grade:unlock"
+  | "payment:approve"
+  | "card:generate"
+  | "card:issue"
+  | "card:unlock"
+  | "cbt:lift_lock"
+  | "admissions:review"
+  | "broadsheet:export";
+
+/**
+ * Centralized Data-Access Layer (DAL) Policy Evaluator (Section 1 & 2).
+ * Note: SUPER_ADMIN (ICT) manages users and systems only; grade unlock is strictly restricted to PRINCIPAL.
+ */
+export function can(
+  actor: { roles: Set<string> | RoleSetWithArrayHelpers; UserID?: number },
+  action: PolicyAction
+): boolean {
+  const r = actor.roles;
+  switch (action) {
+    case "user:manage":
+      return r.has("SUPER_ADMIN") || r.has("PRINCIPAL");
+    case "term:freeze":
+      return r.has("PRINCIPAL");
+    case "grade:unlock":
+      // Section 1: SUPER_ADMIN cannot revert grades; strictly PRINCIPAL only
+      return r.has("PRINCIPAL");
+    case "grade:approve":
+      return r.has("FORM_MASTER") || r.has("PRINCIPAL");
+    case "grade:score":
+      return r.has("TEACHER") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
+    case "payment:approve":
+    case "card:generate":
+    case "card:issue":
+    case "card:unlock":
+      return r.has("BURSAR") || r.has("PRINCIPAL");
+    case "cbt:lift_lock":
+      return r.has("TEACHER") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
+    case "admissions:review":
+      return r.has("ADMISSIONS") || r.has("PRINCIPAL") || r.has("SUPER_ADMIN");
+    case "broadsheet:export":
+      return r.has("FORM_MASTER") || r.has("PRINCIPAL");
+    default:
+      return false;
+  }
+}
 
 export class AuthorizationError extends Error {
   public statusCode: number;
@@ -308,12 +367,14 @@ export async function checkStudentFeeClearance(studentId: number, termId: number
 }
 
 /**
- * Writes an entry to the append-only AuditLog table.
+ * Writes a cryptographically hash-chained entry to the append-only AuditLog table (Section 1 & 4).
+ * Computes SHA-256(prevHash + canonicalJson) so tampering or row gaps are mathematically detectable.
  */
 export async function writeAuditLog(params: {
   actorId?: number | null;
   actorUserId?: number | null;
   actorRoles?: string;
+  onBehalfOfId?: number | null;
   action: string;
   entity?: string;
   targetTable?: string;
@@ -337,19 +398,52 @@ export async function writeAuditLog(params: {
   const resolvedNew = params.newValue ?? params.afterState;
 
   try {
+    const lastEntry = await client.auditLog
+      .findFirst({
+        orderBy: { CreatedAt: "desc" },
+        select: { Hash: true, id: true },
+      })
+      .catch(() => null);
+
+    const prevHash = lastEntry?.Hash || "GENESIS";
+    const canonicalPayload = JSON.stringify({
+      actorId: resolvedActorId,
+      onBehalfOfId: params.onBehalfOfId ?? null,
+      action: params.action,
+      entity: resolvedEntity,
+      entityId: resolvedEntityId,
+      oldValue: resolvedOld ?? null,
+      newValue: resolvedNew ?? null,
+      reason: params.reason ?? null,
+    });
+    const hash = crypto
+      .createHash("sha256")
+      .update(`${prevHash}:${canonicalPayload}`)
+      .digest("hex");
+
     await client.auditLog.create({
       data: {
         ActorID: resolvedActorId,
+        OnBehalfOfID: params.onBehalfOfId ?? null,
         Action: params.action,
         Entity: resolvedEntity,
         EntityID: resolvedEntityId,
+        Reason: params.reason ?? null,
+        PrevHash: prevHash,
+        Hash: hash,
         OldValue: resolvedOld !== undefined ? JSON.parse(JSON.stringify(resolvedOld)) : undefined,
         NewValue:
           resolvedNew !== undefined
             ? JSON.parse(
                 JSON.stringify(
                   params.actorRoles || params.reason
-                    ? { ...(typeof resolvedNew === "object" && resolvedNew !== null ? resolvedNew : { value: resolvedNew }), actorRoles: params.actorRoles, reason: params.reason }
+                    ? {
+                        ...(typeof resolvedNew === "object" && resolvedNew !== null
+                          ? resolvedNew
+                          : { value: resolvedNew }),
+                        actorRoles: params.actorRoles,
+                        reason: params.reason,
+                      }
                     : resolvedNew
                 )
               )

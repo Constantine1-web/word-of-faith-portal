@@ -1,39 +1,53 @@
-import { fetchQuestions } from "@/lib/cbt-api";
 import QuizClient from "@/components/cbt/QuizClient";
 import { redirect } from "next/navigation";
+import { startAttempt } from "@/app/actions/cbt";
+
+export const dynamic = "force-dynamic";
 
 export default async function QuizPage({
   searchParams,
 }: {
-  searchParams: Promise<{ exam?: string; subject?: string; amount?: string }>;
+  searchParams: Promise<{
+    attemptId?: string;
+    exam?: string;
+    subject?: string;
+    amount?: string;
+    mode?: string;
+  }>;
 }) {
-  const { exam, subject, amount } = await searchParams;
+  const { attemptId, exam, subject, amount, mode } = await searchParams;
 
-  if (!subject) {
-    redirect("/portal/cbt");
-  }
+  // If navigated directly with legacy query params (?subject=mathematics&exam=wassce), create a server-side attempt first
+  if (!attemptId) {
+    if (!subject) {
+      redirect("/portal/cbt");
+    }
 
-  const numAmount = parseInt(amount || "10", 10);
-  
-  try {
-    const questions = await fetchQuestions(subject, numAmount, exam);
+    const numAmount = parseInt(amount || "10", 10);
+    const started = await startAttempt({
+      subjectCode: subject,
+      examBody: exam || "WASSCE",
+      mode: mode === "MOCK" ? "MOCK" : "PRACTICE",
+      questionCount: numAmount,
+    });
 
-    if (!questions || questions.length === 0) {
+    if (!started.success || !started.attemptId) {
       return (
-        <div style={{ padding: "3rem", textAlign: "center" }}>
-          <h2>No questions found</h2>
-          <p>We could not find any questions for the selected criteria. Please go back and try a different subject or exam.</p>
+        <div style={{ padding: "3rem", textAlign: "center", maxWidth: "600px", margin: "0 auto" }}>
+          <h2 style={{ color: "#b91c1c" }}>Unable to Start CBT Attempt</h2>
+          <p style={{ color: "#475569", margin: "1rem 0 1.5rem 0" }}>
+            {started.error || "Please return to the CBT portal to start a new session."}
+          </p>
+          <a href="/portal/cbt" className="btn btn-primary" style={{ textDecoration: "none" }}>
+            Return to CBT Portal
+          </a>
         </div>
       );
     }
 
-    return <QuizClient questions={questions} subject={subject} exam={exam || "utme"} />;
-  } catch (error) {
-    return (
-      <div style={{ padding: "3rem", textAlign: "center", color: "red" }}>
-        <h2>Error Loading Exam</h2>
-        <p>There was a problem communicating with the CBT server. Please try again later.</p>
-      </div>
-    );
+    redirect(`/portal/cbt/quiz?attemptId=${encodeURIComponent(started.attemptId)}`);
   }
+
+  // Strictly pass ONLY the attemptId to the client component — questions are fetched 1-at-a-time without answer keys
+  return <QuizClient attemptId={attemptId} />;
 }

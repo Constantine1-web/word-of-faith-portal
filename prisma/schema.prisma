@@ -57,10 +57,45 @@ enum ParentRelationship {
   GUARDIAN
 }
 
+enum AttemptMode {
+  PRACTICE
+  MOCK
+}
+
+enum AttemptStatus {
+  ACTIVE
+  SUBMITTED
+  EXPIRED
+  TERMINATED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum IntegrityEventType {
+  TAB_HIDDEN
+  WINDOW_BLUR
+  FULLSCREEN_EXIT
+  MULTI_SESSION
+  HEARTBEAT_GAP
+  DISCONNECT
+  RESUME
+  COPY_ATTEMPT
+  PASTE_ATTEMPT
+  CONTEXT_MENU
+  PRINT_ATTEMPT
+  DEVTOOLS_SUSPECT
+  FAST_ANSWER
+  LATE_ANSWER
+}
+
 model Role {
-  RoleID      Int      @id @default(autoincrement())
-  RoleName    String   @unique
-  Permissions String   // JSON stringified
+  RoleID      Int    @id @default(autoincrement())
+  RoleName    String @unique
+  Permissions String // JSON stringified
   Users       User[]
 }
 
@@ -82,37 +117,37 @@ model User {
   CreatedAt           DateTime  @default(now())
   UpdatedAt           DateTime  @default(now()) @updatedAt
 
-  Student             Student?
-  ParentProfile       Parent?
-  RoleAssignments     UserRoleAssignment[]
-  TeacherMaps         Teacher_Subject_Map[]
-  FormMasterClasses   Class[]   @relation("ClassFormMaster")
-  SentMessages        Message[] @relation("SentMessages")
-  ReceivedMessages    Message[] @relation("ReceivedMessages")
-  SubjectSubmissions  Subject_Submission[]
-  AuditLogs           AuditLog[]
+  Student            Student?
+  ParentProfile      Parent?
+  RoleAssignments    UserRoleAssignment[]
+  TeacherMaps        Teacher_Subject_Map[]
+  FormMasterClasses  Class[]               @relation("ClassFormMaster")
+  SentMessages       Message[]             @relation("SentMessages")
+  ReceivedMessages   Message[]             @relation("ReceivedMessages")
+  SubjectSubmissions Subject_Submission[]
+  AuditLogs          AuditLog[]
 }
 
 model UserRoleAssignment {
-  id         String    @id @default(uuid())
+  id         String   @id @default(uuid())
   UserID     Int
   Role       RoleName
-  AssignedAt DateTime  @default(now())
+  AssignedAt DateTime @default(now())
   AssignedBy String?
 
-  User       User      @relation(fields: [UserID], references: [UserID], onDelete: Cascade)
+  User User @relation(fields: [UserID], references: [UserID], onDelete: Cascade)
 
   @@unique([UserID, Role])
 }
 
 model Class {
-  ClassID            Int      @id @default(autoincrement())
-  Uuid               String?  @unique @default(uuid())
-  ClassName          String   @unique // e.g., "JSS 1 Gold", "Primary 4 Diamond"
-  Level              String   // e.g., "Secondary", "Primary"
-  Arm                String   @default("Gold")
+  ClassID            Int                   @id @default(autoincrement())
+  Uuid               String?               @unique @default(uuid())
+  ClassName          String                @unique // e.g., "JSS 1 Gold", "Primary 4 Diamond"
+  Level              String // e.g., "Secondary", "Primary"
+  Arm                String                @default("Gold")
   FormMasterID       Int?
-  FormMaster         User?    @relation("ClassFormMaster", fields: [FormMasterID], references: [UserID])
+  FormMaster         User?                 @relation("ClassFormMaster", fields: [FormMasterID], references: [UserID])
   Students           Student[]
   Enrollments        Enrollment[]
   TeacherMaps        Teacher_Subject_Map[]
@@ -133,20 +168,24 @@ model Student {
   ClassID            Int
   Class              Class     @relation(fields: [ClassID], references: [ClassID])
   DateOfBirth        DateTime
-  ParentContact      String    // Parent Phone number
-  ParentEmail        String?   // Parent Email
+  ParentContact      String // Parent Phone number
+  ParentEmail        String? // Parent Email
   AvatarUrl          String?
   PreferredName      String?
   HasPaidFees        Boolean   @default(false)
 
-  Results            Result[]
-  ScratchCards       Scratch_Card[]
-  PaymentRecords     Payment_Record[]
-  Invoices           Invoice[]
-  Enrollments        Enrollment[]
-  ParentLinks        ParentStudentLink[]
-  Attendances        Attendance[]
-  FormMasterReports  Form_Master_Report[]
+  Results           Result[]
+  ScratchCards      Scratch_Card[]
+  PaymentRecords    Payment_Record[]
+  Invoices          Invoice[]
+  Enrollments       Enrollment[]
+  ParentLinks       ParentStudentLink[]
+  Attendances       Attendance[]
+  FormMasterReports Form_Master_Report[]
+  Claims            StudentClaim[]
+  CbtAttempts       CbtAttempt[]
+  CbtSubscriptions  CbtSubscription[]
+  CbtDayLocks       CbtDayLock[]
 }
 
 model Parent {
@@ -157,8 +196,8 @@ model Parent {
   Address   String?
   CreatedAt DateTime @default(now())
 
-  User      User     @relation(fields: [UserID], references: [UserID], onDelete: Cascade)
-  Children  ParentStudentLink[]
+  User     User                @relation(fields: [UserID], references: [UserID], onDelete: Cascade)
+  Children ParentStudentLink[]
 }
 
 model ParentStudentLink {
@@ -168,8 +207,8 @@ model ParentStudentLink {
   Relationship       ParentRelationship @default(GUARDIAN)
   IsEmergencyContact Boolean            @default(true)
 
-  Parent             Parent             @relation(fields: [ParentID], references: [id], onDelete: Cascade)
-  Student            Student            @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
+  Parent  Parent  @relation(fields: [ParentID], references: [id], onDelete: Cascade)
+  Student Student @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
 
   @@unique([ParentID, StudentID])
 }
@@ -182,20 +221,20 @@ model Enrollment {
   AcademicYear String           @default("2026/2027")
   Status       EnrollmentStatus @default(ACTIVE)
 
-  Student      Student          @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
-  Class        Class            @relation(fields: [ClassID], references: [ClassID])
-  Term         Academic_Term    @relation(fields: [TermID], references: [TermID])
+  Student Student       @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
+  Class   Class         @relation(fields: [ClassID], references: [ClassID])
+  Term    Academic_Term @relation(fields: [TermID], references: [TermID])
 
   @@unique([StudentID, ClassID, TermID])
   @@index([ClassID, TermID])
 }
 
 model Subject {
-  SubjectID          Int      @id @default(autoincrement())
-  Uuid               String?  @unique @default(uuid())
-  SubjectName        String   // e.g., "Mathematics", "English"
+  SubjectID          Int                   @id @default(autoincrement())
+  Uuid               String?               @unique @default(uuid())
+  SubjectName        String // e.g., "Mathematics", "English"
   SubjectCode        String?
-  ClassLevel         String   // e.g., "Primary", "JSS", "SSS"
+  ClassLevel         String // e.g., "Primary", "JSS", "SSS"
   TeacherMaps        Teacher_Subject_Map[]
   Results            Result[]
   SubjectSubmissions Subject_Submission[]
@@ -220,15 +259,15 @@ model Teacher_Subject_Map {
 }
 
 model Academic_Term {
-  TermID             Int      @id @default(autoincrement())
-  Uuid               String?  @unique @default(uuid())
-  SessionName        String   // e.g., "2026/2027"
-  TermName           String   // e.g., "First Term", "Second Term", "Third Term"
-  IsActive           Boolean  @default(false)
-  IsLocked           Boolean  @default(false) // Global freeze on scores across the school
+  TermID             Int                   @id @default(autoincrement())
+  Uuid               String?               @unique @default(uuid())
+  SessionName        String // e.g., "2026/2027"
+  TermName           String // e.g., "First Term", "Second Term", "Third Term"
+  IsActive           Boolean               @default(false)
+  IsLocked           Boolean               @default(false) // Global freeze on scores across the school
   LockedAt           DateTime?
   LockedBy           String?
-  Version            Int      @default(1)
+  Version            Int                   @default(1)
   StartDate          DateTime?
   EndDate            DateTime?
   Results            Result[]
@@ -254,9 +293,9 @@ model Result {
   CAScore          Float         @default(0)
   ExamScore        Float         @default(0)
   TotalScore       Float         @default(0)
-  CAScoreTenths    Int?          // v3 Integer tenths: 0 to 400 (0.0 to 40.0)
-  ExamScoreTenths  Int?          // v3 Integer tenths: 0 to 600 (0.0 to 60.0)
-  TotalScoreTenths Int?          // v3 Integer tenths: 0 to 1000 (0.0 to 100.0)
+  CAScoreTenths    Int? // v3 Integer tenths: 0 to 400 (0.0 to 40.0)
+  ExamScoreTenths  Int? // v3 Integer tenths: 0 to 600 (0.0 to 60.0)
+  TotalScoreTenths Int? // v3 Integer tenths: 0 to 1000 (0.0 to 100.0)
   Grade            String
   Remark           String?
   Version          Int           @default(1) // Optimistic concurrency
@@ -266,42 +305,42 @@ model Result {
 }
 
 model Subject_Submission {
-  id             Int           @id @default(autoincrement())
-  Uuid           String?       @unique @default(uuid())
-  TeacherID      Int
-  Teacher        User          @relation(fields: [TeacherID], references: [UserID])
-  SubjectID      Int
-  Subject        Subject       @relation(fields: [SubjectID], references: [SubjectID])
-  ClassID        Int
-  Class          Class         @relation(fields: [ClassID], references: [ClassID])
-  TermID         Int
-  Term           Academic_Term @relation(fields: [TermID], references: [TermID])
-  Status         String        @default("Draft") // "Draft", "Submitted", "Approved"
-  SubmittedAt    DateTime      @default(now())
-  ApprovedBy     Int?
-  ApprovedAt     DateTime?
-  UnlockedBy     Int?
-  UnlockedReason String?
+  id                    Int           @id @default(autoincrement())
+  Uuid                  String?       @unique @default(uuid())
+  TeacherID             Int
+  Teacher               User          @relation(fields: [TeacherID], references: [UserID])
+  SubjectID             Int
+  Subject               Subject       @relation(fields: [SubjectID], references: [SubjectID])
+  ClassID               Int
+  Class                 Class         @relation(fields: [ClassID], references: [ClassID])
+  TermID                Int
+  Term                  Academic_Term @relation(fields: [TermID], references: [TermID])
+  Status                String        @default("Draft") // "Draft", "Submitted", "Approved"
+  SubmittedAt           DateTime      @default(now())
+  ApprovedBy            Int?
+  ApprovedAt            DateTime?
+  UnlockedBy            Int?
+  UnlockedReason        String?
   UnlockRequestedBy     Int?
   UnlockRequestedReason String?
-  Version        Int           @default(1)
+  Version               Int           @default(1)
 
   @@unique([SubjectID, ClassID, TermID])
 }
 
 model Form_Master_Report {
-  id                 Int           @id @default(autoincrement())
-  StudentID          Int
-  Student            Student       @relation(fields: [StudentID], references: [StudentID])
-  TermID             Int
-  Term               Academic_Term @relation(fields: [TermID], references: [TermID])
-  FormMasterRemark   String?       // e.g. "An active, dedicated learner."
-  PrincipalRemark    String?       // e.g. "Satisfactory performance."
-  AffectiveTraits    String?       // JSON: { punctuality: 5, neatness: 4, ... }
-  PsychomotorTraits  String?       // JSON: { handwriting: 4, sports: 5, ... }
-  Status             String        @default("Draft") // "Draft", "SubmittedToAdmin", "Published"
-  Version            Int           @default(1)
-  UpdatedAt          DateTime      @updatedAt
+  id                Int           @id @default(autoincrement())
+  StudentID         Int
+  Student           Student       @relation(fields: [StudentID], references: [StudentID])
+  TermID            Int
+  Term              Academic_Term @relation(fields: [TermID], references: [TermID])
+  FormMasterRemark  String? // e.g. "An active, dedicated learner."
+  PrincipalRemark   String? // e.g. "Satisfactory performance."
+  AffectiveTraits   String? // JSON: { punctuality: 5, neatness: 4, ... }
+  PsychomotorTraits String? // JSON: { handwriting: 4, sports: 5, ... }
+  Status            String        @default("Draft") // "Draft", "SubmittedToAdmin", "Published"
+  Version           Int           @default(1)
+  UpdatedAt         DateTime      @updatedAt
 
   @@unique([StudentID, TermID])
 }
@@ -309,14 +348,16 @@ model Form_Master_Report {
 model Scratch_Card {
   CardID              Int            @id @default(autoincrement())
   Uuid                String?        @unique @default(uuid())
-  PIN_Hash            String         @unique // HMAC-SHA256 with server pepper
-  SerialNumber        String         @unique
+  PIN_Hash            String         @unique // HMAC-SHA256(pepper[keyId], serial + ':' + pin)
+  SerialNumber        String         @unique // Random base32 serial
   KeyId               String         @default("v1")
-  Status              String         @default("ISSUED") // GENERATED, ISSUED, ACTIVE, EXHAUSTED
+  Status              String         @default("ISSUED") // GENERATED, ISSUED, ACTIVE, EXHAUSTED, REVOKED
   BatchId             String?
   UsageCount          Int            @default(0)
   MaxUsage            Int            @default(5)
-  UsedBy              Int?     
+  FailedAttempts      Int            @default(0)
+  LockedUntil         DateTime?
+  UsedBy              Int?
   Student             Student?       @relation(fields: [UsedBy], references: [StudentID])
   TermID              Int?
   Term                Academic_Term? @relation(fields: [TermID], references: [TermID])
@@ -326,21 +367,59 @@ model Scratch_Card {
   CreatedAt           DateTime       @default(now())
 }
 
+model ScratchCardBatch {
+  id          String   @id @default(cuid())
+  createdById Int
+  size        Int
+  pepperKeyId String   @default("v1")
+  status      String   @default("ISSUED") // GENERATED, ISSUED
+  createdAt   DateTime @default(now())
+}
+
+model StaffInvite {
+  id          String    @id @default(cuid())
+  email       String
+  role        RoleName
+  tokenHash   String    @unique
+  invitedById Int
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model StudentClaim {
+  id        String    @id @default(cuid())
+  studentId Int
+  student   Student   @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
+  codeHash  String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String
+  eventKey    String    @unique
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+}
+
 model Invoice {
-  id           String           @id @default(uuid())
+  id           String   @id @default(uuid())
   StudentID    Int
   TermID       Int
-  Title        String           // "2026/2027 First Term Tuition"
-  AmountKobo   BigInt           // Integer kobo (e.g. ₦65,000 = 6500000)
+  Title        String // "2026/2027 First Term Tuition"
+  AmountKobo   BigInt // Integer kobo (e.g. ₦65,000 = 6500000)
   DueDate      DateTime
-  IsWaived     Boolean          @default(false)
+  IsWaived     Boolean  @default(false)
   WaivedBy     Int?
   WaivedReason String?
-  CreatedAt    DateTime         @default(now())
+  CreatedAt    DateTime @default(now())
 
-  Student      Student          @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
-  Term         Academic_Term    @relation(fields: [TermID], references: [TermID])
-  Payments     Payment_Record[]
+  Student  Student          @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
+  Term     Academic_Term    @relation(fields: [TermID], references: [TermID])
+  Payments Payment_Record[]
 
   @@index([StudentID, TermID])
 }
@@ -357,43 +436,175 @@ model Payment_Record {
   AmountPaid      Float         @default(0)
   AmountKobo      BigInt        @default(0) // v3 Integer kobo
   Channel         String        @default("BANK_TELLER") // PAYSTACK, BANK_TELLER, CASH_BURSARY
-  ReceiptUrl      String?       // Private URL to uploaded receipt
-  ReceiptHash     String?       // SHA-256 hash of receipt file to detect duplicates
+  ReceiptUrl      String? // Private URL to uploaded receipt
+  ReceiptHash     String? // SHA-256 hash of receipt file to detect duplicates
   Reference       String?       @unique // Paystack transaction reference
   Status          String        @default("Pending") // "Pending", "Approved", "Rejected", "Successful"
   RejectionReason String?
   ReviewedBy      Int?
   ReviewedAt      DateTime?
   PaymentDate     DateTime      @default(now())
-  Description     String        // e.g., "School Fees", "Uniforms"
+  Description     String // e.g., "School Fees", "Uniforms"
 
   @@index([StudentID])
   @@index([TermID])
 }
 
 model AuditLog {
-  id        String   @id @default(uuid())
-  ActorID   Int?     // Nullable for unauthenticated attempts or webhooks
-  Actor     User?    @relation(fields: [ActorID], references: [UserID])
-  Action    String   // "SCORE_UPDATE", "TERM_FREEZE", "TELLER_APPROVAL", "UNLOCKED_SHEET"
-  Entity    String   // "Result", "Subject_Submission", "Payment_Record"
-  EntityID  String
-  OldValue  Json?
-  NewValue  Json?
-  IpAddress String?
-  UserAgent String?
-  CreatedAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  ActorID      Int? // Nullable for unauthenticated attempts or webhooks
+  Actor        User?    @relation(fields: [ActorID], references: [UserID])
+  OnBehalfOfID Int? // Supervisory access logged under admin with teacher ID here
+  Action       String // "SCORE_UPDATE", "TERM_FREEZE", "TELLER_APPROVAL", "UNLOCKED_SHEET"
+  Entity       String // "Result", "Subject_Submission", "Payment_Record", "CbtAttempt"
+  EntityID     String
+  OldValue     Json?
+  NewValue     Json?
+  Reason       String?
+  IpAddress    String?
+  UserAgent    String?
+  PrevHash     String?
+  Hash         String? // SHA-256(prevHash + canonical row)
+  CreatedAt    DateTime @default(now())
 
   @@index([Entity, EntityID])
   @@index([ActorID])
   @@index([CreatedAt])
 }
 
+// ---------- CBT & Integrity Subsystem (Nov 1 Blueprint Section 4 & 7) ----------
+
+model CbtQuestion {
+  id           String               @id @default(cuid())
+  provider     String               @default("SDASH") // SDASH, ALOC, SCHOOL_INTERNAL
+  externalId   String
+  examBody     String // WAEC, NECO, JAMB
+  subjectCode  String
+  examYear     Int?
+  topic        String?
+  stem         String
+  imageUrl     String?
+  optionsJson  Json // [{key: "a", text: "..."}]
+  contentHash  String
+  licenseRef   String?
+  isActive     Boolean              @default(true) // Kill switch if licence changes
+  fetchedAt    DateTime             @default(now())
+  answerKey    CbtAnswerKey?
+  attemptItems CbtAttemptQuestion[]
+
+  @@unique([provider, externalId])
+  @@index([subjectCode, examYear])
+}
+
+model CbtAnswerKey {
+  questionId  String      @id
+  question    CbtQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  correctKey  String
+  explanation String?
+}
+
+model CbtPlan {
+  id           String            @id @default(cuid())
+  name         String
+  priceKobo    BigInt
+  durationDays Int
+  subjectCodes String[]
+  isActive     Boolean           @default(true)
+  subs         CbtSubscription[]
+}
+
+model CbtSubscription {
+  id        String             @id @default(cuid())
+  studentId Int
+  planId    String
+  paymentId Int?               @unique
+  student   Student            @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
+  plan      CbtPlan            @relation(fields: [planId], references: [id])
+  startsAt  DateTime           @default(now())
+  endsAt    DateTime
+  status    SubscriptionStatus @default(ACTIVE)
+
+  @@index([studentId, status])
+}
+
+model CbtAttempt {
+  id                String               @id @default(cuid())
+  studentId         Int
+  student           Student              @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
+  subjectCode       String
+  examBody          String               @default("WASSCE")
+  mode              AttemptMode          @default(PRACTICE)
+  status            AttemptStatus        @default(ACTIVE)
+  seed              String
+  questionCount     Int
+  durationSec       Int
+  startedAt         DateTime             @default(now())
+  expiresAt         DateTime // Server-authoritative timer
+  submittedAt       DateTime?
+  scoreTenths       Int?
+  dayKey            String // YYYY-MM-DD in Africa/Lagos
+  hardStrikes       Int                  @default(0)
+  terminationReason String?
+  sessionId         String?
+  ipHash            String?
+  uaHash            String?
+  lastHeartbeatAt   DateTime?            @default(now())
+  rulesAcceptedAt   DateTime?            @default(now())
+  items             CbtAttemptQuestion[]
+  events            CbtIntegrityEvent[]
+
+  @@index([studentId, dayKey])
+}
+
+model CbtAttemptQuestion {
+  id          String      @id @default(cuid())
+  attemptId   String
+  questionId  String
+  attempt     CbtAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question    CbtQuestion @relation(fields: [questionId], references: [id])
+  position    Int
+  optionOrder Json // Shuffled option keys for this attempt e.g. ["c","a","d","b"]
+  selectedKey String?
+  answeredAt  DateTime?
+  timeSpentMs Int?
+  isCorrect   Boolean? // Set ONLY at submit transaction
+
+  @@unique([attemptId, position])
+}
+
+model CbtIntegrityEvent {
+  id        String             @id @default(cuid())
+  attemptId String
+  attempt   CbtAttempt         @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  type      IntegrityEventType
+  isHard    Boolean            @default(false)
+  clientAt  DateTime?
+  serverAt  DateTime           @default(now())
+  meta      Json?
+
+  @@index([attemptId, serverAt])
+}
+
+model CbtDayLock {
+  id         String    @id @default(cuid())
+  studentId  Int
+  student    Student   @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
+  dayKey     String // YYYY-MM-DD in Africa/Lagos
+  attemptId  String?
+  reason     String
+  liftedById Int?
+  liftedAt   DateTime?
+  liftReason String?
+  createdAt  DateTime  @default(now())
+
+  @@unique([studentId, dayKey])
+}
+
 model VerificationToken {
   id        Int      @id @default(autoincrement())
   email     String
   token     String   @unique
-  type      String   // "EMAIL_VERIFICATION" or "PASSWORD_RESET" or "STAFF_INVITE"
+  type      String // "EMAIL_VERIFICATION" or "PASSWORD_RESET" or "STAFF_INVITE"
   expires   DateTime
   createdAt DateTime @default(now())
 
@@ -417,7 +628,7 @@ model Attendance {
   StudentID    Int
   TermID       Int
   Date         DateTime
-  Status       String   // "Present", "Absent", "Late"
+  Status       String // "Present", "Absent", "Late"
   Notes        String?
   CreatedAt    DateTime @default(now())
 

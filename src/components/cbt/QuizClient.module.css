@@ -427,3 +427,9 @@
   color: #d97706;
   font-size: 0.95rem;
 }
+
+@media print {
+  .quizLayout {
+    display: none !important;
+  }
+}

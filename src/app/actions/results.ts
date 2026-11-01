@@ -470,7 +470,22 @@ export async function requestSubjectSheetUnlock(
 
 export async function approveSubjectSheetUnlock(submissionId: number, approvalNote: string) {
   try {
-    const { user } = await requireRole(["PRINCIPAL", "SUPER_ADMIN", "Admin"]);
+    const actor = await requireRole(["PRINCIPAL", "Admin"]);
+    if (!actor.roles.has("PRINCIPAL")) {
+      return {
+        success: false,
+        error: "Forbidden (Section 1 & 6.3): Only the School Principal may unlock submitted/approved grade sheets.",
+      };
+    }
+
+    if (!approvalNote || approvalNote.trim().length < 5) {
+      return {
+        success: false,
+        error: "A written reason (minimum 5 characters) is mandatory for the Principal to unlock a grade sheet.",
+      };
+    }
+
+    const { user } = actor;
 
     const updated = await prisma.$transaction(async (tx) => {
       const existing = await tx.subject_Submission.findUnique({
