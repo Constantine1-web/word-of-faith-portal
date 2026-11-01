@@ -8,7 +8,7 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
-  turbopack: {}
+  serverExternalPackages: ["@prisma/client", "prisma", "bcryptjs"],
 };
 
 export default withSerwist(nextConfig);
