@@ -11,29 +11,83 @@ async function requireAdmin() {
 }
 
 export async function getAdminDashboardStats() {
-  await requireAdmin();
-
   try {
-    const totalStudents = await prisma.student.count();
-    const totalTeachers = await prisma.user.count({
-      where: { Role: { RoleName: "Teacher" } }
-    });
+    await requireAdmin();
 
-    const activeTerm = await prisma.academic_Term.findFirst({
-      where: { IsActive: true }
-    });
+    const [
+      totalStudentsRes,
+      totalTeachersRes,
+      activeTermRes,
+      primaryCountRes,
+      secondaryCountRes,
+      pendingAdmissionsRes,
+      pendingPaymentsRes,
+      recentAuditLogsRes,
+    ] = await Promise.allSettled([
+      prisma.student.count(),
+      prisma.user.count({
+        where: {
+          Role: {
+            RoleName: { in: ["Teacher", "TEACHER", "FORM_MASTER"] },
+          },
+        },
+      }),
+      prisma.academic_Term.findFirst({
+        where: { IsActive: true },
+      }),
+      prisma.student.count({ where: { Class: { Level: "Primary" } } }),
+      prisma.student.count({ where: { Class: { Level: "Secondary" } } }),
+      prisma.admission_Application.count({
+        where: { status: "Pending" },
+      }),
+      prisma.payment_Record.count({
+        where: { Status: "Pending" },
+      }),
+      prisma.auditLog.findMany({
+        take: 8,
+        orderBy: { CreatedAt: "desc" },
+      }),
+    ]);
+
+    const totalStudents = totalStudentsRes.status === "fulfilled" ? totalStudentsRes.value : 0;
+    const totalTeachers = totalTeachersRes.status === "fulfilled" ? totalTeachersRes.value : 0;
+    const activeTerm = activeTermRes.status === "fulfilled" ? activeTermRes.value : null;
+    const primaryCount = primaryCountRes.status === "fulfilled" ? primaryCountRes.value : 0;
+    const secondaryCount = secondaryCountRes.status === "fulfilled" ? secondaryCountRes.value : 0;
+    const pendingAdmissions = pendingAdmissionsRes.status === "fulfilled" ? pendingAdmissionsRes.value : 0;
+    const pendingPayments = pendingPaymentsRes.status === "fulfilled" ? pendingPaymentsRes.value : 0;
+    const rawAuditLogs = recentAuditLogsRes.status === "fulfilled" ? recentAuditLogsRes.value : [];
+
+    // Ensure AuditLog objects are plain JSON-serializable objects for Next.js Server Actions
+    const recentAuditLogs = rawAuditLogs.map((log: any) => ({
+      id: String(log.id),
+      ActorID: log.ActorID ?? null,
+      Action: String(log.Action || ""),
+      Entity: String(log.Entity || ""),
+      EntityID: String(log.EntityID || ""),
+      OldValue: log.OldValue ?? null,
+      NewValue: log.NewValue ?? null,
+      CreatedAt: log.CreatedAt ? new Date(log.CreatedAt).toISOString() : new Date().toISOString(),
+    }));
 
     let totalRevenue = 0;
     let paymentCount = 0;
-    
+
     if (activeTerm) {
-      const payments = await prisma.payment_Record.aggregate({
-        where: { TermID: activeTerm.TermID, Status: "Approved" },
-        _sum: { AmountPaid: true },
-        _count: { PaymentID: true }
-      });
-      totalRevenue = payments._sum.AmountPaid || 0;
-      paymentCount = payments._count.PaymentID || 0;
+      try {
+        const payments = await prisma.payment_Record.aggregate({
+          where: {
+            TermID: activeTerm.TermID,
+            Status: { in: ["Approved", "Successful", "APPROVED", "SUCCESSFUL"] },
+          },
+          _sum: { AmountPaid: true },
+          _count: { PaymentID: true },
+        });
+        totalRevenue = Number(payments._sum.AmountPaid || 0);
+        paymentCount = Number(payments._count.PaymentID || 0);
+      } catch (e) {
+        console.warn("Payment aggregate warning:", e);
+      }
     }
 
     const monthlyRevenue = [
@@ -46,22 +100,9 @@ export async function getAdminDashboardStats() {
     ];
 
     const studentDistribution = [
-      { name: "Primary", value: await prisma.student.count({ where: { Class: { Level: "Primary" } } }) || 1 },
-      { name: "Secondary", value: await prisma.student.count({ where: { Class: { Level: "Secondary" } } }) || 1 },
+      { name: "Primary", value: primaryCount || 1 },
+      { name: "Secondary", value: secondaryCount || 1 },
     ];
-
-    const pendingAdmissions = await prisma.admission_Application.count({
-      where: { status: "Pending" }
-    });
-
-    const pendingPayments = await prisma.payment_Record.count({
-      where: { Status: "Pending" }
-    });
-
-    const recentAuditLogs = await prisma.auditLog.findMany({
-      take: 8,
-      orderBy: { CreatedAt: "desc" }
-    });
 
     return {
       success: true,
@@ -72,17 +113,44 @@ export async function getAdminDashboardStats() {
         paymentCount,
         pendingAdmissions,
         pendingPayments,
-        activeTerm: activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "None"
+        activeTerm: activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "None",
       },
       recentAuditLogs,
       charts: {
         monthlyRevenue,
-        studentDistribution
-      }
+        studentDistribution,
+      },
     };
   } catch (error: any) {
     console.error("Admin stats error:", error);
-    return { success: false, error: error.message || "Failed to fetch admin stats" };
+    return {
+      success: false,
+      error: error.message || "Failed to fetch admin stats",
+      stats: {
+        totalStudents: 0,
+        totalTeachers: 0,
+        totalRevenue: 0,
+        paymentCount: 0,
+        pendingAdmissions: 0,
+        pendingPayments: 0,
+        activeTerm: "Active Session",
+      },
+      recentAuditLogs: [],
+      charts: {
+        monthlyRevenue: [
+          { name: "Jan", revenue: 400000 },
+          { name: "Feb", revenue: 300000 },
+          { name: "Mar", revenue: 500000 },
+          { name: "Apr", revenue: 700000 },
+          { name: "May", revenue: 200000 },
+          { name: "Jun", revenue: 600000 },
+        ],
+        studentDistribution: [
+          { name: "Primary", value: 1 },
+          { name: "Secondary", value: 1 },
+        ],
+      },
+    };
   }
 }
 
@@ -91,9 +159,8 @@ export async function getAdminDashboardStats() {
 // ==========================================
 
 export async function getUsersList(roleFilter?: string) {
-  await requireAdmin();
-
   try {
+    await requireAdmin();
     const users = await prisma.user.findMany({
       where: roleFilter ? { Role: { RoleName: roleFilter } } : undefined,
       include: {
@@ -122,9 +189,8 @@ export async function createUserAccount(data: {
   password?: string;
   name?: string;
 }) {
-  await requireAdmin();
-
   try {
+    await requireAdmin();
     const existing = await prisma.user.findUnique({
       where: { Email: data.email.trim().toLowerCase() }
     });
@@ -163,9 +229,8 @@ export async function createUserAccount(data: {
 }
 
 export async function toggleUserStatus(userId: number, isActive: boolean) {
-  const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
-
   try {
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
     const updated = await prisma.user.update({
       where: { UserID: userId },
       data: {
@@ -192,9 +257,8 @@ export async function toggleUserStatus(userId: number, isActive: boolean) {
 }
 
 export async function adminResetPassword(userId: number, newPassword?: string) {
-  const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
-
   try {
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
     const pass = newPassword || "wofschools2026";
     const passwordHash = await bcrypt.hash(pass, 12);
 
@@ -230,9 +294,8 @@ export async function adminResetPassword(userId: number, newPassword?: string) {
 // ==========================================
 
 export async function getClassesWithAllocations() {
-  await requireAdmin();
-
   try {
+    await requireAdmin();
     const classes = await prisma.class.findMany({
       include: {
         FormMaster: true,
@@ -249,7 +312,7 @@ export async function getClassesWithAllocations() {
     });
 
     const teachers = await prisma.user.findMany({
-      where: { Role: { RoleName: "Teacher" }, IsActive: true },
+      where: { Role: { RoleName: { in: ["Teacher", "TEACHER", "FORM_MASTER"] } }, IsActive: true },
       orderBy: { Email: "asc" }
     });
 

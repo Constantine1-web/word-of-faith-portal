@@ -19,9 +19,8 @@ export async function getAdminPaymentAuditList(filters?: {
   termId?: number;
   search?: string;
 }) {
-  await requirePaymentManager();
-
   try {
+    await requirePaymentManager();
     let whereClause: any = {};
 
     if (filters?.status && filters.status !== "ALL") {
@@ -40,7 +39,7 @@ export async function getAdminPaymentAuditList(filters?: {
       ];
     }
 
-    const payments = await prisma.payment_Record.findMany({
+    const rawPayments = await prisma.payment_Record.findMany({
       where: whereClause,
       include: {
         Student: {
@@ -50,6 +49,12 @@ export async function getAdminPaymentAuditList(filters?: {
       },
       orderBy: { PaymentDate: "desc" },
     });
+
+    // Convert BigInt AmountKobo to Number for React Server Action JSON serialization
+    const payments = rawPayments.map((p: any) => ({
+      ...p,
+      AmountKobo: Number(p.AmountKobo || 0),
+    }));
 
     const pendingCount = await prisma.payment_Record.count({ where: { Status: "Pending" } });
     const approvedTotal = await prisma.payment_Record.aggregate({

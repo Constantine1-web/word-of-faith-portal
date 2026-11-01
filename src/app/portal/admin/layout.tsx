@@ -16,6 +16,8 @@ import {
   FiBookOpen,
 } from "react-icons/fi";
 
+export const dynamic = "force-dynamic";
+
 const ADMIN_STAFF_ROLES = [
   "SUPER_ADMIN",
   "PRINCIPAL",

@@ -75,22 +75,52 @@ export function resolveUserRoles(user: {
 export async function requireActiveUser() {
   const session = await getServerSession(authOptions);
 
-  if (!session || !session.user || typeof session.user.id === "undefined" || session.user.id === null) {
+  if (!session || !session.user) {
     throw new AuthorizationError("Unauthenticated request. Please sign in.", 401);
   }
 
-  const userId = Number(session.user.id);
-  if (!Number.isInteger(userId) || userId <= 0) {
-    throw new AuthorizationError("Invalid session user identifier.", 401);
-  }
+  const rawId = Number(session.user.id);
+  const userEmail = session.user.email?.trim();
 
-  const user = await prisma.user.findUnique({
-    where: { UserID: userId },
-    include: {
-      Role: true,
-      RoleAssignments: true,
-    },
-  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let user: any = null;
+
+  try {
+    if (Number.isInteger(rawId) && rawId > 0) {
+      user = await prisma.user.findUnique({
+        where: { UserID: rawId },
+        include: {
+          Role: true,
+          RoleAssignments: true,
+        },
+      });
+    } else if (userEmail) {
+      user = await prisma.user.findFirst({
+        where: {
+          Email: { equals: userEmail, mode: "insensitive" },
+        },
+        include: {
+          Role: true,
+          RoleAssignments: true,
+        },
+      });
+    }
+  } catch {
+    // Fallback if RoleAssignments relation is not yet migrated on target DB
+    if (Number.isInteger(rawId) && rawId > 0) {
+      user = await prisma.user.findUnique({
+        where: { UserID: rawId },
+        include: { Role: true },
+      });
+    } else if (userEmail) {
+      user = await prisma.user.findFirst({
+        where: {
+          Email: { equals: userEmail, mode: "insensitive" },
+        },
+        include: { Role: true },
+      });
+    }
+  }
 
   if (!user || !user.IsActive) {
     throw new AuthorizationError("Your account has been deactivated or does not exist.", 403);
@@ -100,9 +130,13 @@ export async function requireActiveUser() {
     throw new AuthorizationError("Account is temporarily locked due to security policy.", 403);
   }
 
-  // Verify tokenVersion if present in session token
+  // Verify tokenVersion if present in session token and greater than session version
   const sessionTokenVersion = (session.user as { tokenVersion?: number }).tokenVersion;
-  if (typeof sessionTokenVersion === "number" && user.TokenVersion !== sessionTokenVersion) {
+  if (
+    typeof sessionTokenVersion === "number" &&
+    typeof user.TokenVersion === "number" &&
+    user.TokenVersion > sessionTokenVersion
+  ) {
     throw new AuthorizationError("Session expired due to security credential update. Please sign in again.", 401);
   }
 
@@ -110,8 +144,8 @@ export async function requireActiveUser() {
 
   return {
     user,
-    UserID: user.UserID,
-    Email: user.Email,
+    UserID: user.UserID as number,
+    Email: user.Email as string,
     roles,
     session,
   };

@@ -12,6 +12,8 @@ import {
   FiShield,
 } from "react-icons/fi";
 
+export const dynamic = "force-dynamic";
+
 const EDUCATOR_ROLES = [
   "TEACHER",
   "FORM_MASTER",

@@ -3,6 +3,8 @@ import TeacherDashboard from "@/components/dashboard/TeacherDashboard";
 import { requireActiveUser } from "@/lib/authz";
 import { getTeacherSubjects } from "@/app/actions/results";
 
+export const dynamic = "force-dynamic";
+
 export default async function TeacherWorkspacePage() {
   let actor;
   try {

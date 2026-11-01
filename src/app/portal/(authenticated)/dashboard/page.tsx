@@ -6,6 +6,8 @@ import StudentDashboard from "@/components/dashboard/StudentDashboard";
 import AdminDashboard from "@/components/dashboard/AdminDashboard";
 import { getTeacherSubjects } from "@/app/actions/results";
 
+export const dynamic = "force-dynamic";
+
 export default async function Dashboard() {
   const session = await getServerSession(authOptions);
 

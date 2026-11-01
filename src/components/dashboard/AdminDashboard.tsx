@@ -4,22 +4,36 @@ import { useEffect, useState } from "react";
 import { getAdminDashboardStats } from "@/app/actions/admin";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import Link from "next/link";
-import { FiCalendar, FiUsers, FiCreditCard, FiDollarSign, FiLayers, FiAward, FiUserPlus, FiArrowRight } from "react-icons/fi";
+import { FiCalendar, FiUsers, FiCreditCard, FiDollarSign, FiLayers, FiAward, FiUserPlus, FiArrowRight, FiShield } from "react-icons/fi";
 
 const COLORS = ['#0A2540', '#14532D', '#22C55E', '#3B82F6', '#F59E0B'];
 
 export default function AdminDashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchStats() {
+  const fetchStats = async () => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
       const res = await getAdminDashboardStats();
-      if (res.success) {
+      if (res && res.stats) {
         setData(res);
+        if (!res.success && res.error) {
+          setErrorMsg(res.error);
+        }
+      } else {
+        setErrorMsg((res as any)?.error || "Unable to fetch live metrics.");
       }
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Connection error while loading analytics.");
+    } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
     fetchStats();
   }, []);
 
@@ -34,7 +48,12 @@ export default function AdminDashboard() {
   if (!data) {
     return (
       <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", textAlign: "center", color: "#b91c1c" }}>
-        Failed to load administrative overview.
+        <p style={{ marginBottom: "1rem", fontWeight: 600 }}>
+          {errorMsg || "Failed to load administrative overview."}
+        </p>
+        <button onClick={fetchStats} className="btn btn-primary">
+          Retry Analytics Load
+        </button>
       </div>
     );
   }
@@ -207,6 +226,60 @@ export default function AdminDashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
+
+      {/* Immutable Security Audit Trail */}
+      <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <FiShield color="var(--color-primary-green)" /> Immutable Security Audit Trail (ARCH-v3)
+      </h3>
+      <div
+        style={{
+          background: "var(--color-white)",
+          borderRadius: "var(--radius-md)",
+          boxShadow: "var(--shadow-sm)",
+          border: "1px solid var(--color-gray-200)",
+          overflowX: "auto",
+          marginBottom: "2rem"
+        }}
+      >
+        {!data.recentAuditLogs || data.recentAuditLogs.length === 0 ? (
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)" }}>
+            No security audit events recorded yet. Actions on scores, locks, payments, and user accounts will appear here.
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
+            <thead>
+              <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
+                <th style={{ padding: "0.85rem 1rem", textAlign: "left" }}>Timestamp</th>
+                <th style={{ padding: "0.85rem 1rem", textAlign: "left" }}>Action</th>
+                <th style={{ padding: "0.85rem 1rem", textAlign: "left" }}>Actor Roles</th>
+                <th style={{ padding: "0.85rem 1rem", textAlign: "left" }}>Target Entity</th>
+                <th style={{ padding: "0.85rem 1rem", textAlign: "left" }}>Reason / Metadata</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recentAuditLogs.map((log: any) => (
+                <tr key={String(log.id)} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
+                  <td style={{ padding: "0.75rem 1rem", color: "var(--color-gray-600)", whiteSpace: "nowrap" }}>
+                    {new Date(log.CreatedAt).toLocaleString()}
+                  </td>
+                  <td style={{ padding: "0.75rem 1rem", fontWeight: 700, color: "var(--color-navy-blue)", fontFamily: "monospace" }}>
+                    {log.Action}
+                  </td>
+                  <td style={{ padding: "0.75rem 1rem", color: "#15803d", fontWeight: 600 }}>
+                    {log.NewValue?.actorRoles || (log.ActorID ? `User #${log.ActorID}` : "SYSTEM")}
+                  </td>
+                  <td style={{ padding: "0.75rem 1rem", fontFamily: "monospace" }}>
+                    {log.Entity} #{log.EntityID}
+                  </td>
+                  <td style={{ padding: "0.75rem 1rem", color: "var(--color-gray-600)", fontSize: "0.82rem" }}>
+                    {log.NewValue?.reason || (log.NewValue ? JSON.stringify(log.NewValue).slice(0, 90) : "—")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

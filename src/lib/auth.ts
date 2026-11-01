@@ -66,18 +66,33 @@ export const authOptions: NextAuthOptions = {
         const normalizedEmail = credentials.email.trim().toLowerCase();
 
         // Find user case-insensitively to handle legacy seeded emails while enforcing normalized comparison
-        const user = await prisma.user.findFirst({
-          where: {
-            Email: {
-              equals: normalizedEmail,
-              mode: "insensitive",
+        let user: any = null;
+        try {
+          user = await prisma.user.findFirst({
+            where: {
+              Email: {
+                equals: normalizedEmail,
+                mode: "insensitive",
+              },
             },
-          },
-          include: {
-            Role: true,
-            RoleAssignments: true,
-          },
-        });
+            include: {
+              Role: true,
+              RoleAssignments: true,
+            },
+          });
+        } catch {
+          user = await prisma.user.findFirst({
+            where: {
+              Email: {
+                equals: normalizedEmail,
+                mode: "insensitive",
+              },
+            },
+            include: {
+              Role: true,
+            },
+          });
+        }
 
         // Generic failure path to prevent account enumeration
         if (!user || !user.IsActive) {
@@ -127,7 +142,7 @@ export const authOptions: NextAuthOptions = {
           }).catch(() => {});
         }
 
-        const assignedRoles = user.RoleAssignments?.map((r) => r.Role) || [];
+        const assignedRoles = user.RoleAssignments?.map((r: any) => r.Role) || [];
         const allRoles = Array.from(new Set([user.Role.RoleName, ...assignedRoles]));
 
         return {
@@ -147,14 +162,19 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role as string;
         token.roles = user.roles || [user.role as string];
         token.tokenVersion = user.tokenVersion ?? 1;
+      } else if (!token.id && token.sub) {
+        token.id = Number(token.sub);
       }
       return token;
     },
     async session({ session, token }) {
       if (token && session.user) {
-        session.user.id = Number(token.id);
-        session.user.role = token.role as string;
-        session.user.roles = (token.roles as string[]) || [token.role as string];
+        const resolvedId = Number(token.id ?? token.sub);
+        if (!Number.isNaN(resolvedId) && resolvedId > 0) {
+          session.user.id = resolvedId;
+        }
+        session.user.role = (token.role as string) || "Student";
+        session.user.roles = (token.roles as string[]) || [session.user.role];
         session.user.tokenVersion = (token.tokenVersion as number) ?? 1;
       }
       return session;
