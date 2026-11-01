@@ -92,6 +92,59 @@ enum IntegrityEventType {
   LATE_ANSWER
 }
 
+enum Capability {
+  MANAGE_USERS
+  MANAGE_STRUCTURE
+  MANAGE_STUDENTS
+  CORRECT_SCORES
+  APPROVE_RESULTS
+  PUBLISH_RESULTS
+  UNLOCK_SHEETS
+  FREEZE_TERM
+  MANAGE_FINANCE
+  APPROVE_PAYMENTS
+  MANAGE_CARDS
+  MANAGE_CBT
+  VIEW_AUDIT
+  MANAGE_SYSTEM
+}
+
+enum ScoreStatus {
+  PENDING
+  ENTERED
+  ABSENT
+  EXEMPT
+}
+
+enum ScoreSource {
+  GRID
+  IMPORT
+  ADMIN_CORRECTION
+}
+
+enum ImportStatus {
+  UPLOADED
+  VALIDATED
+  COMMITTED
+  REJECTED
+  EXPIRED
+}
+
+enum UnlockStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  USED
+  EXPIRED
+}
+
+enum BroadsheetStatus {
+  OPEN
+  COMPUTED
+  SIGNED_OFF
+  PUBLISHED
+}
+
 model Role {
   RoleID      Int    @id @default(autoincrement())
   RoleName    String @unique
@@ -100,22 +153,23 @@ model Role {
 }
 
 model User {
-  UserID              Int       @id @default(autoincrement())
-  Uuid                String?   @unique @default(uuid())
-  Email               String    @unique
+  UserID              Int          @id @default(autoincrement())
+  Uuid                String?      @unique @default(uuid())
+  Email               String       @unique
   PasswordHash        String
   RoleID              Int
-  Role                Role      @relation(fields: [RoleID], references: [RoleID])
-  IsActive            Boolean   @default(true)
-  TokenVersion        Int       @default(1)
-  MustChangePassword  Boolean   @default(false)
-  FailedLoginAttempts Int       @default(0)
+  Role                Role         @relation(fields: [RoleID], references: [RoleID])
+  Capabilities        Capability[] @default([])
+  IsActive            Boolean      @default(true)
+  TokenVersion        Int          @default(1)
+  MustChangePassword  Boolean      @default(false)
+  FailedLoginAttempts Int          @default(0)
   LockedUntil         DateTime?
   TotpSecret          String?
-  TotpEnabled         Boolean   @default(false)
+  TotpEnabled         Boolean      @default(false)
   TotpBackupCodes     String?
-  CreatedAt           DateTime  @default(now())
-  UpdatedAt           DateTime  @default(now()) @updatedAt
+  CreatedAt           DateTime     @default(now())
+  UpdatedAt           DateTime     @default(now()) @updatedAt
 
   Student            Student?
   ParentProfile      Parent?
@@ -152,6 +206,7 @@ model Class {
   Enrollments        Enrollment[]
   TeacherMaps        Teacher_Subject_Map[]
   SubjectSubmissions Subject_Submission[]
+  Broadsheets        ClassBroadsheet[]
 }
 
 model Student {
@@ -186,6 +241,7 @@ model Student {
   CbtAttempts       CbtAttempt[]
   CbtSubscriptions  CbtSubscription[]
   CbtDayLocks       CbtDayLock[]
+  ReportCards       ReportCard[]
 }
 
 model Parent {
@@ -279,6 +335,8 @@ model Academic_Term {
   ScratchCards       Scratch_Card[]
   SubjectSubmissions Subject_Submission[]
   FormMasterReports  Form_Master_Report[]
+  Broadsheets        ClassBroadsheet[]
+  ReportCards        ReportCard[]
 }
 
 model Result {
@@ -298,6 +356,10 @@ model Result {
   TotalScoreTenths Int? // v3 Integer tenths: 0 to 1000 (0.0 to 100.0)
   Grade            String
   Remark           String?
+  Status           ScoreStatus   @default(ENTERED)
+  Source           ScoreSource   @default(GRID)
+  ImportBatchID    String?
+  UpdatedByID      Int?
   Version          Int           @default(1) // Optimistic concurrency
   UpdatedAt        DateTime      @default(now()) @updatedAt
 
@@ -305,27 +367,141 @@ model Result {
 }
 
 model Subject_Submission {
-  id                    Int           @id @default(autoincrement())
-  Uuid                  String?       @unique @default(uuid())
+  id                    Int             @id @default(autoincrement())
+  Uuid                  String?         @unique @default(uuid())
   TeacherID             Int
-  Teacher               User          @relation(fields: [TeacherID], references: [UserID])
+  Teacher               User            @relation(fields: [TeacherID], references: [UserID])
   SubjectID             Int
-  Subject               Subject       @relation(fields: [SubjectID], references: [SubjectID])
+  Subject               Subject         @relation(fields: [SubjectID], references: [SubjectID])
   ClassID               Int
-  Class                 Class         @relation(fields: [ClassID], references: [ClassID])
+  Class                 Class           @relation(fields: [ClassID], references: [ClassID])
   TermID                Int
-  Term                  Academic_Term @relation(fields: [TermID], references: [TermID])
-  Status                String        @default("Draft") // "Draft", "Submitted", "Approved"
-  SubmittedAt           DateTime      @default(now())
+  Term                  Academic_Term   @relation(fields: [TermID], references: [TermID])
+  ScaleID               String?
+  Scale                 GradeScale?     @relation(fields: [ScaleID], references: [id])
+  Status                String          @default("Draft") // "Draft", "Submitted", "Approved"
+  SubmittedAt           DateTime        @default(now())
   ApprovedBy            Int?
   ApprovedAt            DateTime?
   UnlockedBy            Int?
   UnlockedReason        String?
   UnlockRequestedBy     Int?
   UnlockRequestedReason String?
-  Version               Int           @default(1)
+  WindowEndsAt          DateTime?
+  Version               Int             @default(1)
+  ImportBatches         ImportBatch[]
+  UnlockRequests        UnlockRequest[]
 
   @@unique([SubjectID, ClassID, TermID])
+}
+
+model GradeScale {
+  id         String               @id @default(cuid())
+  name       String               @unique // "WAEC secondary", "Primary"
+  levelGroup String // SECONDARY, PRIMARY, NURSERY
+  bands      GradeBand[]
+  sheets     Subject_Submission[]
+}
+
+model GradeBand {
+  id        String     @id @default(cuid())
+  scaleId   String
+  scale     GradeScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  grade     String
+  minTenths Int
+  remark    String
+
+  @@unique([scaleId, grade])
+}
+
+model ImportBatch {
+  id                     String             @id @default(cuid())
+  sheetId                Int
+  sheet                  Subject_Submission @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  uploadedById           Int
+  fileKey                String
+  fileSha256             String
+  sheetVersionAtDownload Int                @default(1)
+  status                 ImportStatus       @default(UPLOADED)
+  rowCount               Int                @default(0)
+  errorCount             Int                @default(0)
+  createdAt              DateTime           @default(now())
+  committedAt            DateTime?
+  expiresAt              DateTime
+  rows                   ImportRow[]
+
+  @@unique([sheetId, fileSha256])
+}
+
+model ImportRow {
+  id          String       @id @default(cuid())
+  batchId     String
+  batch       ImportBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber   Int
+  admissionNo String
+  caTenths    Int?
+  examTenths  Int?
+  status      ScoreStatus?
+  error       String?
+  changes     Boolean      @default(false)
+
+  @@index([batchId])
+}
+
+model UnlockRequest {
+  id            String             @id @default(cuid())
+  sheetId       Int
+  sheet         Subject_Submission @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  requestedById Int
+  reason        String
+  status        UnlockStatus       @default(REQUESTED)
+  decidedById   Int?
+  decidedAt     DateTime?
+  decisionNote  String?
+  windowEndsAt  DateTime?
+  createdAt     DateTime           @default(now())
+
+  @@index([sheetId, status])
+}
+
+model ClassBroadsheet {
+  id             String           @id @default(cuid())
+  classArmId     Int
+  termId         Int
+  classArm       Class            @relation(fields: [classArmId], references: [ClassID], onDelete: Cascade)
+  term           Academic_Term    @relation(fields: [termId], references: [TermID], onDelete: Cascade)
+  status         BroadsheetStatus @default(OPEN)
+  computeVersion Int              @default(0)
+  isStale        Boolean          @default(false)
+  computedAt     DateTime?
+  computedById   Int?
+  signedOffAt    DateTime?
+  signedOffById  Int?
+  principalNote  String?
+  publishedAt    DateTime?
+  publishedById  Int?
+  statsJson      Json?
+
+  @@unique([classArmId, termId])
+}
+
+model ReportCard {
+  id            String        @id @default(cuid())
+  studentId     Int
+  termId        Int
+  student       Student       @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
+  term          Academic_Term @relation(fields: [termId], references: [TermID], onDelete: Cascade)
+  version       Int           @default(1)
+  dataJson      Json
+  dataSha256    String
+  pdfKey        String?
+  publishedAt   DateTime      @default(now())
+  publishedById Int
+  supersededAt  DateTime?
+  changeReason  String?
+
+  @@unique([studentId, termId, version])
+  @@index([studentId, termId, supersededAt])
 }
 
 model Form_Master_Report {
@@ -441,6 +617,7 @@ model Payment_Record {
   Reference       String?       @unique // Paystack transaction reference
   Status          String        @default("Pending") // "Pending", "Approved", "Rejected", "Successful"
   RejectionReason String?
+  SubmittedBy     Int?
   ReviewedBy      Int?
   ReviewedAt      DateTime?
   PaymentDate     DateTime      @default(now())

@@ -42,6 +42,23 @@ async function main() {
           ADD CONSTRAINT "chk_payment_kobo_nonnegative"
           CHECK ("AmountKobo" >= 0);
       END IF;
+
+      -- Section B.5 Separation of Duties CHECK constraints
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'payment_sod'
+      ) THEN
+        ALTER TABLE "Payment_Record"
+          ADD CONSTRAINT "payment_sod"
+          CHECK ("ReviewedBy" IS NULL OR "SubmittedBy" IS NULL OR "ReviewedBy" <> "SubmittedBy");
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'unlock_sod'
+      ) THEN
+        ALTER TABLE "UnlockRequest"
+          ADD CONSTRAINT "unlock_sod"
+          CHECK ("decidedById" IS NULL OR "decidedById" <> "requestedById");
+      END IF;
     END $$;
   `);
 
@@ -62,14 +79,24 @@ async function main() {
     FOR EACH ROW EXECUTE FUNCTION trg_protect_audit_log();
   `);
 
-  // 1c. Section 5 Partial Unique Index: One active CBT attempt per student
+  // 1c. Section 5 & B.5 Partial Unique Indexes
   await prisma.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS one_active_attempt
     ON "CbtAttempt" ("studentId")
     WHERE "status" = 'ACTIVE';
   `);
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS one_open_unlock
+    ON "UnlockRequest" ("sheetId")
+    WHERE "status" IN ('REQUESTED','APPROVED');
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS one_current_report_card
+    ON "ReportCard" ("studentId","termId")
+    WHERE "supersededAt" IS NULL;
+  `);
 
-  console.log("✔ PostgreSQL CHECK constraints, AuditLog immutability trigger, and one_active_attempt index installed.");
+  console.log("✔ PostgreSQL CHECK constraints (including payment_sod & unlock_sod), AuditLog trigger, and partial unique indexes installed.");
 
   // 2. Ensure base Roles exist
   const baseRoles = [
@@ -105,34 +132,62 @@ async function main() {
   }
   console.log(`✔ Active Term: ${activeTerm.SessionName} - ${activeTerm.TermName} (TermID: ${activeTerm.TermID})`);
 
-  // 4. Provision v3 Staff Accounts & Granular Role Assignments
+  // 4. Provision v3 Staff Accounts & Granular Role Assignments + Section B.2 Capabilities
   const defaultPasswordHash = await bcrypt.hash("WordOfFaith@2026", 10);
+
+  const FULL_CAPABILITIES = [
+    "MANAGE_USERS",
+    "MANAGE_STRUCTURE",
+    "MANAGE_STUDENTS",
+    "CORRECT_SCORES",
+    "APPROVE_RESULTS",
+    "PUBLISH_RESULTS",
+    "UNLOCK_SHEETS",
+    "FREEZE_TERM",
+    "MANAGE_FINANCE",
+    "APPROVE_PAYMENTS",
+    "MANAGE_CARDS",
+    "MANAGE_CBT",
+    "VIEW_AUDIT",
+    "MANAGE_SYSTEM",
+  ];
+
+  const FINANCE_CAPABILITIES = [
+    "MANAGE_FINANCE",
+    "APPROVE_PAYMENTS",
+    "MANAGE_CARDS",
+  ];
 
   const staffAccounts = [
     {
       email: "admin@wordoffaith.com",
       baseRole: "Admin",
       granularRoles: ["SUPER_ADMIN", "PRINCIPAL"],
+      capabilities: FULL_CAPABILITIES,
     },
     {
       email: "admin@wordoffaith.edu.ng",
       baseRole: "Admin",
       granularRoles: ["SUPER_ADMIN"],
+      capabilities: FULL_CAPABILITIES,
     },
     {
       email: "principal@wordoffaith.edu.ng",
       baseRole: "Admin",
       granularRoles: ["PRINCIPAL"],
+      capabilities: FULL_CAPABILITIES,
     },
     {
       email: "bursar@wordoffaith.edu.ng",
       baseRole: "Admin",
       granularRoles: ["BURSAR"],
+      capabilities: FINANCE_CAPABILITIES,
     },
     {
       email: "teacher@wordoffaith.edu.ng",
       baseRole: "Teacher",
       granularRoles: ["TEACHER", "FORM_MASTER"],
+      capabilities: [],
     },
   ];
 
@@ -143,12 +198,14 @@ async function main() {
       update: {
         IsActive: true,
         Uuid: crypto.randomUUID(),
+        Capabilities: acc.capabilities,
       },
       create: {
         Uuid: crypto.randomUUID(),
         Email: acc.email,
         PasswordHash: defaultPasswordHash,
         RoleID: roleMap[acc.baseRole],
+        Capabilities: acc.capabilities,
         IsActive: true,
         TokenVersion: 1,
       },
@@ -171,8 +228,59 @@ async function main() {
         },
       });
     }
-    console.log(`✔ Provisioned ${acc.email} with roles: [${acc.granularRoles.join(", ")}]`);
+    console.log(`✔ Provisioned ${acc.email} with roles: [${acc.granularRoles.join(", ")}] & capabilities: ${acc.capabilities.length}`);
   }
+
+  // 4b. Seed Section B.5 GradeScales ("WAEC secondary" and "Primary") & GradeBands
+  const waecBands = [
+    { grade: "A1", minTenths: 750, remark: "Excellent" },
+    { grade: "B2", minTenths: 700, remark: "Very Good" },
+    { grade: "B3", minTenths: 650, remark: "Good" },
+    { grade: "C4", minTenths: 600, remark: "Credit" },
+    { grade: "C5", minTenths: 550, remark: "Credit" },
+    { grade: "C6", minTenths: 500, remark: "Credit" },
+    { grade: "D7", minTenths: 450, remark: "Pass" },
+    { grade: "E8", minTenths: 400, remark: "Pass" },
+    { grade: "F9", minTenths: 0, remark: "Fail" },
+  ];
+
+  const scalesToSeed = [
+    { name: "WAEC secondary", levelGroup: "SECONDARY", bands: waecBands },
+    { name: "Primary", levelGroup: "PRIMARY", bands: waecBands },
+  ];
+
+  for (const s of scalesToSeed) {
+    const scale = await prisma.gradeScale.upsert({
+      where: { name: s.name },
+      update: { levelGroup: s.levelGroup },
+      create: {
+        name: s.name,
+        levelGroup: s.levelGroup,
+      },
+    });
+
+    for (const b of s.bands) {
+      await prisma.gradeBand.upsert({
+        where: {
+          scaleId_grade: {
+            scaleId: scale.id,
+            grade: b.grade,
+          },
+        },
+        update: {
+          minTenths: b.minTenths,
+          remark: b.remark,
+        },
+        create: {
+          scaleId: scale.id,
+          grade: b.grade,
+          minTenths: b.minTenths,
+          remark: b.remark,
+        },
+      });
+    }
+  }
+  console.log("✔ Seeded WAEC secondary and Primary GradeScales (A1=750 .. F9=0 tenths).");
 
   // 5. Ensure sample Classes and Subjects exist and assign teacher@wordoffaith.edu.ng
   const teacherUser = staffUserMap["teacher@wordoffaith.edu.ng"];

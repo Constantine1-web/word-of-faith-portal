@@ -3,7 +3,17 @@
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
-import { requireRole, writeAuditLog } from "@/lib/authz";
+import {
+  requireRole,
+  requireCapability,
+  writeAuditLog,
+  ALL_CAPABILITIES,
+  CAPABILITY_PRESETS,
+  resolveActorCapabilities,
+  isFullCapabilitySet,
+  type Capability,
+  type CapabilityPresetName,
+} from "@/lib/authz";
 
 // Ensure the user holds an authorized administrative role in Layer 3
 async function requireAdmin() {
@@ -12,7 +22,7 @@ async function requireAdmin() {
 
 export async function getAdminDashboardStats() {
   try {
-    await requireAdmin();
+    const actor = await requireAdmin();
 
     const [
       totalStudentsRes,
@@ -106,6 +116,7 @@ export async function getAdminDashboardStats() {
 
     return {
       success: true,
+      actorCapabilities: actor.Capabilities,
       stats: {
         totalStudents,
         totalTeachers,
@@ -126,6 +137,7 @@ export async function getAdminDashboardStats() {
     return {
       success: false,
       error: error.message || "Failed to fetch admin stats",
+      actorCapabilities: ALL_CAPABILITIES,
       stats: {
         totalStudents: 0,
         totalTeachers: 0,
@@ -155,31 +167,163 @@ export async function getAdminDashboardStats() {
 }
 
 // ==========================================
-// 1. USER PROVISIONING & ACCOUNT MANAGEMENT
+// 1. USER PROVISIONING & CAPABILITY PRESETS (Section B.2)
 // ==========================================
 
 export async function getUsersList(roleFilter?: string) {
   try {
     await requireAdmin();
-    const users = await prisma.user.findMany({
+    const rawUsers = await prisma.user.findMany({
       where: roleFilter ? { Role: { RoleName: roleFilter } } : undefined,
       include: {
         Role: true,
+        RoleAssignments: true,
         Student: {
-          include: { Class: true }
+          include: { Class: true },
         },
         FormMasterClasses: true,
         TeacherMaps: {
-          include: { Subject: true, Class: true }
-        }
+          include: { Subject: true, Class: true },
+        },
       },
-      orderBy: { UserID: "desc" }
+      orderBy: { UserID: "desc" },
+    });
+
+    const users = rawUsers.map((u) => {
+      const assignedRoles = Array.isArray(u.RoleAssignments)
+        ? u.RoleAssignments.map((ra) => ra.Role)
+        : [];
+      const resolvedCaps = Array.from(
+        resolveActorCapabilities(
+          u.Capabilities as string[] | undefined,
+          assignedRoles,
+          u.Role?.RoleName
+        )
+      );
+      return {
+        ...u,
+        resolvedCapabilities: resolvedCaps,
+      };
     });
 
     return { success: true, users };
   } catch (error: any) {
     console.error("getUsersList error:", error);
     return { success: false, error: error.message || "Failed to fetch users" };
+  }
+}
+
+async function countActiveFullAdmins(): Promise<number> {
+  const admins = await prisma.user.findMany({
+    where: {
+      IsActive: true,
+      Role: { RoleName: { in: ["Admin", "SUPER_ADMIN", "PRINCIPAL", "BURSAR", "ADMISSIONS"] } },
+    },
+    include: {
+      Role: true,
+      RoleAssignments: true,
+    },
+  });
+
+  let count = 0;
+  for (const a of admins) {
+    const assignedRoles = Array.isArray(a.RoleAssignments)
+      ? a.RoleAssignments.map((ra) => ra.Role)
+      : [];
+    const caps = resolveActorCapabilities(
+      a.Capabilities as string[] | undefined,
+      assignedRoles,
+      a.Role?.RoleName
+    );
+    if (isFullCapabilitySet(caps)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * Section B.2 Capability & Preset Assignment:
+ * - Only an ADMIN with MANAGE_USERS can update capabilities.
+ * - Guardrail 1: No one can add or modify capabilities on their own account.
+ * - Guardrail 2: The last FULL admin cannot be removed, deactivated, or demoted.
+ */
+export async function updateAdminCapabilities(data: {
+  targetUserId: number;
+  capabilities?: Capability[];
+  preset?: CapabilityPresetName;
+  reason?: string;
+}) {
+  try {
+    const actor = await requireCapability("MANAGE_USERS");
+    const targetUserId = Number(data.targetUserId);
+
+    if (actor.UserID === targetUserId) {
+      return {
+        success: false,
+        error: "Guardrail Violation (Section B.2): Nobody can grant or modify capabilities on their own account.",
+      };
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { UserID: targetUserId },
+      include: { Role: true, RoleAssignments: true },
+    });
+
+    if (!target) {
+      return { success: false, error: "Target user account not found." };
+    }
+
+    const nextCaps: Capability[] = data.preset
+      ? CAPABILITY_PRESETS[data.preset]
+      : (data.capabilities || []).filter((c): c is Capability => ALL_CAPABILITIES.includes(c));
+
+    const currentAssignedRoles = Array.isArray(target.RoleAssignments)
+      ? target.RoleAssignments.map((ra) => ra.Role)
+      : [];
+    const currentCaps = resolveActorCapabilities(
+      target.Capabilities as string[] | undefined,
+      currentAssignedRoles,
+      target.Role?.RoleName
+    );
+
+    if (isFullCapabilitySet(currentCaps) && !isFullCapabilitySet(nextCaps)) {
+      const fullCount = await countActiveFullAdmins();
+      if (fullCount <= 1) {
+        return {
+          success: false,
+          error: "Guardrail Violation (Section B.2): The last FULL admin cannot be demoted.",
+        };
+      }
+    }
+
+    const updated = await prisma.user.update({
+      where: { UserID: targetUserId },
+      data: {
+        Capabilities: nextCaps,
+        TokenVersion: { increment: 1 },
+      },
+    });
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "ADMIN_CAPABILITIES_UPDATED",
+      entity: "User",
+      entityId: targetUserId,
+      reason: data.reason || (data.preset ? `Preset applied: ${data.preset}` : "Custom capability update"),
+      oldValue: { capabilities: Array.from(currentCaps) },
+      newValue: { capabilities: nextCaps, preset: data.preset ?? null, tokenVersion: updated.TokenVersion },
+    });
+
+    revalidatePath("/portal/admin/users");
+    return {
+      success: true,
+      capabilities: nextCaps,
+      message: `Updated capabilities (${nextCaps.length} active) for ${target.Email}.`,
+    };
+  } catch (error: any) {
+    console.error("updateAdminCapabilities error:", error);
+    return { success: false, error: error.message || "Failed to update admin capabilities." };
   }
 }
 
@@ -230,13 +374,46 @@ export async function createUserAccount(data: {
 
 export async function toggleUserStatus(userId: number, isActive: boolean) {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
+    const actor = await requireCapability("MANAGE_USERS");
+    if (!isActive && actor.UserID === userId) {
+      return {
+        success: false,
+        error: "Guardrail Violation (Section B.2): You cannot deactivate your own account.",
+      };
+    }
+
+    if (!isActive) {
+      const target = await prisma.user.findUnique({
+        where: { UserID: userId },
+        include: { Role: true, RoleAssignments: true },
+      });
+      if (target) {
+        const assignedRoles = Array.isArray(target.RoleAssignments)
+          ? target.RoleAssignments.map((ra) => ra.Role)
+          : [];
+        const caps = resolveActorCapabilities(
+          target.Capabilities as string[] | undefined,
+          assignedRoles,
+          target.Role?.RoleName
+        );
+        if (isFullCapabilitySet(caps)) {
+          const fullCount = await countActiveFullAdmins();
+          if (fullCount <= 1) {
+            return {
+              success: false,
+              error: "Guardrail Violation (Section B.2): The last FULL admin cannot be deactivated.",
+            };
+          }
+        }
+      }
+    }
+
     const updated = await prisma.user.update({
       where: { UserID: userId },
       data: {
         IsActive: isActive,
         TokenVersion: { increment: 1 },
-      }
+      },
     });
 
     await writeAuditLog({

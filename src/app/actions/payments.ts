@@ -2,12 +2,17 @@
 
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { requireActiveUser, requireRole, writeAuditLog } from "@/lib/authz";
+import {
+  requireActiveUser,
+  requireCapability,
+  assertSeparationOfDuties,
+  writeAuditLog,
+} from "@/lib/authz";
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || "sk_test_mocked_key";
 
 async function requirePaymentManager() {
-  return requireRole(["BURSAR", "SUPER_ADMIN", "PRINCIPAL", "Admin"]);
+  return requireCapability(["MANAGE_FINANCE", "APPROVE_PAYMENTS"]);
 }
 
 // ==========================================
@@ -75,7 +80,7 @@ export async function getAdminPaymentAuditList(filters?: {
 }
 
 export async function approvePaymentRecord(paymentId: number) {
-  const actor = await requirePaymentManager();
+  const actor = await requireCapability("APPROVE_PAYMENTS");
 
   try {
     const payment = await prisma.payment_Record.findUnique({
@@ -86,6 +91,9 @@ export async function approvePaymentRecord(paymentId: number) {
     if (!payment) {
       return { success: false, error: "Payment record not found." };
     }
+
+    // Section B.2 & B.5 Separation of Duties: Submitter cannot approve their own payment
+    assertSeparationOfDuties(actor.UserID, payment.SubmittedBy, "payment submission");
 
     await prisma.$transaction([
       prisma.payment_Record.update({

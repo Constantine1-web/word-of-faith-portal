@@ -2,6 +2,27 @@ import prisma from "@/lib/db";
 import crypto from "crypto";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
+import {
+  ALL_CAPABILITIES,
+  CAPABILITY_METADATA,
+  CAPABILITY_PRESETS,
+  resolveActorCapabilities,
+  isFullCapabilitySet,
+  assertSeparationOfDuties,
+  type Capability,
+  type CapabilityPresetName,
+} from "@/server/security/capabilities";
+
+export {
+  ALL_CAPABILITIES,
+  CAPABILITY_METADATA,
+  CAPABILITY_PRESETS,
+  resolveActorCapabilities,
+  isFullCapabilitySet,
+  assertSeparationOfDuties,
+  type Capability,
+  type CapabilityPresetName,
+};
 
 /**
  * Normalizes login IDs (Unicode NFKC, trimmed, lowercase) before storing or comparing (Section 3).
@@ -11,6 +32,7 @@ export function normalizeLoginId(input: string): string {
 }
 
 export type PolicyAction =
+  | Capability
   | "user:manage"
   | "term:freeze"
   | "grade:score"
@@ -24,38 +46,70 @@ export type PolicyAction =
   | "admissions:review"
   | "broadsheet:export";
 
+const LEGACY_ACTION_TO_CAPABILITY: Partial<Record<PolicyAction, Capability>> = {
+  "user:manage": "MANAGE_USERS",
+  "term:freeze": "FREEZE_TERM",
+  "grade:unlock": "UNLOCK_SHEETS",
+  "payment:approve": "APPROVE_PAYMENTS",
+  "card:generate": "MANAGE_CARDS",
+  "card:issue": "MANAGE_CARDS",
+  "card:unlock": "MANAGE_CARDS",
+  "admissions:review": "MANAGE_STUDENTS",
+};
+
 /**
- * Centralized Data-Access Layer (DAL) Policy Evaluator (Section 1 & 2).
- * Note: SUPER_ADMIN (ICT) manages users and systems only; grade unlock is strictly restricted to PRINCIPAL.
+ * Centralized Data-Access Layer (DAL) Policy Evaluator (Section B.2, Section 1 & 2).
+ * Evaluates both Section B.2 Capabilities and PolicyAction identifiers.
  */
 export function can(
-  actor: { roles: Set<string> | RoleSetWithArrayHelpers; UserID?: number },
+  actor: {
+    roles: Set<string> | RoleSetWithArrayHelpers;
+    capabilities?: Set<Capability> | Capability[];
+    UserID?: number;
+  },
   action: PolicyAction
 ): boolean {
   const r = actor.roles;
+  const capSet =
+    actor.capabilities instanceof Set
+      ? actor.capabilities
+      : Array.isArray(actor.capabilities)
+      ? new Set<Capability>(actor.capabilities)
+      : resolveActorCapabilities(undefined, Array.from(r));
+
+  if (ALL_CAPABILITIES.includes(action as Capability)) {
+    return capSet.has(action as Capability);
+  }
+
+  const mappedCap = LEGACY_ACTION_TO_CAPABILITY[action];
+  if (mappedCap && capSet.has(mappedCap)) {
+    return true;
+  }
+
   switch (action) {
     case "user:manage":
-      return r.has("SUPER_ADMIN") || r.has("PRINCIPAL");
+      return capSet.has("MANAGE_USERS") || r.has("SUPER_ADMIN") || r.has("PRINCIPAL");
     case "term:freeze":
-      return r.has("PRINCIPAL");
+      return capSet.has("FREEZE_TERM") || r.has("PRINCIPAL");
     case "grade:unlock":
-      // Section 1: SUPER_ADMIN cannot revert grades; strictly PRINCIPAL only
-      return r.has("PRINCIPAL");
+      // Section B.2 & Section 1: Requires UNLOCK_SHEETS (Principal), never ICT-only SUPER_ADMIN
+      return capSet.has("UNLOCK_SHEETS") || r.has("PRINCIPAL");
     case "grade:approve":
-      return r.has("FORM_MASTER") || r.has("PRINCIPAL");
+      return capSet.has("APPROVE_RESULTS") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
     case "grade:score":
-      return r.has("TEACHER") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
+      return capSet.has("CORRECT_SCORES") || r.has("TEACHER") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
     case "payment:approve":
+      return capSet.has("APPROVE_PAYMENTS") || r.has("BURSAR") || r.has("PRINCIPAL");
     case "card:generate":
     case "card:issue":
     case "card:unlock":
-      return r.has("BURSAR") || r.has("PRINCIPAL");
+      return capSet.has("MANAGE_CARDS") || r.has("BURSAR") || r.has("PRINCIPAL");
     case "cbt:lift_lock":
-      return r.has("TEACHER") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
+      return capSet.has("MANAGE_CBT") || r.has("TEACHER") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
     case "admissions:review":
-      return r.has("ADMISSIONS") || r.has("PRINCIPAL") || r.has("SUPER_ADMIN");
+      return capSet.has("MANAGE_STUDENTS") || r.has("ADMISSIONS") || r.has("PRINCIPAL") || r.has("SUPER_ADMIN");
     case "broadsheet:export":
-      return r.has("FORM_MASTER") || r.has("PRINCIPAL");
+      return capSet.has("APPROVE_RESULTS") || r.has("FORM_MASTER") || r.has("PRINCIPAL");
     default:
       return false;
   }
@@ -200,21 +254,48 @@ export async function requireActiveUser() {
   }
 
   const roles = resolveUserRoles(user);
+  const assignedRoleList = Array.isArray(user.RoleAssignments)
+    ? user.RoleAssignments.map((ra: { Role: string }) => ra.Role)
+    : [];
+  const capabilities = resolveActorCapabilities(
+    user.Capabilities as string[] | undefined,
+    assignedRoleList,
+    user.Role?.RoleName
+  );
 
   return {
     user,
     UserID: user.UserID as number,
     Email: user.Email as string,
     roles,
+    capabilities,
+    Capabilities: Array.from(capabilities),
     session,
   };
+}
+
+/**
+ * Verifies that the active user possesses at least one of the required Section B.2 Capabilities.
+ */
+export async function requireCapability(required: Capability | Capability[]) {
+  const actor = await requireActiveUser();
+  const list = Array.isArray(required) ? required : [required];
+  const allowed = list.some((cap) => can(actor, cap));
+  if (!allowed) {
+    throw new AuthorizationError(
+      `Forbidden: This operation requires ${list.join(" or ")} capability.`,
+      403
+    );
+  }
+  return actor;
 }
 
 /**
  * Verifies that the active user possesses at least one of the allowed roles.
  */
 export async function requireRole(allowedRoles: GranularRole[]) {
-  const { user, UserID, Email, roles, session } = await requireActiveUser();
+  const actor = await requireActiveUser();
+  const { roles } = actor;
 
   const isAuthorized = allowedRoles.some((allowed) => roles.has(allowed) || roles.has(allowed.toUpperCase()));
   if (!isAuthorized) {
@@ -224,7 +305,7 @@ export async function requireRole(allowedRoles: GranularRole[]) {
     );
   }
 
-  return { user, UserID, Email, roles, session };
+  return actor;
 }
 
 /**
