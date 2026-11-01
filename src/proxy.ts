@@ -57,11 +57,12 @@ export async function proxy(request: NextRequest) {
     secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-dev",
   });
 
+  const numericId = Number(token?.id ?? token?.sub);
   const hasValidIdentity =
     token !== null &&
     typeof token === "object" &&
-    typeof token.id === "number" &&
-    token.id > 0 &&
+    !Number.isNaN(numericId) &&
+    numericId > 0 &&
     typeof token.role === "string" &&
     token.role.length > 0;
 
