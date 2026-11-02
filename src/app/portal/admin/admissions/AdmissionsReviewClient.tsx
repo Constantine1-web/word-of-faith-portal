@@ -15,6 +15,12 @@ export default function AdmissionsReviewClient({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [lastNotificationLinks, setLastNotificationLinks] = useState<{
+    whatsappUrl?: string | null;
+    smsUrl?: string | null;
+    recipientPhone?: string;
+    recipientEmail?: string;
+  } | null>(null);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -77,9 +83,18 @@ export default function AdmissionsReviewClient({
     if (res.success) {
       setApplications(prev => prev.map(a => a.id === selectedApp.id ? { ...a, status: "Approved" } : a));
       const claimNotice = (res as any).claimCode
-        ? ` | One-Time Portal Claim Code (valid 14 days): ${(res as any).claimCode}`
+        ? ` | One-Time Portal Claim Code (valid 7 days): ${(res as any).claimCode}`
         : "";
-      setSuccess(`Student ${selectedApp.childFirstName} ${selectedApp.childLastName} enrolled with Reg No: ${res.admissionNo}${claimNotice}`);
+      const emailStatus = (res as any).emailSent
+        ? ` | Confirmation email sent to ${(res as any).recipientEmail}`
+        : ` | Notification prepared for ${(res as any).recipientEmail}`;
+      setSuccess(`Student ${selectedApp.childFirstName} ${selectedApp.childLastName} enrolled with Reg No: ${res.admissionNo}${claimNotice}${emailStatus}`);
+      setLastNotificationLinks({
+        whatsappUrl: (res as any).whatsappUrl,
+        smsUrl: (res as any).smsUrl,
+        recipientPhone: (res as any).recipientPhone,
+        recipientEmail: (res as any).recipientEmail,
+      });
       setShowEnrollModal(false);
       setSelectedApp(null);
     } else {
@@ -89,16 +104,26 @@ export default function AdmissionsReviewClient({
   };
 
   const handleReject = async (appId: number, name: string) => {
-    if (!confirm(`Reject admission application for ${name}?`)) return;
+    const reason = prompt(`Optional note/reason to include in the rejection email/SMS for ${name} (or leave blank):`, "");
+    if (reason === null) return;
 
     setLoading(true);
     setError("");
     setSuccess("");
 
-    const res = await rejectAdmissionApplication(appId);
+    const res = await rejectAdmissionApplication(appId, reason || undefined);
     if (res.success) {
       setApplications(prev => prev.map(a => a.id === appId ? { ...a, status: "Rejected" } : a));
-      setSuccess(`Application for ${name} marked as rejected.`);
+      const emailStatus = (res as any).emailSent
+        ? ` Confirmatory rejection email sent to ${(res as any).recipientEmail}.`
+        : ` Notification prepared for ${(res as any).recipientEmail}.`;
+      setSuccess(`Application for ${name} marked as rejected.${emailStatus}`);
+      setLastNotificationLinks({
+        whatsappUrl: (res as any).whatsappUrl,
+        smsUrl: (res as any).smsUrl,
+        recipientPhone: (res as any).recipientPhone,
+        recipientEmail: (res as any).recipientEmail,
+      });
     } else {
       setError(res.error || "Failed to reject application");
     }
@@ -108,7 +133,36 @@ export default function AdmissionsReviewClient({
   return (
     <div>
       {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
-      {success && <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
+      {success && (
+        <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold", display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+          <div>{success}</div>
+          {lastNotificationLinks && (lastNotificationLinks.whatsappUrl || lastNotificationLinks.smsUrl) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.65rem", alignItems: "center", fontSize: "0.85rem" }}>
+              <span style={{ color: "#166534" }}>
+                Also notify applicant phone ({lastNotificationLinks.recipientPhone}):
+              </span>
+              {lastNotificationLinks.whatsappUrl && (
+                <a
+                  href={lastNotificationLinks.whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ background: "#15803d", color: "white", padding: "0.35rem 0.75rem", borderRadius: "6px", textDecoration: "none", fontWeight: 700 }}
+                >
+                  Send via WhatsApp
+                </a>
+              )}
+              {lastNotificationLinks.smsUrl && (
+                <a
+                  href={lastNotificationLinks.smsUrl}
+                  style={{ background: "white", color: "#15803d", border: "1px solid #15803d", padding: "0.35rem 0.75rem", borderRadius: "6px", textDecoration: "none", fontWeight: 700 }}
+                >
+                  Send via SMS
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>

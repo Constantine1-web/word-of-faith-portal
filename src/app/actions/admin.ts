@@ -23,6 +23,7 @@ import {
   buildOtpAuthUri,
   generateRecoveryCodes,
 } from "@/server/security/totp";
+import { sendAdmissionDecisionNotification } from "@/lib/email";
 
 // Ensure the user holds an authorized administrative role in Layer 3
 async function requireAdmin() {
@@ -722,26 +723,78 @@ export async function enrollApplicantToStudent(data: {
       },
     });
 
+    const recipientEmail = (data.parentEmail || app.parentEmail || "").trim();
+    const recipientPhone = (data.parentContact || app.parentPhone || "").trim();
+
+    const notification = await sendAdmissionDecisionNotification({
+      status: "Approved",
+      parentName: app.parentName,
+      parentEmail: recipientEmail,
+      parentPhone: recipientPhone,
+      childFirstName: app.childFirstName,
+      childLastName: app.childLastName,
+      applyingClass: app.applyingClass,
+      assignedClassName: selectedClass.ClassName,
+      admissionNo,
+      claimCode: plainClaimCode,
+    });
+
     revalidatePath("/portal/admin/admissions");
     revalidatePath("/portal/admin/students");
-    return { success: true, student, admissionNo, claimCode: plainClaimCode };
+    return {
+      success: true,
+      student,
+      admissionNo,
+      claimCode: plainClaimCode,
+      emailSent: notification.emailSent,
+      recipientEmail,
+      recipientPhone,
+      whatsappUrl: notification.whatsappUrl,
+      smsUrl: notification.smsUrl,
+    };
   } catch (error: any) {
     console.error("enrollApplicantToStudent error:", error);
     return { success: false, error: error.message || "Failed to enroll student" };
   }
 }
 
-export async function rejectAdmissionApplication(applicationId: number) {
+export async function rejectAdmissionApplication(applicationId: number, reason?: string) {
   await requireAdmin();
 
   try {
+    const app = await prisma.admission_Application.findUnique({
+      where: { id: applicationId },
+    });
+
+    if (!app) {
+      return { success: false, error: "Admission application not found." };
+    }
+
     await prisma.admission_Application.update({
       where: { id: applicationId },
-      data: { status: "Rejected" }
+      data: { status: "Rejected" },
+    });
+
+    const notification = await sendAdmissionDecisionNotification({
+      status: "Rejected",
+      parentName: app.parentName,
+      parentEmail: app.parentEmail,
+      parentPhone: app.parentPhone,
+      childFirstName: app.childFirstName,
+      childLastName: app.childLastName,
+      applyingClass: app.applyingClass,
+      reason,
     });
 
     revalidatePath("/portal/admin/admissions");
-    return { success: true };
+    return {
+      success: true,
+      emailSent: notification.emailSent,
+      recipientEmail: app.parentEmail,
+      recipientPhone: app.parentPhone,
+      whatsappUrl: notification.whatsappUrl,
+      smsUrl: notification.smsUrl,
+    };
   } catch (error: any) {
     console.error("rejectAdmissionApplication error:", error);
     return { success: false, error: error.message || "Failed to reject application" };
