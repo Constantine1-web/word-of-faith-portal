@@ -10,6 +10,9 @@ import {
   submitClassResultsToAdmin,
   requestSubjectSheetUnlock,
   approveSubjectSheetUnlock,
+  generateScoreSheetTemplateCsv,
+  stageScoreSheetImportCsv,
+  commitScoreSheetImportBatch,
 } from "@/app/actions/results";
 import { calculateGrade } from "@/lib/grading";
 import Link from "next/link";
@@ -24,7 +27,9 @@ import {
   FiUserCheck,
   FiPrinter,
   FiStar,
-  FiAlertCircle
+  FiAlertCircle,
+  FiDownload,
+  FiUploadCloud,
 } from "react-icons/fi";
 
 export default function TeacherDashboard({ teacherId, initialAssignments }: { teacherId?: string; initialAssignments?: any[] }) {
@@ -43,6 +48,10 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
   const [isSubjectSubmitted, setIsSubjectSubmitted] = useState(false);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [savingScores, setSavingScores] = useState(false);
+
+  // Section B.4.3 Import Staging State
+  const [stagedBatch, setStagedBatch] = useState<any>(null);
+  const [isStaleImportTemplate, setIsStaleImportTemplate] = useState(false);
 
   // Form Master Remark State
   const [selectedStudentForRemark, setSelectedStudentForRemark] = useState<any>(null);
@@ -170,23 +179,118 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
     setError("");
     setSuccess("");
 
-    const payload = subjectStudents.map(st => ({
+    const payload = subjectStudents.map((st) => ({
       studentId: st.StudentID,
       caScore: parseFloat(scoreInputs[st.StudentID]?.ca || "0"),
-      examScore: parseFloat(scoreInputs[st.StudentID]?.exam || "0")
+      examScore: parseFloat(scoreInputs[st.StudentID]?.exam || "0"),
     }));
 
     const res = await saveSubjectScoresBatch({
       subjectId: selectedAllocation.SubjectID,
       classId: selectedAllocation.ClassID,
       termId: dashboardData.activeTerm.TermID,
-      scores: payload
+      scores: payload,
     });
 
     if (res.success) {
-      setSuccess("Scores saved as draft successfully!");
+      setSuccess(res.message || "Scores saved as draft successfully!");
     } else {
       setError(res.error || "Failed to save scores");
+    }
+    setSavingScores(false);
+  };
+
+  // Section B.4.3: Download Class Roster CSV Template
+  const handleDownloadTemplate = async () => {
+    if (!selectedAllocation || !dashboardData?.activeTerm) return;
+    setSavingScores(true);
+    setError("");
+    const res = await generateScoreSheetTemplateCsv(
+      selectedAllocation.ClassID,
+      selectedAllocation.SubjectID,
+      dashboardData.activeTerm.TermID
+    );
+    if (res.success && res.csv) {
+      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.fileName || "score_template.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      setSuccess(`Downloaded roster template (${res.fileName}).`);
+    } else {
+      setError(res.error || "Failed to generate CSV template.");
+    }
+    setSavingScores(false);
+  };
+
+  // Section B.4.3: Upload & Stage CSV into ImportBatch / ImportRow
+  const handleStageCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedAllocation || !dashboardData?.activeTerm) return;
+
+    setSavingScores(true);
+    setError("");
+    setSuccess("");
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const csvContent = String(evt.target?.result || "");
+      const res = await stageScoreSheetImportCsv({
+        classId: selectedAllocation.ClassID,
+        subjectId: selectedAllocation.SubjectID,
+        termId: dashboardData.activeTerm.TermID,
+        csvContent,
+        fileName: file.name,
+      });
+
+      if (res.success && res.batch) {
+        setStagedBatch(res.batch);
+        setIsStaleImportTemplate(Boolean(res.isStaleTemplate));
+        setSuccess(
+          `Staged ${res.batch.rowCount} rows (${res.batch.errorCount} validation error(s)). Review the preview below before committing.`
+        );
+      } else {
+        setError(res.error || "Failed to stage CSV import.");
+      }
+      setSavingScores(false);
+      e.target.value = "";
+    };
+    reader.readAsText(file);
+  };
+
+  // Section B.4.3: Commit Staged ImportBatch via Single Write Path
+  const handleCommitImportBatch = async () => {
+    if (!stagedBatch) return;
+    setSavingScores(true);
+    setError("");
+    setSuccess("");
+
+    const res = await commitScoreSheetImportBatch(stagedBatch.id);
+    if (res.success) {
+      setSuccess(res.message || "Import batch committed!");
+      setStagedBatch(null);
+      // Reload scores
+      const refreshed = await getStudentsAndScoresForSubject(
+        selectedAllocation.ClassID,
+        selectedAllocation.SubjectID,
+        dashboardData.activeTerm?.TermID
+      );
+      if (refreshed.success) {
+        setSubjectStudents(refreshed.students || []);
+        const nextMap: Record<number, { ca: string; exam: string }> = {};
+        refreshed.students?.forEach((st: any) => {
+          const r = st.Results?.[0];
+          nextMap[st.StudentID] = {
+            ca: r?.CAScore !== undefined ? r.CAScore.toString() : "",
+            exam: r?.ExamScore !== undefined ? r.ExamScore.toString() : "",
+          };
+        });
+        setScoreInputs(nextMap);
+      }
+    } else {
+      setError(res.error || "Failed to commit import batch.");
     }
     setSavingScores(false);
   };
@@ -441,7 +545,42 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                   </p>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    disabled={savingScores}
+                    className="btn btn-outline"
+                    style={{ padding: "0.4rem 0.75rem", fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
+                    title="Download locked class roster CSV template (Section B.4.3)"
+                  >
+                    <FiDownload /> Template CSV
+                  </button>
+
+                  {!isSubjectSubmitted && !isTermLocked && (
+                    <label
+                      className="btn btn-outline"
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        fontSize: "0.82rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
+                        cursor: "pointer",
+                      }}
+                      title="Upload CSV into staging preview before committing (Section B.4.3)"
+                    >
+                      <FiUploadCloud /> Stage Import CSV
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handleStageCsvUpload}
+                        style={{ display: "none" }}
+                        disabled={savingScores}
+                      />
+                    </label>
+                  )}
+
                   {isSubjectSubmitted ? (
                     <span style={{ background: "#dcfce7", color: "#15803d", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                       <FiCheckCircle /> Submitted to Form Master
@@ -453,6 +592,86 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                   )}
                 </div>
               </div>
+
+              {/* Section B.4.3 Staged Import Preview Panel */}
+              {stagedBatch && (
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1.5px solid #3b82f6",
+                    borderRadius: "var(--radius-md)",
+                    padding: "1.25rem",
+                    marginBottom: "1.5rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <div>
+                      <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>
+                        Staged Import Preview — {stagedBatch.rowCount} Row(s) · {stagedBatch.errorCount} Error(s)
+                      </h4>
+                      {isStaleImportTemplate && (
+                        <div style={{ color: "#b45309", fontSize: "0.82rem", fontWeight: 700, marginTop: "0.2rem" }}>
+                          ⚠️ Stale Template Warning: This file was exported from an older sheet version. Please review carefully before committing.
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button
+                        type="button"
+                        onClick={() => setStagedBatch(null)}
+                        className="btn btn-outline"
+                        style={{ padding: "0.35rem 0.75rem", fontSize: "0.8rem" }}
+                      >
+                        Discard Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCommitImportBatch}
+                        disabled={savingScores || stagedBatch.errorCount > 0}
+                        className="btn btn-primary"
+                        style={{ padding: "0.35rem 0.85rem", fontSize: "0.8rem" }}
+                      >
+                        {stagedBatch.errorCount > 0
+                          ? `Blocked (${stagedBatch.errorCount} Error(s))`
+                          : "Commit Import to Sheet"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ overflowX: "auto", maxHeight: "260px" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
+                      <thead>
+                        <tr style={{ background: "#e2e8f0" }}>
+                          <th style={{ padding: "0.5rem", textAlign: "left" }}>Row</th>
+                          <th style={{ padding: "0.5rem", textAlign: "left" }}>Admission No</th>
+                          <th style={{ padding: "0.5rem", textAlign: "center" }}>Incoming CA</th>
+                          <th style={{ padding: "0.5rem", textAlign: "center" }}>Incoming Exam</th>
+                          <th style={{ padding: "0.5rem", textAlign: "center" }}>Status</th>
+                          <th style={{ padding: "0.5rem", textAlign: "center" }}>Diff</th>
+                          <th style={{ padding: "0.5rem", textAlign: "left" }}>Validation</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(stagedBatch.rows || []).map((r: any) => (
+                          <tr key={r.id} style={{ borderBottom: "1px solid #cbd5e1", background: r.error ? "#fef2f2" : "white" }}>
+                            <td style={{ padding: "0.5rem" }}>#{r.rowNumber}</td>
+                            <td style={{ padding: "0.5rem", fontFamily: "monospace", fontWeight: 700 }}>{r.admissionNo}</td>
+                            <td style={{ padding: "0.5rem", textAlign: "center" }}>{r.caTenths !== null ? r.caTenths / 10 : "—"}</td>
+                            <td style={{ padding: "0.5rem", textAlign: "center" }}>{r.examTenths !== null ? r.examTenths / 10 : "—"}</td>
+                            <td style={{ padding: "0.5rem", textAlign: "center", fontWeight: 600 }}>{r.status}</td>
+                            <td style={{ padding: "0.5rem", textAlign: "center", color: r.changes ? "#2563eb" : "#64748b", fontWeight: 600 }}>
+                              {r.changes ? "Changed" : "Unchanged"}
+                            </td>
+                            <td style={{ padding: "0.5rem", color: r.error ? "#b91c1c" : "#15803d", fontWeight: 600 }}>
+                              {r.error || "✓ Valid"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Scores Entry Table */}
               {subjectStudents.length === 0 ? (

@@ -27,7 +27,14 @@ export default async function AdminResultsPage() {
         }
       },
       SubjectSubmissions: {
-        where: { TermID: termId }
+        where: { TermID: termId },
+        include: {
+          Subject: true,
+          Teacher: true,
+        },
+      },
+      Broadsheets: {
+        where: { termId: termId },
       },
       Students: {
         include: {
