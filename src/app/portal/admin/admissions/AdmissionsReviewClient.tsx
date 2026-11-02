@@ -76,7 +76,10 @@ export default function AdmissionsReviewClient({
 
     if (res.success) {
       setApplications(prev => prev.map(a => a.id === selectedApp.id ? { ...a, status: "Approved" } : a));
-      setSuccess(`Student ${selectedApp.childFirstName} ${selectedApp.childLastName} enrolled successfully with Reg No: ${res.admissionNo}!`);
+      const claimNotice = (res as any).claimCode
+        ? ` | One-Time Portal Claim Code (valid 14 days): ${(res as any).claimCode}`
+        : "";
+      setSuccess(`Student ${selectedApp.childFirstName} ${selectedApp.childLastName} enrolled with Reg No: ${res.admissionNo}${claimNotice}`);
       setShowEnrollModal(false);
       setSelectedApp(null);
     } else {

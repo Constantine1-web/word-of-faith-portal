@@ -1,12 +1,15 @@
 "use server";
 
 import prisma from "@/lib/db";
+import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import {
+  requireActiveUser,
   requireRole,
   requireCapability,
   writeAuditLog,
+  sanitizeCsvCell,
   ALL_CAPABILITIES,
   CAPABILITY_PRESETS,
   resolveActorCapabilities,
@@ -14,6 +17,12 @@ import {
   type Capability,
   type CapabilityPresetName,
 } from "@/lib/authz";
+import {
+  generateTotpSecret,
+  verifyTotpCode,
+  buildOtpAuthUri,
+  generateRecoveryCodes,
+} from "@/server/security/totp";
 
 // Ensure the user holds an authorized administrative role in Layer 3
 async function requireAdmin() {
@@ -671,17 +680,37 @@ export async function enrollApplicantToStudent(data: {
       admissionNo = `WOFS/${year}/${prefix}/${sequence}`;
     }
 
+    // Generate a 6-char one-time Student Claim Code (Section B.6 & Section 4)
+    const rawClaimChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let plainClaimCode = "";
+    const randomBytes = crypto.randomBytes(6);
+    for (let i = 0; i < 6; i++) {
+      plainClaimCode += rawClaimChars[randomBytes[i] % rawClaimChars.length];
+    }
+    const claimCodeHash = crypto.createHash("sha256").update(plainClaimCode).digest("hex");
+    const claimExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
     // Create the student profile
     const student = await prisma.student.create({
       data: {
         AdmissionNo: admissionNo,
+        ClaimCodeHash: claimCodeHash,
+        ClaimCodeExpiresAt: claimExpiresAt,
+        FirstName: app.childFirstName,
+        LastName: app.childLastName,
         ClassID: data.classId,
         DateOfBirth: app.dateOfBirth,
         ParentContact: data.parentContact || app.parentPhone,
         ParentEmail: data.parentEmail || app.parentEmail,
         PreferredName: `${app.childFirstName} ${app.childLastName}`,
-        HasPaidFees: false
-      }
+        HasPaidFees: false,
+        Claims: {
+          create: {
+            codeHash: claimCodeHash,
+            expiresAt: claimExpiresAt,
+          },
+        },
+      },
     });
 
     // Update application status
@@ -689,13 +718,13 @@ export async function enrollApplicantToStudent(data: {
       where: { id: data.applicationId },
       data: {
         status: "Approved",
-        enrolledStudentId: student.StudentID
-      }
+        enrolledStudentId: student.StudentID,
+      },
     });
 
     revalidatePath("/portal/admin/admissions");
     revalidatePath("/portal/admin/students");
-    return { success: true, student, admissionNo };
+    return { success: true, student, admissionNo, claimCode: plainClaimCode };
   } catch (error: any) {
     console.error("enrollApplicantToStudent error:", error);
     return { success: false, error: error.message || "Failed to enroll student" };
@@ -836,6 +865,379 @@ export async function deleteTeacher(userId: number) {
   } catch (error: any) {
     console.error("Delete teacher error:", error);
     return { error: error.message || "Failed to delete teacher." };
+  }
+}
+
+// ==========================================
+// 6. STUDENT CLAIM CODE ONBOARDING (Section 4 & B.6)
+// ==========================================
+
+export async function claimStudentAccountWithCode(data: {
+  admissionNo: string;
+  claimCode: string;
+  email: string;
+  password: string;
+}) {
+  try {
+    const admissionNo = (data.admissionNo || "").trim();
+    const rawCode = (data.claimCode || "").trim().toUpperCase();
+    const email = (data.email || "").trim().toLowerCase();
+    const password = data.password || "";
+
+    if (!admissionNo || !rawCode || !email || password.length < 8) {
+      return {
+        success: false,
+        error: "Admission number, 6-character claim code, email, and a password (min 8 chars) are required.",
+      };
+    }
+
+    const student = await prisma.student.findUnique({
+      where: { AdmissionNo: admissionNo },
+      include: {
+        Claims: {
+          where: { usedAt: null },
+          orderBy: { expiresAt: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    // Uniform generic error to prevent enumeration (Section 2)
+    const genericClaimError = "Invalid or expired admission number / claim code combination.";
+
+    if (!student) {
+      return { success: false, error: genericClaimError };
+    }
+
+    const inputHash = crypto.createHash("sha256").update(rawCode).digest("hex");
+    const activeClaim = student.Claims?.[0];
+
+    const expectedHash = activeClaim?.codeHash || student.ClaimCodeHash;
+    const expiresAt = activeClaim?.expiresAt || student.ClaimCodeExpiresAt;
+
+    if (!expectedHash || (expiresAt && new Date(expiresAt) < new Date())) {
+      return { success: false, error: genericClaimError };
+    }
+
+    const bufA = Buffer.from(expectedHash, "utf8");
+    const bufB = Buffer.from(inputHash, "utf8");
+    const isMatch = bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+
+    if (!isMatch) {
+      if (activeClaim) {
+        await prisma.studentClaim.update({
+          where: { id: activeClaim.id },
+          data: { attempts: { increment: 1 } },
+        });
+      }
+      return { success: false, error: genericClaimError };
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    await prisma.$transaction(async (tx) => {
+      const studentRole = await tx.role.findUnique({ where: { RoleName: "Student" } });
+      if (!studentRole) throw new Error("Student role not found.");
+
+      const user = await tx.user.create({
+        data: {
+          Email: email,
+          PasswordHash: passwordHash,
+          RoleID: studentRole.RoleID,
+          IsActive: true,
+        },
+      });
+
+      await tx.student.update({
+        where: { StudentID: student.StudentID },
+        data: {
+          UserID: user.UserID,
+          ClaimCodeHash: null,
+          ClaimCodeExpiresAt: null,
+        },
+      });
+
+      if (activeClaim) {
+        await tx.studentClaim.update({
+          where: { id: activeClaim.id },
+          data: { usedAt: new Date() },
+        });
+      }
+
+      await writeAuditLog({
+        tx,
+        actorId: user.UserID,
+        action: "STUDENT_CLAIM_REDEEMED",
+        entity: "Student",
+        entityId: student.StudentID,
+        newValue: { admissionNo, email },
+      });
+    });
+
+    return {
+      success: true,
+      message: "Student account claimed and activated! You may now sign in.",
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to claim student account." };
+  }
+}
+
+// ==========================================
+// 7. AUDIT LOG EXPLORER & HASH-CHAIN VERIFIER (Section B.6)
+// ==========================================
+
+export async function getAuditLogExplorerData(filters?: {
+  search?: string;
+  actionFilter?: string;
+  limit?: number;
+}) {
+  try {
+    await requireCapability("VIEW_AUDIT");
+
+    const take = Math.min(filters?.limit || 100, 250);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {};
+
+    if (filters?.actionFilter && filters.actionFilter !== "ALL") {
+      where.Action = filters.actionFilter;
+    }
+
+    if (filters?.search && filters.search.trim().length > 0) {
+      const q = filters.search.trim();
+      where.OR = [
+        { Action: { contains: q, mode: "insensitive" } },
+        { Entity: { contains: q, mode: "insensitive" } },
+        { EntityID: { contains: q, mode: "insensitive" } },
+        { Reason: { contains: q, mode: "insensitive" } },
+      ];
+    }
+
+    const rows = await prisma.auditLog.findMany({
+      where,
+      include: {
+        Actor: {
+          select: { UserID: true, Email: true },
+        },
+      },
+      orderBy: { CreatedAt: "desc" },
+      take,
+    });
+
+    const serialized = rows.map((r) => ({
+      id: r.id,
+      ActorID: r.ActorID,
+      actorEmail: r.Actor?.Email || (r.ActorID ? `User #${r.ActorID}` : "System"),
+      OnBehalfOfID: r.OnBehalfOfID,
+      Action: r.Action,
+      Entity: r.Entity,
+      EntityID: r.EntityID,
+      Reason: r.Reason,
+      PrevHash: r.PrevHash,
+      Hash: r.Hash,
+      OldValue: r.OldValue,
+      NewValue: r.NewValue,
+      CreatedAt: r.CreatedAt.toISOString(),
+    }));
+
+    return { success: true, logs: serialized };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to load audit log explorer." };
+  }
+}
+
+export async function verifyAuditHashChain() {
+  try {
+    await requireCapability("VIEW_AUDIT");
+
+    const logs = await prisma.auditLog.findMany({
+      orderBy: { CreatedAt: "asc" },
+      take: 500,
+    });
+
+    let hashedCount = 0;
+    let verifiedLinks = 0;
+    const brokenLinks: { id: string; expectedPrevHash: string; actualPrevHash: string | null }[] = [];
+
+    let lastHash: string | null = null;
+    for (const row of logs) {
+      if (!row.Hash) continue;
+      hashedCount++;
+      if (lastHash !== null && row.PrevHash && row.PrevHash !== "GENESIS") {
+        if (row.PrevHash === lastHash) {
+          verifiedLinks++;
+        } else {
+          brokenLinks.push({
+            id: row.id,
+            expectedPrevHash: lastHash,
+            actualPrevHash: row.PrevHash,
+          });
+        }
+      } else {
+        verifiedLinks++;
+      }
+      lastHash = row.Hash;
+    }
+
+    return {
+      success: true,
+      totalChecked: logs.length,
+      hashedCount,
+      verifiedLinks,
+      brokenCount: brokenLinks.length,
+      brokenLinks,
+      isIntact: brokenLinks.length === 0,
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to verify audit hash chain." };
+  }
+}
+
+export async function exportAuditLogCsv() {
+  try {
+    const actor = await requireCapability("VIEW_AUDIT");
+
+    const rows = await prisma.auditLog.findMany({
+      include: { Actor: { select: { Email: true } } },
+      orderBy: { CreatedAt: "desc" },
+      take: 500,
+    });
+
+    // Section B.6: Exports of the audit log are themselves audited!
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "AUDIT_LOG_EXPORTED",
+      entity: "AuditLog",
+      entityId: `export:${rows.length}`,
+      newValue: { exportedRowCount: rows.length },
+    });
+
+    const header = "ID,CreatedAt,Actor,OnBehalfOfID,Action,Entity,EntityID,Reason,PrevHash,Hash";
+    const lines = rows.map((r) =>
+      [
+        sanitizeCsvCell(r.id),
+        sanitizeCsvCell(r.CreatedAt.toISOString()),
+        sanitizeCsvCell(r.Actor?.Email || r.ActorID || "System"),
+        sanitizeCsvCell(r.OnBehalfOfID ?? ""),
+        sanitizeCsvCell(r.Action),
+        sanitizeCsvCell(r.Entity),
+        sanitizeCsvCell(r.EntityID),
+        sanitizeCsvCell(r.Reason ?? ""),
+        sanitizeCsvCell(r.PrevHash ?? ""),
+        sanitizeCsvCell(r.Hash ?? ""),
+      ].join(",")
+    );
+
+    return {
+      success: true,
+      csv: [header, ...lines].join("\n"),
+      fileName: `WOFS_AuditLog_${new Date().toISOString().slice(0, 10)}.csv`,
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to export audit log CSV." };
+  }
+}
+
+// ==========================================
+// 8. STEP-UP TOTP 2FA ENROLMENT & VERIFICATION (Section B.2 & Section 3)
+// ==========================================
+
+export async function initiateUserTotpEnrollment() {
+  try {
+    const actor = await requireActiveUser();
+    const secret = generateTotpSecret();
+    const otpAuthUri = buildOtpAuthUri(actor.Email, secret);
+    const { plainCodes, codeHashes } = generateRecoveryCodes();
+
+    await prisma.user.update({
+      where: { UserID: actor.UserID },
+      data: {
+        TotpSecret: secret,
+        TotpBackupCodes: JSON.stringify(codeHashes),
+      },
+    });
+
+    return {
+      success: true,
+      secret,
+      otpAuthUri,
+      recoveryCodes: plainCodes,
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to initiate TOTP enrollment." };
+  }
+}
+
+export async function confirmUserTotpEnrollment(code: string) {
+  try {
+    const actor = await requireActiveUser();
+    const user = await prisma.user.findUnique({ where: { UserID: actor.UserID } });
+    if (!user?.TotpSecret) {
+      return { success: false, error: "No pending TOTP secret found. Start enrollment first." };
+    }
+
+    const isValid = verifyTotpCode(user.TotpSecret, code);
+    if (!isValid) {
+      return { success: false, error: "Invalid 6-digit TOTP code. Check your authenticator app clock." };
+    }
+
+    await prisma.user.update({
+      where: { UserID: actor.UserID },
+      data: { TotpEnabled: true },
+    });
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "TOTP_2FA_ENABLED",
+      entity: "User",
+      entityId: actor.UserID,
+      newValue: { totpEnabled: true },
+    });
+
+    return { success: true, message: "Step-up TOTP 2FA is now active on your account." };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to confirm TOTP enrollment." };
+  }
+}
+
+export async function verifyStepUpTotpAction(code: string, actionName: string) {
+  try {
+    const actor = await requireActiveUser();
+    const user = await prisma.user.findUnique({ where: { UserID: actor.UserID } });
+
+    if (!user?.TotpEnabled || !user.TotpSecret) {
+      return {
+        success: false,
+        error: "Step-up TOTP is not yet enabled on your account. Enable 2FA first.",
+      };
+    }
+
+    const isValid = verifyTotpCode(user.TotpSecret, code);
+    if (!isValid) {
+      await writeAuditLog({
+        actorId: actor.UserID,
+        action: "STEP_UP_TOTP_FAILED",
+        entity: "User",
+        entityId: actor.UserID,
+        newValue: { attemptedAction: actionName },
+      });
+      return { success: false, error: "Invalid 6-digit TOTP step-up code." };
+    }
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "STEP_UP_TOTP_VERIFIED",
+      entity: "User",
+      entityId: actor.UserID,
+      newValue: { verifiedForAction: actionName, validForMinutes: 5 },
+    });
+
+    return {
+      success: true,
+      verifiedUntil: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to verify step-up TOTP." };
   }
 }
 

@@ -86,7 +86,15 @@ export default function Sidebar() {
           icon: <FiAward />, 
           children: [
             { name: "Result Broadsheets", href: "/portal/admin/results" },
+            { name: "CBT & Day Locks", href: "/portal/admin/cbt" },
             { name: "CBT Portal", href: "/portal/cbt" },
+          ]
+        },
+        {
+          name: "Security & Audit",
+          icon: <FiSettings />,
+          children: [
+            { name: "Audit Hash Explorer", href: "/portal/admin/audit" },
           ]
         },
       ];

@@ -196,7 +196,10 @@ async function main() {
     const user = await prisma.user.upsert({
       where: { Email: acc.email },
       update: {
+        PasswordHash: defaultPasswordHash,
         IsActive: true,
+        FailedLoginAttempts: 0,
+        LockedUntil: null,
         Uuid: crypto.randomUUID(),
         Capabilities: acc.capabilities,
       },
