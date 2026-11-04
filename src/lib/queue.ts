@@ -4,7 +4,7 @@ import { sendEmail } from './email';
 // Sends emails directly (inline) so no Redis or worker process is needed.
 export const emailQueue = {
   add: async (_jobName: string, data: { to: string; subject: string; html: string }) => {
-    await sendEmail(data);
+    return await sendEmail(data);
   }
 };
 

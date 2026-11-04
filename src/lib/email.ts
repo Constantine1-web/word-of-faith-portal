@@ -3,7 +3,7 @@ import nodemailer from "nodemailer";
 const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
 const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
 const smtpUser = process.env.SMTP_USER || "edidiongakpan1420@gmail.com";
-const smtpPass = process.env.SMTP_PASSWORD || "dnxcpxtgxvwydkno";
+const smtpPass = process.env.SMTP_PASSWORD || "ngankradtxsnkmuu";
 const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
 const transporter = nodemailer.createTransport({
@@ -13,6 +13,9 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: smtpUser,
     pass: smtpPass,
+  },
+  tls: {
+    rejectUnauthorized: false,
   },
 });
 

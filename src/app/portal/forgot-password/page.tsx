@@ -8,7 +8,7 @@ import Link from "next/link";
 
 export default function ForgotPassword() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -19,14 +19,15 @@ export default function ForgotPassword() {
     setError("");
     setSuccess("");
 
-    const result = await requestPasswordReset(email);
+    const result = await requestPasswordReset(identifier);
     if (result.success) {
       setSuccess(result.message || "Success");
+      const targetEmail = result.email || identifier;
       setTimeout(() => {
-        router.push(`/portal/reset-password?email=${encodeURIComponent(email)}`);
+        router.push(`/portal/reset-password?email=${encodeURIComponent(targetEmail)}`);
       }, 2000);
     } else {
-      setError(result.error || "Failed");
+      setError(result.error || "Failed to process request.");
     }
     setLoading(false);
   };
@@ -36,7 +37,7 @@ export default function ForgotPassword() {
       <div className={styles.loginCard}>
         <h1 className={styles.title}>Reset Password</h1>
         <p style={{ textAlign: "center", marginBottom: "1.5rem", color: "var(--color-gray-800)", fontSize: "0.9rem" }}>
-          Enter your registered email address and we will send you a 6-digit reset code.
+          Enter your registered <strong>Email Address</strong> or school <strong>Registration Number</strong> (e.g. WOF/2026/045) and we will send a 6-digit reset code to your email.
         </p>
         
         {error && <div className={styles.error}>{error}</div>}
@@ -44,19 +45,19 @@ export default function ForgotPassword() {
 
         <form onSubmit={handleSubmit}>
           <div className={styles.formGroup}>
-            <label htmlFor="email" className={styles.label}>Email Address</label>
+            <label htmlFor="identifier" className={styles.label}>Email Address or Registration Number</label>
             <input 
-              type="email" 
-              id="email" 
+              type="text" 
+              id="identifier" 
               className={styles.input} 
-              placeholder="Your personal email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="e.g. name@gmail.com or WOF/2026/045"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               required 
             />
           </div>
           <button type="submit" className={styles.button} disabled={loading}>
-            {loading ? "Sending..." : "Send Reset Code"}
+            {loading ? "Verifying & Sending Code..." : "Send Reset Code"}
           </button>
           <div className={styles.footerLinks}>
             <Link href="/portal/login" className={styles.link}>← Back to Login</Link>
