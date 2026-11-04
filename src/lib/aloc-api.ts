@@ -3,10 +3,12 @@ import type { CBTQuestion } from "./cbt-api";
 
 export interface AlocStationQuestion {
   id: string | number;
+  text?: string;
   questionHtml?: string;
   question?: string;
   options?: Record<string, string>;
   option?: Record<string, string>;
+  correctAnswer?: string;
   correct_answer?: string;
   answer?: string;
   examType?: string;
@@ -248,8 +250,8 @@ export async function fetchAlocStationQuestions(
 
     // Map ALOC Station format into standard CBTQuestion interface
     const mapped: CBTQuestion[] = items.map((item, idx) => {
-      // Clean HTML tags from stem if questionHtml is provided
-      const rawStem = item.questionHtml || item.question || "";
+      // Clean HTML tags from stem if questionHtml or text is provided
+      const rawStem = item.text || item.questionHtml || item.question || "";
       const rawOptions = item.options || item.option || {};
 
       const cleanOptions: Record<string, string> = {};
@@ -259,7 +261,7 @@ export async function fetchAlocStationQuestions(
         }
       }
 
-      const answerRaw = item.correct_answer || item.answer || "a";
+      const answerRaw = item.correctAnswer || item.correct_answer || item.answer || "a";
       const answer = answerRaw.toLowerCase().trim();
 
       const numericId = typeof item.id === "number" ? item.id : Number.parseInt(String(item.id).replace(/\D/g, ""), 10) || (Date.now() + idx);
@@ -333,6 +335,20 @@ export async function fetchAlocBatchQuestions(
       break;
     }
     cursor = res.nextCursor;
+  }
+
+  // If WAEC/WASSCE has no direct questions in ALOC Station for this subject (e.g. Physics, Chemistry),
+  // fallback to JAMB senior secondary questions which share the identical syllabus
+  if (collected.length === 0 && normalizeExamType(examType) === "waec") {
+    const fallbackRes = await fetchAlocStationQuestions({
+      subject,
+      examType: "jamb",
+      limit: Math.min(targetCount, 15),
+      random: true,
+    });
+    if (fallbackRes.questions.length > 0) {
+      return fallbackRes.questions;
+    }
   }
 
   return collected;
