@@ -14,10 +14,11 @@ function validatePasswordStrength(password: string) {
   return hasLetter && hasNumber && hasSpecial && password.length >= 8;
 }
 
-export async function initiateRegistration(admissionNo: string, email: string) {
+export async function initiateRegistration(admissionNo: string, email: string, claimCode?: string) {
   try {
     const cleanAdmissionNo = (admissionNo || "").trim();
     const cleanEmail = (email || "").trim().toLowerCase();
+    const cleanClaimCode = (claimCode || "").trim().toUpperCase();
 
     if (!cleanAdmissionNo || !cleanEmail) {
       return { success: false, error: "Registration number and email address are required." };
@@ -38,20 +39,31 @@ export async function initiateRegistration(admissionNo: string, email: string) {
           mode: "insensitive",
         },
       },
+      include: {
+        User: true,
+      },
     });
 
     if (!student) {
       return { success: false, error: "Invalid Registration Number. Please verify or contact the school office." };
     }
 
-    if (student.UserID) {
-      return {
-        success: false,
-        error: "This Registration Number has already been claimed. If you forgot your password, please use the Reset Password page.",
-      };
+    // Check if account already fully claimed and in use with a different email
+    if (student.UserID && student.User) {
+      const studentEmail = (student.User.Email || "").toLowerCase().trim();
+      const parentEmail = (student.ParentEmail || "").toLowerCase().trim();
+
+      // If user provided a different email from the pre-provisioned one, check if it's already an active claimed account
+      const isEmailMatch = studentEmail === cleanEmail || parentEmail === cleanEmail;
+      if (!isEmailMatch && student.User.CreatedAt && (Date.now() - new Date(student.User.CreatedAt).getTime() > 30 * 24 * 60 * 60 * 1000)) {
+        return {
+          success: false,
+          error: "This Registration Number has already been claimed. If you forgot your password, please use the Reset Password page.",
+        };
+      }
     }
 
-    // 2. Check if email is in use (case-insensitive)
+    // 2. Check if email is in use by a DIFFERENT user account
     const existingUser = await prisma.user.findFirst({
       where: {
         Email: {
@@ -61,8 +73,8 @@ export async function initiateRegistration(admissionNo: string, email: string) {
       },
     });
 
-    if (existingUser) {
-      return { success: false, error: "This Email Address is already registered to an active account." };
+    if (existingUser && (!student.UserID || existingUser.UserID !== student.UserID)) {
+      return { success: false, error: "This Email Address is already registered to another portal account." };
     }
 
     // 3. Generate 6-digit OTP
@@ -95,7 +107,7 @@ export async function initiateRegistration(admissionNo: string, email: string) {
           </div>
           <div style="padding: 26px; color: #1f2937; line-height: 1.6;">
             <p style="margin-top: 0;">Welcome to Word of Faith Schools!</p>
-            <p>Your 6-digit portal registration verification code is:</p>
+            <p>Your 6-digit portal registration verification code for <strong>${student.PreferredName || student.AdmissionNo}</strong> is:</p>
             <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 18px; text-align: center; margin: 22px 0;">
               <h1 style="letter-spacing: 8px; color: #143424; margin: 10px 0; font-size: 34px; font-family: monospace;">${otp}</h1>
               <span style="font-size: 12px; color: #64748b;">This code expires in 15 minutes.</span>
@@ -173,10 +185,11 @@ export async function verifyRegistration(
           mode: "insensitive",
         },
       },
+      include: { User: true },
     });
 
-    if (!student || student.UserID) {
-      return { success: false, error: "Invalid or already claimed Registration Number." };
+    if (!student) {
+      return { success: false, error: "Invalid Registration Number." };
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -184,21 +197,42 @@ export async function verifyRegistration(
 
     if (!studentRole) return { success: false, error: "System Error: Role not found." };
 
-    const newUser = await prisma.user.create({
-      data: {
-        Email: cleanEmail,
-        PasswordHash: hashedPassword,
-        RoleID: studentRole.RoleID,
-      },
-    });
+    if (student.UserID && student.User) {
+      // Pre-provisioned user profile (like Mercy James added by admin): update password & activate
+      await prisma.user.update({
+        where: { UserID: student.UserID },
+        data: {
+          Email: cleanEmail,
+          PasswordHash: hashedPassword,
+          IsActive: true,
+        },
+      });
 
-    await prisma.student.update({
-      where: { StudentID: student.StudentID },
-      data: {
-        UserID: newUser.UserID,
-        PreferredName: preferredName.trim(),
-      },
-    });
+      await prisma.student.update({
+        where: { StudentID: student.StudentID },
+        data: {
+          PreferredName: preferredName.trim() || student.PreferredName,
+        },
+      });
+    } else {
+      // Fresh claim: create user and link to student
+      const newUser = await prisma.user.create({
+        data: {
+          Email: cleanEmail,
+          PasswordHash: hashedPassword,
+          RoleID: studentRole.RoleID,
+          IsActive: true,
+        },
+      });
+
+      await prisma.student.update({
+        where: { StudentID: student.StudentID },
+        data: {
+          UserID: newUser.UserID,
+          PreferredName: preferredName.trim(),
+        },
+      });
+    }
 
     // Clean up token
     await prisma.verificationToken.delete({ where: { id: tokenRecord.id } });
