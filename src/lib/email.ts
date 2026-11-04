@@ -1,11 +1,12 @@
 import nodemailer from "nodemailer";
 
 const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
-const smtpPort = parseInt(process.env.SMTP_PORT || "587", 10);
+const smtpPort = parseInt(process.env.SMTP_PORT || "465", 10);
 const smtpUser = process.env.SMTP_USER || "edidiongakpan1420@gmail.com";
 const smtpPass = process.env.SMTP_PASSWORD || "ngankradtxsnkmuu";
 const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
+// Resilient Nodemailer transport configured with direct SSL / TLS options
 const transporter = nodemailer.createTransport({
   host: smtpHost,
   port: smtpPort,
@@ -16,9 +17,51 @@ const transporter = nodemailer.createTransport({
   },
   tls: {
     rejectUnauthorized: false,
+    minVersion: "TLSv1.2",
   },
+  connectionTimeout: 10000,
+  greetingTimeout: 5000,
+  socketTimeout: 15000,
 });
 
+/**
+ * Dispatches transactional email via Resend HTTP REST API.
+ * Eliminates serverless socket latency, avoids Gmail personal throttling,
+ * and ensures sub-second inbox placement.
+ */
+async function sendViaResend(
+  apiKey: string,
+  { to, subject, html }: { to: string; subject: string; html: string }
+): Promise<{ success: boolean; messageId?: string }> {
+  const fromAddress = process.env.RESEND_FROM || "Word of Faith Schools <onboarding@resend.dev>";
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromAddress,
+      to: [to],
+      subject,
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.text();
+    throw new Error(`Resend API HTTP ${res.status}: ${errorData}`);
+  }
+
+  const data = await res.json();
+  return { success: true, messageId: data.id };
+}
+
+/**
+ * Universal email dispatcher:
+ * 1. Checks if RESEND_API_KEY is configured (instant HTTP delivery via Resend API)
+ * 2. Falls back to Nodemailer SMTP (smtp.gmail.com) with resilient TLS handling
+ */
 export async function sendEmail({
   to,
   subject,
@@ -28,6 +71,18 @@ export async function sendEmail({
   subject: string;
   html: string;
 }) {
+  const resendApiKey = process.env.RESEND_API_KEY?.trim();
+  if (resendApiKey) {
+    try {
+      const result = await sendViaResend(resendApiKey, { to, subject, html });
+      console.log("[Email] Dispatched via Resend API:", result.messageId);
+      return result;
+    } catch (err: any) {
+      console.warn("[Email] Resend API failed, falling back to SMTP:", err?.message || err);
+    }
+  }
+
+  // Fallback to Nodemailer SMTP
   try {
     const info = await transporter.sendMail({
       from: `Word of Faith Schools <${smtpFrom}>`,
@@ -35,10 +90,10 @@ export async function sendEmail({
       subject,
       html,
     });
-    console.log("Message sent: %s", info.messageId);
+    console.log("[Email] Dispatched via SMTP: %s", info.messageId);
     return { success: true, messageId: info.messageId };
-  } catch (error) {
-    console.error("Error sending email:", error);
+  } catch (error: any) {
+    console.error("[Email] SMTP sending error:", error?.message || error);
     return { success: false, error };
   }
 }

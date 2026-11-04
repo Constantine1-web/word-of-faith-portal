@@ -108,7 +108,7 @@ export async function initiateRegistration(admissionNo: string, email: string) {
     });
 
     if (!emailRes.success) {
-      console.error("[Auth] Registration OTP email failed:", emailRes.error);
+      console.error("[Auth] Registration OTP email failed:", (emailRes as any).error);
       return {
         success: false,
         error: "Unable to send verification email. Mail server is currently unreachable. Please try again shortly.",
@@ -312,7 +312,7 @@ export async function requestPasswordReset(identifier: string) {
     });
 
     if (!emailResult.success) {
-      console.error("[Auth] Password reset email dispatch failed:", emailResult.error);
+      console.error("[Auth] Password reset email dispatch failed:", (emailResult as any).error);
       return {
         success: false,
         error: "Unable to dispatch email. The mail server could not be reached. Please check your network or try again shortly.",

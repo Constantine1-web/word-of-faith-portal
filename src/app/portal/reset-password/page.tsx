@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { resetPassword } from "@/app/actions/auth";
+import { resetPassword, requestPasswordReset } from "@/app/actions/auth";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FiEye, FiEyeOff } from "react-icons/fi";
+import { FiEye, FiEyeOff, FiRefreshCw, FiInfo } from "react-icons/fi";
 import styles from "../login/page.module.css";
 import Link from "next/link";
 
@@ -22,9 +22,43 @@ function ResetPasswordContent() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
+  // Resend code states & 30-second cooldown timer
+  const [resendCooldown, setResendCooldown] = useState(30);
+  const [resending, setResending] = useState(false);
+  const [resendMsg, setResendMsg] = useState("");
+
   useEffect(() => {
     if (emailParam) setEmail(emailParam);
   }, [emailParam]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  const handleResendCode = async () => {
+    if (!email || resendCooldown > 0 || resending) return;
+    setResending(true);
+    setResendMsg("");
+    setError("");
+
+    try {
+      const res = await requestPasswordReset(email);
+      if (res.success) {
+        setResendMsg("A fresh 6-digit code has been sent to your email!");
+        setResendCooldown(45);
+      } else {
+        setError(res.error || "Failed to resend code. Please try again.");
+      }
+    } catch {
+      setError("Network error while requesting new code.");
+    } finally {
+      setResending(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,12 +88,21 @@ function ResetPasswordContent() {
     <div className={styles.loginContainer}>
       <div className={styles.loginCard}>
         <h1 className={styles.title}>Set New Password</h1>
-        <p style={{ textAlign: "center", marginBottom: "1.5rem", color: "var(--color-gray-800)", fontSize: "0.9rem" }}>
-          Enter the 6-digit code sent to your email and your new password.
+        <p style={{ textAlign: "center", marginBottom: "1.25rem", color: "var(--color-gray-800)", fontSize: "0.9rem" }}>
+          Enter the 6-digit code sent to <strong>{email || "your email"}</strong> and choose a new password.
         </p>
-        
+
         {error && <div className={styles.error}>{error}</div>}
-        {success && <div style={{ background: "var(--color-primary-green)", color: "#fff", padding: "0.75rem", borderRadius: "var(--radius-sm)", marginBottom: "1.5rem", textAlign: "center" }}>{success}</div>}
+        {success && (
+          <div style={{ background: "var(--color-primary-green)", color: "#fff", padding: "0.75rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", textAlign: "center" }}>
+            {success}
+          </div>
+        )}
+        {resendMsg && (
+          <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", padding: "0.6rem 0.8rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", fontSize: "0.85rem", textAlign: "center" }}>
+            {resendMsg}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {!emailParam && (
@@ -79,9 +122,32 @@ function ResetPasswordContent() {
               value={otp}
               onChange={(e) => setOtp(e.target.value)}
               maxLength={6}
-              style={{ textAlign: "center", fontSize: "1.5rem", letterSpacing: "5px" }}
+              style={{ textAlign: "center", fontSize: "1.5rem", letterSpacing: "6px", fontFamily: "monospace" }}
               required 
             />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem" }}>
+              <span style={{ fontSize: "0.75rem", color: "#64748b" }}>Code expires in 15 minutes</span>
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={resendCooldown > 0 || resending}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: resendCooldown > 0 ? "#94a3b8" : "var(--color-primary-green, #10b981)",
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  cursor: resendCooldown > 0 ? "default" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.3rem",
+                  padding: "0.2rem 0.4rem",
+                }}
+              >
+                <FiRefreshCw size={12} className={resending ? "animate-spin" : ""} />
+                {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : "Resend Code"}
+              </button>
+            </div>
           </div>
 
           <div className={styles.formGroup}>
@@ -92,7 +158,7 @@ function ResetPasswordContent() {
                 {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
               </button>
             </div>
-            <small style={{ color: "var(--color-gray-500)", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" }}>Must contain letters, numbers, and special characters.</small>
+            <small style={{ color: "var(--color-gray-500)", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" }}>Must contain letters, numbers, and special characters (min 8 chars).</small>
           </div>
 
           <div className={styles.formGroup}>
@@ -106,10 +172,17 @@ function ResetPasswordContent() {
           </div>
 
           <button type="submit" className={styles.button} disabled={loading}>
-            {loading ? "Resetting..." : "Reset Password"}
+            {loading ? "Resetting Password..." : "Reset Password"}
           </button>
+
+          <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", fontSize: "0.8rem", color: "#475569", lineHeight: 1.5 }}>
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontWeight: "600", color: "#1e293b", marginBottom: "0.2rem" }}>
+              <FiInfo /> Need immediate assistance?
+            </div>
+            If the email takes too long or you no longer have access to this email address, contact your <strong>Form Master</strong> or the <strong>School ICT Administrator</strong> to reset your password instantly.
+          </div>
           
-          <div className={styles.footerLinks}>
+          <div className={styles.footerLinks} style={{ marginTop: "1rem" }}>
             <Link href="/portal/login" className={styles.link}>← Back to Login</Link>
           </div>
         </form>
