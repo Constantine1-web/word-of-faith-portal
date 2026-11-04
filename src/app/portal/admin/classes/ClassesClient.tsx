@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { addClassArm, assignFormMaster, deleteClass } from "@/app/actions/admin";
-import { FiPlus, FiUserCheck, FiTrash2, FiLayers } from "react-icons/fi";
+import { FiPlus, FiUserCheck, FiTrash2, FiLayers, FiUploadCloud, FiFileText } from "react-icons/fi";
+import ClassListSyncModal from "@/components/portal/ClassListSyncModal";
 
 export default function ClassesClient({ initialClasses, teachers }: { initialClasses: any[]; teachers: any[] }) {
   const [classes, setClasses] = useState(initialClasses);
@@ -15,6 +16,10 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
   const [newClassName, setNewClassName] = useState("");
   const [newLevel, setNewLevel] = useState("Secondary");
   const [selectedFormMaster, setSelectedFormMaster] = useState<string>("");
+
+  // Sync Class List Modal
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncClassId, setSyncClassId] = useState<number | undefined>(undefined);
 
   const handleAddClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +88,18 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
       {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
       {success && <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.5rem" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.5rem", gap: "0.75rem", flexWrap: "wrap" }}>
+        <button
+          onClick={() => {
+            setSyncClassId(classes[0]?.ClassID);
+            setShowSyncModal(true);
+          }}
+          className="btn btn-outline"
+          style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+        >
+          <FiFileText /> Sync Class List (PDF)
+        </button>
+
         <button
           onClick={() => setShowAddModal(true)}
           className="btn btn-primary"
@@ -151,23 +167,46 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
                     {cls._count?.Students || 0} enrolled
                   </td>
                   <td data-label="Actions" style={{ padding: "1rem", textAlign: "right" }}>
-                    <button
-                      onClick={() => handleDeleteClass(cls.ClassID, cls.ClassName)}
-                      disabled={loading || cls._count?.Students > 0}
-                      className="btn"
-                      style={{
-                        padding: "0.4rem 0.8rem",
-                        fontSize: "0.85rem",
-                        background: "#fee2e2",
-                        color: "#b91c1c",
-                        border: "none",
-                        opacity: cls._count?.Students > 0 ? 0.4 : 1,
-                        cursor: cls._count?.Students > 0 ? "not-allowed" : "pointer"
-                      }}
-                      title={cls._count?.Students > 0 ? "Cannot delete class with enrolled students" : "Delete Class"}
-                    >
-                      <FiTrash2 />
-                    </button>
+                    <div style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
+                      <button
+                        onClick={() => {
+                          setSyncClassId(cls.ClassID);
+                          setShowSyncModal(true);
+                        }}
+                        className="btn"
+                        style={{
+                          padding: "0.4rem 0.75rem",
+                          fontSize: "0.85rem",
+                          background: "#f0fdf4",
+                          color: "#166534",
+                          border: "1px solid #bbf7d0",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.3rem",
+                        }}
+                        title={`Upload PDF class list specifically for ${cls.ClassName}`}
+                      >
+                        <FiUploadCloud /> Sync PDF
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteClass(cls.ClassID, cls.ClassName)}
+                        disabled={loading || cls._count?.Students > 0}
+                        className="btn"
+                        style={{
+                          padding: "0.4rem 0.8rem",
+                          fontSize: "0.85rem",
+                          background: "#fee2e2",
+                          color: "#b91c1c",
+                          border: "none",
+                          opacity: cls._count?.Students > 0 ? 0.4 : 1,
+                          cursor: cls._count?.Students > 0 ? "not-allowed" : "pointer"
+                        }}
+                        title={cls._count?.Students > 0 ? "Cannot delete class with enrolled students" : "Delete Class"}
+                      >
+                        <FiTrash2 />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -234,6 +273,15 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
           </div>
         </div>
       )}
+
+      {/* Sync Class List PDF Modal */}
+      <ClassListSyncModal
+        isOpen={showSyncModal}
+        onClose={() => setShowSyncModal(false)}
+        initialClassId={syncClassId}
+        classes={classes}
+        onSuccess={() => window.location.reload()}
+      />
     </div>
   );
 }

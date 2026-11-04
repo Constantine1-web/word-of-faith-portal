@@ -16,6 +16,7 @@ import {
 } from "@/app/actions/results";
 import { calculateGrade } from "@/lib/grading";
 import Link from "next/link";
+import ClassListSyncModal from "@/components/portal/ClassListSyncModal";
 import {
   FiCheckCircle,
   FiClock,
@@ -40,6 +41,10 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
 
   // Tab State: "subject-scores" vs "form-master-hub"
   const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub">("subject-scores");
+
+  // Class List PDF Sync Modal
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncClassId, setSyncClassId] = useState<number | undefined>(undefined);
 
   // Subject Score Entry State
   const [selectedAllocationId, setSelectedAllocationId] = useState<string>("");
@@ -840,7 +845,27 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                     </p>
                   </div>
 
-                  <div style={{ display: "flex", gap: "0.75rem" }}>
+                  <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyncClassId(cls.ClassID);
+                        setShowSyncModal(true);
+                      }}
+                      className="btn"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                        background: "#f0fdf4",
+                        color: "#166534",
+                        border: "1px solid #bbf7d0",
+                      }}
+                      title={`Upload PDF class list specifically for ${cls.ClassName}`}
+                    >
+                      <FiUploadCloud /> Sync Class List (PDF)
+                    </button>
+
                     <Link
                       href={`/portal/broadsheet/${cls.ClassID}`}
                       target="_blank"
@@ -1049,6 +1074,15 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
           </div>
         </div>
       )}
+
+      {/* Form Master Class List PDF Sync Modal */}
+      <ClassListSyncModal
+        isOpen={showSyncModal}
+        onClose={() => setShowSyncModal(false)}
+        initialClassId={syncClassId}
+        classes={dashboardData?.formMasterClasses || []}
+        onSuccess={() => loadData()}
+      />
     </div>
   );
 }

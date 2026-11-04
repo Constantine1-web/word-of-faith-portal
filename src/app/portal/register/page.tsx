@@ -20,6 +20,7 @@ export default function Register() {
   
   // Step 1 State
   const [admissionNo, setAdmissionNo] = useState("");
+  const [claimCode, setClaimCode] = useState("");
   const [preferredName, setPreferredName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -53,7 +54,7 @@ export default function Register() {
       return;
     }
 
-    const result = await initiateRegistration(admissionNo, email);
+    const result = await initiateRegistration(admissionNo, email, claimCode);
 
     if (result.success) {
       setSuccess("Verification code sent to your email!");
@@ -97,12 +98,27 @@ export default function Register() {
         {step === 1 ? (
           <form onSubmit={handleInitiate}>
             <div className={styles.formGroup}>
-              <label htmlFor="admissionNo" className={styles.label}>Registration Number</label>
-              <input type="text" id="admissionNo" className={styles.input} placeholder="e.g. WOF/2026/001" value={admissionNo} onChange={(e) => setAdmissionNo(e.target.value)} required />
+              <label htmlFor="admissionNo" className={styles.label}>Registration Number *</label>
+              <input type="text" id="admissionNo" className={styles.input} placeholder="e.g. WOF/2026/045 or WOFS/2026/SEC/001" value={admissionNo} onChange={(e) => setAdmissionNo(e.target.value)} required />
             </div>
 
             <div className={styles.formGroup}>
-              <label htmlFor="preferredName" className={styles.label}>Preferred Display Name</label>
+              <label htmlFor="claimCode" className={styles.label}>
+                One-Time Claim Code <span style={{ color: "var(--color-gray-500)", fontWeight: "normal", fontSize: "0.8rem" }}>(Optional - on your orientation slip)</span>
+              </label>
+              <input
+                type="text"
+                id="claimCode"
+                className={styles.input}
+                placeholder="e.g. WOF-8P2K9M"
+                value={claimCode}
+                onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
+                style={{ textTransform: "uppercase", fontFamily: "monospace" }}
+              />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label htmlFor="preferredName" className={styles.label}>Preferred Display Name *</label>
               <input type="text" id="preferredName" className={styles.input} placeholder="e.g. John Doe" value={preferredName} onChange={(e) => setPreferredName(e.target.value)} required />
             </div>
 

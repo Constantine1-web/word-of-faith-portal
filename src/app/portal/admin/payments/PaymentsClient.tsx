@@ -51,15 +51,16 @@ export default function PaymentsClient({
   };
 
   const handleReject = async (paymentId: number, studentName: string) => {
-    if (!confirm(`Reject fee payment for ${studentName}?`)) return;
+    const reason = prompt(`Enter reason for rejecting fee payment for ${studentName}:`, "Receipt could not be verified by Bursary. Please upload a clear teller or transfer receipt.");
+    if (reason === null) return; // User clicked Cancel
 
     setLoading(true);
     setError("");
     setSuccess("");
 
-    const res = await rejectPaymentRecord(paymentId);
+    const res = await rejectPaymentRecord(paymentId, reason);
     if (res.success) {
-      setPayments(prev => prev.map(p => p.PaymentID === paymentId ? { ...p, Status: "Rejected" } : p));
+      setPayments(prev => prev.map(p => p.PaymentID === paymentId ? { ...p, Status: "Rejected", RejectionReason: reason } : p));
       setSuccess(`Payment for ${studentName} rejected.`);
       setStats(prev => ({
         ...prev,
@@ -262,17 +263,35 @@ export default function PaymentsClient({
         </table>
       </div>
 
-      {/* Receipt Image Preview Modal */}
+      {/* Receipt Image / PDF Preview Modal */}
       {previewReceiptUrl && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-          <div style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "1.5rem", maxWidth: "600px", width: "100%", maxHeight: "90vh", overflowY: "auto", position: "relative" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <div style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "1.5rem", maxWidth: "680px", width: "100%", maxHeight: "90vh", overflowY: "auto", position: "relative" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "0.75rem" }}>
               <h3 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Bank Transfer Receipt Preview</h3>
-              <button onClick={() => setPreviewReceiptUrl(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                <FiX size={20} />
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                <a href={previewReceiptUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.85rem", color: "var(--color-primary-green)", textDecoration: "underline" }}>
+                  Open Full File
+                </a>
+                <button onClick={() => setPreviewReceiptUrl(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                  <FiX size={20} />
+                </button>
+              </div>
             </div>
-            <img src={previewReceiptUrl} alt="Payment Receipt" style={{ width: "100%", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)" }} />
+
+            {previewReceiptUrl.toLowerCase().endsWith(".pdf") ? (
+              <iframe
+                src={previewReceiptUrl}
+                title="Receipt PDF"
+                style={{ width: "100%", height: "500px", border: "1px solid var(--color-gray-300)", borderRadius: "var(--radius-md)" }}
+              />
+            ) : (
+              <img
+                src={previewReceiptUrl}
+                alt="Payment Receipt"
+                style={{ width: "100%", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", maxHeight: "70vh", objectFit: "contain" }}
+              />
+            )}
           </div>
         </div>
       )}
