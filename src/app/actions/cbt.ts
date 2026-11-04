@@ -14,6 +14,8 @@ import { IntegrityEventType, AttemptMode } from "@prisma/client";
 // Decision 10.3: 2 Hard Strikes before terminating attempt & locking for the current Lagos day
 const CBT_HARD_STRIKES_BEFORE_LOCK = Number(process.env.CBT_HARD_STRIKES_BEFORE_LOCK || 2);
 const DAILY_ATTEMPT_CAP = 5;
+// How many questions to pull from the provider when the cached pool is too small (one call).
+const POOL_REFILL_SIZE = 40;
 
 const HARD_EVENTS = new Set<IntegrityEventType>([
   "TAB_HIDDEN",
@@ -229,12 +231,22 @@ export async function startAttempt(params: {
       };
     }
 
-    // Ensure question bank has items for this subject; ingest from provider if needed
-    const rawFetched = await fetchQuestions(subjectCode, requestedCount, examBody);
-    if (!rawFetched || rawFetched.length === 0) {
+    // Backend buffer: serve from our own question pool first. The external provider (which
+    // costs API credits) is only called when the cached pool cannot fill this attempt.
+    const poolRows = await prisma.cbtQuestion.findMany({
+      where: { subjectCode, examBody, isActive: true, answerKey: { isNot: null } },
+      select: { id: true },
+    });
+    const cachedIds = poolRows.map((q) => q.id);
+
+    let rawFetched: Awaited<ReturnType<typeof fetchQuestions>> = [];
+    if (cachedIds.length < requestedCount) {
+      rawFetched = await fetchQuestions(subjectCode, POOL_REFILL_SIZE, examBody);
+    }
+    if (cachedIds.length === 0 && (!rawFetched || rawFetched.length === 0)) {
       return {
         success: false,
-        error: `No verified CBT questions available for ${subjectCode.toUpperCase()} (${examBody}).`,
+        error: `No verified CBT questions available for ${subjectCode.toUpperCase()} (${examBody}). The question provider could not be reached or has no questions for this subject yet; please tell the administrator.`,
       };
     }
 
@@ -298,7 +310,8 @@ export async function startAttempt(params: {
     }
 
     const seed = crypto.randomBytes(8).toString("hex");
-    const shuffledIds = seededShuffle(storedQuestionIds, seed).slice(0, requestedCount);
+    const poolIds = Array.from(new Set([...cachedIds, ...storedQuestionIds]));
+    const shuffledIds = seededShuffle(poolIds, seed).slice(0, requestedCount);
     const durationSec = shuffledIds.length * 60; // 60 seconds per question
     const startedAt = new Date();
     const expiresAt = new Date(startedAt.getTime() + durationSec * 1000);
