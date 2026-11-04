@@ -1,3 +1,5 @@
+import { fetchAlocBatchQuestions } from "./aloc-api";
+
 export interface CBTQuestion {
   id: number;
   question: string;
@@ -33,7 +35,7 @@ export const EXAM_TYPES = [
   "utme", "wassce", "neco", "post-utme"
 ];
 
-// Offline verified past question bank (Guarantees zero downtime if both cloud APIs blink)
+// Offline verified past question bank (Guarantees zero downtime if cloud APIs blink or encounter credit limits)
 const FALLBACK_QUESTION_BANK: Record<string, CBTQuestion[]> = {
   mathematics: [
     {
@@ -88,11 +90,87 @@ const FALLBACK_QUESTION_BANK: Record<string, CBTQuestion[]> = {
       examyear: "2021",
       image: null
     }
+  ],
+  physics: [
+    {
+      id: 9201,
+      question: "A car accelerates uniformly from rest at 3 m/s² for 8 seconds. Calculate the total distance covered by the car.",
+      option: { a: "48 m", b: "96 m", c: "120 m", d: "192 m" },
+      answer: "b",
+      solution: "Using s = ut + 0.5at²: since u = 0, s = 0.5 × 3 × (8)² = 0.5 × 3 × 64 = 96 m.",
+      examtype: "WASSCE",
+      examyear: "2020",
+      image: null
+    },
+    {
+      id: 9202,
+      question: "Which of the following electromagnetic waves has the highest frequency?",
+      option: { a: "Radio waves", b: "Infrared rays", c: "Gamma rays", d: "Microwaves" },
+      answer: "c",
+      solution: "In the electromagnetic spectrum, gamma rays have the shortest wavelength and consequently the highest frequency and photon energy.",
+      examtype: "WASSCE",
+      examyear: "2021",
+      image: null
+    },
+    {
+      id: 9203,
+      question: "A stone of mass 2 kg is thrown vertically upwards with a velocity of 20 m/s. Calculate its maximum potential energy (take g = 10 m/s²).",
+      option: { a: "200 J", b: "400 J", c: "600 J", d: "800 J" },
+      answer: "b",
+      solution: "By conservation of mechanical energy, Max P.E = Initial K.E = 0.5 × m × v² = 0.5 × 2 × (20)² = 400 J.",
+      examtype: "WASSCE",
+      examyear: "2019",
+      image: null
+    },
+    {
+      id: 9204,
+      question: "An electric kettle rated 2 kW, 240 V is used for 30 minutes. Calculate the electrical energy consumed in kilowatt-hours (kWh).",
+      option: { a: "0.5 kWh", b: "1.0 kWh", c: "2.0 kWh", d: "4.0 kWh" },
+      answer: "b",
+      solution: "Energy (kWh) = Power (kW) × Time (hours) = 2 kW × (30 / 60) h = 2 × 0.5 = 1.0 kWh.",
+      examtype: "NECO",
+      examyear: "2022",
+      image: null
+    }
+  ],
+  chemistry: [
+    {
+      id: 9301,
+      question: "What is the oxidation number of sulfur in H₂SO₄?",
+      option: { a: "+2", b: "+4", c: "+6", d: "-2" },
+      answer: "c",
+      solution: "2(+1) + S + 4(-2) = 0 => 2 + S - 8 = 0 => S = +6.",
+      examtype: "WASSCE",
+      examyear: "2021",
+      image: null
+    },
+    {
+      id: 9302,
+      question: "Which of the following gases turns moist red litmus paper blue?",
+      option: { a: "Carbon dioxide", b: "Sulfur dioxide", c: "Ammonia", d: "Chlorine" },
+      answer: "c",
+      solution: "Ammonia (NH₃) is an alkaline gas and dissolves in water to form basic ammonium hydroxide, turning red litmus paper blue.",
+      examtype: "WASSCE",
+      examyear: "2022",
+      image: null
+    }
+  ],
+  biology: [
+    {
+      id: 9401,
+      question: "Which cellular organelle is primarily responsible for aerobic cellular respiration and ATP synthesis?",
+      option: { a: "Ribosome", b: "Golgi apparatus", c: "Mitochondrion", d: "Endoplasmic reticulum" },
+      answer: "c",
+      solution: "The mitochondrion is known as the powerhouse of the cell because the Krebs cycle and oxidative phosphorylation take place within its cristae to generate ATP.",
+      examtype: "WASSCE",
+      examyear: "2020",
+      image: null
+    }
   ]
 };
 
 /**
- * Fetch questions from SdashAPI
+ * Fetch questions from SdashAPI (secondary cloud provider)
  */
 async function fetchFromSdash(subject: string, amount: number, examtype?: string): Promise<CBTQuestion[] | null> {
   const apiKey = process.env.SDASH_API_KEY;
@@ -104,7 +182,6 @@ async function fetchFromSdash(subject: string, amount: number, examtype?: string
     url.searchParams.append("limit", Math.min(amount, 50).toString());
 
     if (examtype) {
-      // Map standard acronyms to SdashAPI format
       const normalizedType = examtype.toLowerCase() === "wassce" || examtype.toLowerCase() === "waec" ? "wassce" : examtype.toLowerCase();
       url.searchParams.append("type", normalizedType);
     }
@@ -136,63 +213,16 @@ async function fetchFromSdash(subject: string, amount: number, examtype?: string
 
     return null;
   } catch (err) {
-    console.warn("SdashAPI query error, attempting fallback:", err);
-    return null;
-  }
-}
-
-/**
- * Fetch questions from ALOC API
- */
-async function fetchFromAloc(subject: string, amount: number, examtype?: string): Promise<CBTQuestion[] | null> {
-  const apiKey = process.env.ALOC_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const url = new URL(`https://questions.aloc.com.ng/api/v2/q/${amount}`);
-    url.searchParams.append("subject", subject.toLowerCase());
-    if (examtype) {
-      url.searchParams.append("type", examtype.toLowerCase());
-    }
-
-    const res = await fetch(url.toString(), {
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        AccessToken: apiKey
-      },
-      cache: "no-store"
-    });
-
-    if (!res.ok) return null;
-
-    const json = (await res.json()) as CBTResponse;
-    if (json.status === 200 && Array.isArray(json.data) && json.data.length > 0) {
-      return json.data.map((item: any) => ({
-        id: item.id,
-        question: item.question,
-        option: item.option || {},
-        section: item.section,
-        image: item.image,
-        answer: (item.answer || "a").toLowerCase().trim(),
-        solution: item.solution || "",
-        examtype: item.examtype || "WASSCE",
-        examyear: item.examyear || ""
-      }));
-    }
-
-    return null;
-  } catch (err) {
-    console.warn("ALOC API query error, attempting fallback:", err);
+    console.warn("[SdashAPI] Query error, attempting fallback:", err);
     return null;
   }
 }
 
 /**
  * Resilient multi-provider CBT fetcher:
- * 1. Queries SdashAPI first (using the newly connected Sdash key)
- * 2. Falls back to ALOC API if SdashAPI is unavailable or restricted
- * 3. Falls back to offline verified question bank if both are unreachable
+ * 1. Queries ALOC Station API v1 first (using modern X-API-Key and dev.aloc.com.ng)
+ * 2. Falls back to SdashAPI if ALOC Station is unavailable or credits are exhausted
+ * 3. Falls back to offline verified question bank to guarantee zero student interruption
  */
 export async function fetchQuestions(
   subject: string,
@@ -201,20 +231,28 @@ export async function fetchQuestions(
 ): Promise<CBTQuestion[]> {
   const subLower = subject.toLowerCase().trim();
 
-  // 1. Try SdashAPI
-  const sdashQuestions = await fetchFromSdash(subLower, amount, examtype);
-  if (sdashQuestions && sdashQuestions.length > 0) {
-    return sdashQuestions;
+  // 1. Primary: Query modern ALOC Station API v1
+  try {
+    const alocQuestions = await fetchAlocBatchQuestions(subLower, amount, examtype);
+    if (alocQuestions && alocQuestions.length > 0) {
+      return alocQuestions;
+    }
+  } catch (err) {
+    console.warn("[CBT API] ALOC Station fetch encountered an error, falling back:", err);
   }
 
-  // 2. Fallback to ALOC
-  const alocQuestions = await fetchFromAloc(subLower, amount, examtype);
-  if (alocQuestions && alocQuestions.length > 0) {
-    return alocQuestions;
+  // 2. Secondary: Query SdashAPI
+  try {
+    const sdashQuestions = await fetchFromSdash(subLower, amount, examtype);
+    if (sdashQuestions && sdashQuestions.length > 0) {
+      return sdashQuestions;
+    }
+  } catch (err) {
+    console.warn("[CBT API] SdashAPI fallback encountered an error:", err);
   }
 
-  // 3. Fallback to local verified historical archive
-  if (FALLBACK_QUESTION_BANK[subLower]) {
+  // 3. Guaranteed Fallback: Local verified historical question bank
+  if (FALLBACK_QUESTION_BANK[subLower] && FALLBACK_QUESTION_BANK[subLower].length > 0) {
     return FALLBACK_QUESTION_BANK[subLower];
   }
 

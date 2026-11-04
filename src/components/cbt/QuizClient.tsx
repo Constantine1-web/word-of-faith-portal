@@ -9,6 +9,8 @@ import {
   reportIntegrityEvent,
   sendAttemptHeartbeat,
   submitAttempt,
+  getAttemptAiAnalysis,
+  getQuestionAiExplanation,
 } from "@/app/actions/cbt";
 import {
   FiClock,
@@ -20,6 +22,8 @@ import {
   FiLock,
   FiShield,
   FiMaximize,
+  FiCpu,
+  FiBookOpen,
 } from "react-icons/fi";
 
 interface QuizClientProps {
@@ -86,6 +90,54 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     reviewItems: any[];
   } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Gemini AI CBT Review & Step-by-Step Solutions
+  const [aiAnalysis, setAiAnalysis] = useState<{
+    overallFeedback: string;
+    strengths: string[];
+    weaknesses: string[];
+    recommendations: string[];
+  } | null>(null);
+  const [loadingAiAnalysis, setLoadingAiAnalysis] = useState<boolean>(false);
+  const [aiExplanations, setAiExplanations] = useState<Record<number, string>>({});
+  const [loadingExplanationFor, setLoadingExplanationFor] = useState<number | null>(null);
+
+  const handleFetchAiAnalysis = async () => {
+    if (!attemptId || loadingAiAnalysis) return;
+    setLoadingAiAnalysis(true);
+    try {
+      const res = await getAttemptAiAnalysis(attemptId);
+      if (res.success && res.analysis) {
+        setAiAnalysis(res.analysis);
+      }
+    } catch (e) {
+      console.error("AI Analysis error:", e);
+    } finally {
+      setLoadingAiAnalysis(false);
+    }
+  };
+
+  const handleExplainQuestion = async (item: any) => {
+    if (loadingExplanationFor !== null) return;
+    setLoadingExplanationFor(item.position);
+    try {
+      const res = await getQuestionAiExplanation({
+        stem: item.stem,
+        options: item.options,
+        correctKey: item.correctKey,
+        selectedKey: item.selectedKey,
+        subjectCode: submittedResult?.summary?.subjectCode || "general",
+        examBody: submittedResult?.summary?.examBody || "WASSCE",
+      });
+      if (res.success && res.explanation) {
+        setAiExplanations((prev) => ({ ...prev, [item.position]: res.explanation! }));
+      }
+    } catch (e) {
+      console.error("Explain question error:", e);
+    } finally {
+      setLoadingExplanationFor(null);
+    }
+  };
 
   const questionLoadedAtRef = useRef<number>(Date.now());
   const blurStartedAtRef = useRef<number | null>(null);
@@ -373,10 +425,66 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
               Start New CBT Session
             </Link>
           </div>
+
+          {/* Faithbot Gemini AI Performance Review Card */}
+          <div className={styles.aiTutorCard}>
+            <div className={styles.aiTutorHeader}>
+              <FiCpu className={styles.aiIcon} />
+              <div>
+                <h4>Faithbot AI Academic Diagnosis</h4>
+                <p>Curriculum-aligned performance review powered by Google Gemini</p>
+              </div>
+            </div>
+
+            {!aiAnalysis ? (
+              <button
+                type="button"
+                className={styles.aiTutorBtn}
+                onClick={handleFetchAiAnalysis}
+                disabled={loadingAiAnalysis}
+              >
+                <FiCpu /> {loadingAiAnalysis ? "Analyzing Your Attempt with Gemini..." : "Generate AI Exam Performance Breakdown"}
+              </button>
+            ) : (
+              <div className={styles.aiAnalysisContent}>
+                <p className={styles.aiFeedback}>{aiAnalysis.overallFeedback}</p>
+                {aiAnalysis.strengths.length > 0 && (
+                  <div className={styles.aiSection}>
+                    <strong style={{ color: "#10b981" }}>Key Strengths:</strong>
+                    <ul>
+                      {aiAnalysis.strengths.map((s, idx) => (
+                        <li key={idx}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {aiAnalysis.weaknesses.length > 0 && (
+                  <div className={styles.aiSection}>
+                    <strong style={{ color: "#ef4444" }}>Areas for Revision:</strong>
+                    <ul>
+                      {aiAnalysis.weaknesses.map((w, idx) => (
+                        <li key={idx}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {aiAnalysis.recommendations.length > 0 && (
+                  <div className={styles.aiSection}>
+                    <strong style={{ color: "#3b82f6" }}>Examiner Recommendations:</strong>
+                    <ul>
+                      {aiAnalysis.recommendations.map((r, idx) => (
+                        <li key={idx}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className={styles.correctionsWrapper}>
-          <h3>Attempt Review & Official Explanations</h3>
+          <h3>Attempt Review & Step-by-Step Explanations</h3>
           {reviewItems.map((item: any) => {
             const isCorrect = item.isCorrect;
             return (
@@ -409,10 +517,32 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
                   })}
                 </div>
 
-                {!isCorrect && item.explanation && (
+                {/* Official Solution */}
+                {item.explanation && (
                   <div className={styles.solutionBox}>
-                    <strong>Official Explanation:</strong>
+                    <strong>Official Solution:</strong>
                     <div>{cleanHtmlText(item.explanation)}</div>
+                  </div>
+                )}
+
+                {/* Gemini AI Detailed Step-by-Step Explanation */}
+                {aiExplanations[item.position] ? (
+                  <div className={styles.aiSolutionBox}>
+                    <strong>Faithbot AI Step-by-Step Solution:</strong>
+                    <div style={{ whiteSpace: "pre-line", marginTop: "0.25rem" }}>
+                      {aiExplanations[item.position]}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: "0.75rem" }}>
+                    <button
+                      type="button"
+                      className={styles.askAiBtn}
+                      onClick={() => handleExplainQuestion(item)}
+                      disabled={loadingExplanationFor === item.position}
+                    >
+                      <FiCpu /> {loadingExplanationFor === item.position ? "Generating AI Explanation..." : "Explain with Faithbot AI"}
+                    </button>
                   </div>
                 )}
               </div>

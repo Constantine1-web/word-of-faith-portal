@@ -428,6 +428,134 @@
   font-size: 0.95rem;
 }
 
+/* Gemini AI CBT Review & Step-by-Step Solutions */
+.aiTutorCard {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 16px;
+  text-align: left;
+}
+
+.aiTutorHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.aiTutorHeader h4 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--color-navy-blue, #0a2540);
+  font-weight: 700;
+}
+
+.aiTutorHeader p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.aiIcon {
+  font-size: 1.5rem;
+  color: #10b981;
+}
+
+.aiTutorBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aiTutorBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.aiTutorBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.aiAnalysisContent {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.aiFeedback {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #1e293b;
+  margin: 0;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border-left: 3px solid #10b981;
+}
+
+.aiSection {
+  font-size: 0.9rem;
+}
+
+.aiSection ul {
+  margin: 0.35rem 0 0 1.25rem;
+  padding: 0;
+  color: #334155;
+}
+
+.aiSection li {
+  margin-bottom: 0.25rem;
+}
+
+.aiSolutionBox {
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+  color: #1e40af;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.askAiBtn {
+  margin-top: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #2563eb;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.askAiBtn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.askAiBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 @media print {
   .quizLayout {
     display: none !important;

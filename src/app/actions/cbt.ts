@@ -5,6 +5,11 @@ import crypto from "crypto";
 import { revalidatePath } from "next/cache";
 import { fetchQuestions } from "@/lib/cbt-api";
 import {
+  analyzeAttemptWithGemini,
+  explainQuestionWithGemini,
+  isGeminiConfigured,
+} from "@/lib/gemini-cbt";
+import {
   requireActiveUser,
   can,
   writeAuditLog,
@@ -892,6 +897,88 @@ export async function submitAttempt(attemptId: string) {
   } catch (error: any) {
     console.error("submitAttempt error:", error);
     return { success: false, error: error.message || "Failed to submit attempt" };
+  }
+}
+
+/**
+ * Generates an AI-powered diagnostic review of the student's completed CBT session,
+ * breaking down performance into strengths, missed topics, and study recommendations.
+ */
+export async function getAttemptAiAnalysis(attemptId: string) {
+  try {
+    const { student } = await resolveCurrentStudent();
+    const attempt = await prisma.cbtAttempt.findUnique({
+      where: { id: attemptId },
+      include: {
+        items: {
+          orderBy: { position: "asc" },
+          include: {
+            question: {
+              include: { answerKey: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!attempt || attempt.studentId !== student.StudentID) {
+      return { success: false, error: "Attempt not found." };
+    }
+
+    const wrongItems = attempt.items.filter((it) => !it.isCorrect);
+    const wrongQuestions = wrongItems.map((it) => {
+      const opts = Array.isArray(it.question.optionsJson)
+        ? (it.question.optionsJson as { key: string; text: string }[])
+        : [];
+      const selOpt = opts.find((o) => o.key === it.selectedKey);
+      const corrOpt = opts.find((o) => o.key === it.question.answerKey?.correctKey);
+      return {
+        position: it.position,
+        stem: it.question.stem,
+        selectedAnswerText: selOpt?.text,
+        correctAnswerText: corrOpt?.text,
+      };
+    });
+
+    const correctCount = attempt.items.filter((it) => it.isCorrect).length;
+    const analysis = await analyzeAttemptWithGemini({
+      attemptId: attempt.id,
+      subjectCode: attempt.subjectCode,
+      examBody: attempt.examBody,
+      studentName: student.PreferredName || student.AdmissionNo,
+      score: correctCount,
+      total: attempt.questionCount,
+      wrongQuestions,
+    });
+
+    return {
+      success: true,
+      analysis,
+    };
+  } catch (error: any) {
+    console.error("getAttemptAiAnalysis error:", error);
+    return { success: false, error: error.message || "Failed to analyze attempt" };
+  }
+}
+
+/**
+ * On-demand AI explanation generator for individual questions in the CBT review.
+ */
+export async function getQuestionAiExplanation(params: {
+  questionId?: string;
+  stem: string;
+  options: { key: string; text: string }[];
+  correctKey: string;
+  selectedKey?: string | null;
+  subjectCode: string;
+  examBody: string;
+}) {
+  try {
+    await requireActiveUser();
+    const explanation = await explainQuestionWithGemini(params);
+    return { success: true, explanation };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to generate explanation" };
   }
 }
 
