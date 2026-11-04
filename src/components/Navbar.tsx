@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { DRAWER_STATE_EVENT, DRAWER_TOGGLE_EVENT } from '@/lib/useMobileDrawer';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
@@ -12,21 +13,39 @@ import MobileBackButton from './MobileBackButton';
 export default function Navbar() {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Mirror the portal sidebar drawer state so the hamburger shows X while it is open.
+  useEffect(() => {
+    const onState = (e: Event) => setDrawerOpen(Boolean((e as CustomEvent).detail?.open));
+    window.addEventListener(DRAWER_STATE_EVENT, onState);
+    return () => window.removeEventListener(DRAWER_STATE_EVENT, onState);
+  }, []);
+
   const isPortal = pathname?.startsWith('/portal/') && 
                    !pathname.includes('/login') && 
                    !pathname.includes('/register') &&
                    !pathname.includes('/forgot-password');
 
-  const toggleMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
+  // On portal pages the (left) hamburger toggles the page's sidebar; if the page has
+  // no sidebar it falls back to the public links menu.
+  const toggleMenu = () => {
+    if (isPortal) {
+      const detail = { handled: false };
+      window.dispatchEvent(new CustomEvent(DRAWER_TOGGLE_EVENT, { detail }));
+      if (detail.handled) return;
+    }
+    setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
   const closeMenu = () => setIsMobileMenuOpen(false);
+  const menuShowsOpen = isMobileMenuOpen || drawerOpen;
 
   return (
     <nav className={styles.navbar}>
       <div className={`container ${styles.navContainer}`}>
         <div className={styles.navLeft}>
-          <button className={styles.hamburgerBtn} onClick={toggleMenu} aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"} aria-expanded={isMobileMenuOpen}>
-            {isMobileMenuOpen ? <FiX size={20} /> : <FiMenu size={20} />}
+          <button className={styles.hamburgerBtn} onClick={toggleMenu} aria-label={menuShowsOpen ? "Close menu" : "Open menu"} aria-expanded={menuShowsOpen}>
+            {menuShowsOpen ? <FiX size={20} /> : <FiMenu size={20} />}
           </button>
           <MobileBackButton />
           <Link href="/" onClick={closeMenu} className={styles.logoLink}>

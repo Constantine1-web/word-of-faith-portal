@@ -25,7 +25,7 @@
   top: 0;
   left: 0;
   bottom: 0;
-  width: min(85vw, 300px);
+  width: min(78vw, 280px);
   height: 100vh;
   height: 100dvh;
   margin: 0;
@@ -58,13 +58,7 @@
 }
 
 .mobileHeader {
-  display: flex;
-  padding: 0.5rem 1rem;
-  background: var(--color-navy-blue);
-  color: white;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: none; /* the navbar hamburger (left) now controls the drawer */
 }
 
 .hamburgerBtn {
@@ -94,7 +88,7 @@
   display: block;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.35);
   z-index: 1050;
 }
 

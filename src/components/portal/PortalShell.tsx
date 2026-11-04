@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { FiMenu, FiX } from "react-icons/fi";
+import { FiX } from "react-icons/fi";
+import { useMobileDrawer } from "@/lib/useMobileDrawer";
 import styles from "./PortalShell.module.css";
 
 interface PortalShellProps {
-  /** Label shown in the mobile bar next to the menu button. */
+  /** Label for the workspace (used as the drawer's accessible name). */
   title: string;
   /** Sidebar contents (header + nav links). Rendered on the server by the layout. */
   sidebar: ReactNode;
@@ -19,7 +20,9 @@ interface PortalShellProps {
 
 /**
  * Responsive two-column portal layout.
- * - < 1024px: sidebar is an off-canvas drawer opened from a menu button.
+ * - < 1024px: sidebar is an off-canvas drawer toggled by the navbar hamburger (left side).
+ *   It leaves a visible strip of the page, auto-closes after 10s idle, and
+ *   collapses via the same hamburger, the X button, or a tap on the page.
  * - >= 1024px: sidebar is a fixed-width column beside the content.
  */
 export default function PortalShell({
@@ -29,45 +32,17 @@ export default function PortalShell({
   sidebarWidth = "270px",
   children,
 }: PortalShellProps) {
-  const [open, setOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const { open, setOpen } = useMobileDrawer(drawerRef);
   const pathname = usePathname();
 
   // Close the drawer whenever the route changes.
   useEffect(() => {
     setOpen(false);
-  }, [pathname]);
-
-  // Escape closes the drawer; lock page scroll while it is open.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  }, [pathname, setOpen]);
 
   return (
     <div className={styles.shell}>
-      <div className={styles.mobileBar}>
-        <button
-          type="button"
-          className={styles.menuBtn}
-          onClick={() => setOpen(true)}
-          aria-label="Open navigation menu"
-          aria-expanded={open}
-          aria-controls="portal-sidebar"
-        >
-          <FiMenu />
-        </button>
-        <span className={styles.mobileTitle}>{title}</span>
-      </div>
-
       <div
         className={`${styles.overlay} ${open ? styles.open : ""}`}
         onClick={() => setOpen(false)}
@@ -76,6 +51,8 @@ export default function PortalShell({
 
       <aside
         id="portal-sidebar"
+        ref={drawerRef}
+        aria-label={`${title} navigation`}
         className={`${styles.sidebar} ${open ? styles.open : ""}`}
         style={{ background: sidebarBackground, "--sidebar-width": sidebarWidth } as CSSProperties}
         onClick={(e) => {

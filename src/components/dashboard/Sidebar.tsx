@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useMobileDrawer } from "@/lib/useMobileDrawer";
 import { useSession, signOut } from "next-auth/react";
 import styles from "./DashboardLayout.module.css";
 import { 
@@ -28,7 +29,8 @@ import {
 export default function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const { open: isMobileOpen, setOpen: setIsMobileOpen } = useMobileDrawer(drawerRef);
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({
     "Academic Setup": true,
     "Student Affairs": true,
@@ -160,6 +162,7 @@ export default function Sidebar() {
 
       {/* Sizing/positioning lives in DashboardLayout.module.css so media queries can control it */}
       <aside 
+        ref={drawerRef}
         className={[styles.sidebarWrapper, isMobileOpen ? styles.open : ""].filter(Boolean).join(" ")}
         style={{
           background: "rgba(10, 37, 64, 0.95)",
