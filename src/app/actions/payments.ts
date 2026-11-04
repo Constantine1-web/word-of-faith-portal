@@ -516,3 +516,67 @@ export async function initializePayment(data: { amount: number; description: str
     return { error: error.message || "An unexpected error occurred" };
   }
 }
+
+export async function verifyPaystackPayment(reference: string) {
+  let actor;
+  try {
+    actor = await requireActiveUser();
+  } catch {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const cleanRef = reference?.trim();
+  if (!cleanRef) {
+    return { success: false, error: "Transaction reference is required." };
+  }
+
+  try {
+    const response = await fetch(`https://api.paystack.co/transaction/verify/${cleanRef}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!data.status || data.data?.status !== "success") {
+      return {
+        success: false,
+        error: data.message || "Payment verification failed or pending authorization.",
+      };
+    }
+
+    const payment = await prisma.payment_Record.findUnique({
+      where: { Reference: cleanRef },
+    });
+
+    if (payment) {
+      await prisma.$transaction([
+        prisma.payment_Record.update({
+          where: { Reference: cleanRef },
+          data: {
+            Status: "Approved",
+            ReviewedAt: new Date(),
+          },
+        }),
+        prisma.student.update({
+          where: { StudentID: payment.StudentID },
+          data: { HasPaidFees: true },
+        }),
+        prisma.enrollment.updateMany({
+          where: { StudentID: payment.StudentID, TermID: payment.TermID },
+          data: { Status: "ACTIVE" },
+        }),
+      ]);
+    }
+
+    revalidatePath("/portal/fees");
+    revalidatePath("/portal/admin/payments");
+
+    return { success: true, message: "Payment verified and approved successfully!" };
+  } catch (error: any) {
+    console.error("verifyPaystackPayment error:", error);
+    return { success: false, error: error.message || "Verification request failed" };
+  }
+}

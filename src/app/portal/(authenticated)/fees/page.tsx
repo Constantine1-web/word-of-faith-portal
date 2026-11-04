@@ -6,6 +6,7 @@ import {
   getOrCreateStudentFeeOrder,
   initializePayment,
   uploadBankTellerReceipt,
+  verifyPaystackPayment,
 } from "@/app/actions/payments";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -49,6 +50,16 @@ export default function PayFeesPage() {
   useEffect(() => {
     async function loadOrder() {
       setLoadingOrder(true);
+
+      const ref = searchParams.get("reference") || searchParams.get("trxref");
+      if (paymentStatus === "verify" && ref) {
+        try {
+          await verifyPaystackPayment(ref);
+        } catch (e) {
+          console.error("Auto verification error:", e);
+        }
+      }
+
       const res = await getOrCreateStudentFeeOrder();
       if (res.success) {
         setFeeOrder(res);
@@ -59,7 +70,7 @@ export default function PayFeesPage() {
       setLoadingOrder(false);
     }
     loadOrder();
-  }, []);
+  }, [paymentStatus, searchParams]);
 
   const handleCopy = (text: string, type: "tracking" | "account") => {
     navigator.clipboard.writeText(text);

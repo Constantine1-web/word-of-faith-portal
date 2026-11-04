@@ -19,16 +19,30 @@ export async function POST(req: Request) {
     if (event.event === "charge.success") {
       const reference = event.data.reference;
 
-      // Update payment record to Successful
+      // Update payment record to Approved and grant student fee clearance
       const payment = await prisma.payment_Record.findUnique({
-        where: { Reference: reference }
+        where: { Reference: reference },
+        include: { Student: true }
       });
 
-      if (payment && payment.Status !== "Successful") {
-        await prisma.payment_Record.update({
-          where: { Reference: reference },
-          data: { Status: "Successful" }
-        });
+      if (payment) {
+        await prisma.$transaction([
+          prisma.payment_Record.update({
+            where: { Reference: reference },
+            data: {
+              Status: "Approved",
+              ReviewedAt: new Date(),
+            }
+          }),
+          prisma.student.update({
+            where: { StudentID: payment.StudentID },
+            data: { HasPaidFees: true }
+          }),
+          prisma.enrollment.updateMany({
+            where: { StudentID: payment.StudentID, TermID: payment.TermID },
+            data: { Status: "ACTIVE" }
+          })
+        ]);
       }
     }
 
