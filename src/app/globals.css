@@ -80,6 +80,32 @@ body {
   margin: 0;
 }
 
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Responsive media: never wider than their container */
+img, video, canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+/* iframes keep their declared height (height:auto would collapse them to 150px) */
+iframe, embed, object {
+  max-width: 100%;
+}
+
+/* Long unbroken strings (emails, hashes, reg numbers) wrap instead of overflowing.
+   break-word (not "anywhere") so table columns keep their natural min width. */
+p, li, td, th, dd, label, h1, h2, h3, h4, h5, h6 {
+  overflow-wrap: break-word;
+}
+
+/* Form controls should never push their parent wider than the screen */
+input, select, textarea, button {
+  max-width: 100%;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -199,6 +225,12 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
 }
 
+/* Fluid headings: max values equal the browser defaults, so desktop is unchanged;
+   they only shrink on narrow screens. Inline font sizes still take precedence. */
+h1 { font-size: clamp(1.5rem, 1.1rem + 2vw, 2rem); }
+h2 { font-size: clamp(1.25rem, 1rem + 1.25vw, 1.5rem); }
+h3 { font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.17rem); }
+
 /* Floating Modal Animation */
 @keyframes modal-fade-in {
   from {
@@ -263,10 +295,14 @@ h1, h2, h3, h4, h5, h6 {
    RESPONSIVE UTILITIES & LAYOUT FIXES
    ========================================= */
 
-/* Prevent Horizontal Screen Breakage */
+/* Safety net only — real overflow sources are fixed at the component level.
+   `clip` (unlike `hidden`) does NOT turn <body> into a scroll container,
+   so the sticky navbar keeps working. `hidden` is the fallback for old browsers.
+   max-width uses 100% (100vw includes the desktop scrollbar and causes overflow). */
 html, body {
+  max-width: 100%;
   overflow-x: hidden;
-  max-width: 100vw;
+  overflow-x: clip;
 }
 
 /* Modals */
@@ -274,37 +310,52 @@ html, body {
   animation: modal-fade-in var(--transition-normal);
   max-width: 95vw;
   max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
 }
 
-/* Responsive Grid/Flex Utilities */
+@media (max-width: 479.98px) {
+  .modal-content {
+    padding: 1.25rem !important;
+  }
+}
+
+/* Responsive Grid/Flex Utilities (min(100%, …) lets a single column shrink below the min) */
 .responsive-grid {
   display: grid;
   gap: 1.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
 }
 
 .responsive-grid-large {
   display: grid;
   gap: 1.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr));
 }
 
 .responsive-flex {
   display: flex;
+  flex-direction: column;
   gap: 1.5rem;
 }
 
-@media (max-width: 768px) {
+@media (min-width: 768px) {
   .responsive-flex {
-    flex-direction: column;
+    flex-direction: row;
   }
+}
+
+/* Any table that is not inside a scroll wrapper scrolls by itself on small screens */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* =========================================
    MOBILE CARDS FOR WIDE TABLES
    ========================================= */
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   .responsive-table {
     display: block;
     width: 100%;
@@ -332,11 +383,16 @@ html, body {
 
   .responsive-table td {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
+    gap: 0.25rem 1rem;
+    min-width: 0;
+    max-width: 100% !important;
     padding: 0.75rem 0 !important;
     border-bottom: 1px solid var(--color-gray-100) !important;
     text-align: right !important;
+    overflow-wrap: anywhere;
   }
 
   .responsive-table td:last-child {
@@ -349,8 +405,22 @@ html, body {
     font-weight: 600;
     color: var(--color-navy-blue);
     text-align: left;
-    margin-right: 1rem;
     flex-shrink: 0;
+  }
+
+  .responsive-table td:not([data-label])::before {
+    content: none;
+  }
+}
+
+/* =========================================
+   TAP TARGETS (touch devices / small screens)
+   ========================================= */
+@media (max-width: 767.98px) {
+  .btn,
+  .form-input,
+  select.form-input {
+    min-height: 44px;
   }
 }
 

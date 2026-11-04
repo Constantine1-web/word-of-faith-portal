@@ -25,7 +25,7 @@ export default function Navbar() {
     <nav className={styles.navbar}>
       <div className={`container ${styles.navContainer}`}>
         <div className={styles.navLeft}>
-          <button className={styles.hamburgerBtn} onClick={toggleMenu}>
+          <button className={styles.hamburgerBtn} onClick={toggleMenu} aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"} aria-expanded={isMobileMenuOpen}>
             {isMobileMenuOpen ? <FiX size={20} /> : <FiMenu size={20} />}
           </button>
           <MobileBackButton />

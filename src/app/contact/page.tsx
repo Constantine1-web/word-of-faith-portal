@@ -13,15 +13,15 @@ export default function ContactPage() {
         borderBottom: "4px solid var(--color-primary-green)"
       }}>
         <div className="container" style={{ maxWidth: "800px" }}>
-          <h1 style={{ fontSize: "clamp(2.5rem, 5vw, 4rem)", marginBottom: "1rem", color: "white" }}>Contact Us</h1>
-          <p style={{ fontSize: "1.2rem", color: "rgba(255, 255, 255, 0.9)" }}>
+          <h1 style={{ fontSize: "clamp(1.75rem, 5vw, 3.5rem)", marginBottom: "1rem", color: "white" }}>Contact Us</h1>
+          <p style={{ fontSize: "clamp(1rem, 3vw, 1.2rem)", color: "rgba(255, 255, 255, 0.9)" }}>
             We'd love to hear from you. Reach out to us for admissions, inquiries, or feedback.
           </p>
         </div>
       </section>
 
-      <section className="container" style={{ padding: "5rem 1rem" }}>
-        <div className="responsive-grid" style={{ gap: "4rem", alignItems: "start" }}>
+      <section className="container" style={{ padding: "clamp(2.5rem, 6vw, 5rem) 1rem" }}>
+        <div className="responsive-grid" style={{ gap: "clamp(2rem, 5vw, 4rem)", alignItems: "start" }}>
           
           {/* Contact Details & Map */}
           <div>
@@ -84,8 +84,8 @@ export default function ContactPage() {
           </div>
 
           {/* Contact Form */}
-          <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-md)" }}>
-            <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.8rem", marginBottom: "1.5rem" }}>Send a Message</h3>
+          <div style={{ background: "var(--color-white)", padding: "clamp(1.25rem, 4vw, 3rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-md)" }}>
+            <h3 style={{ color: "var(--color-navy-blue)", fontSize: "clamp(1.4rem, 4vw, 1.8rem)", marginBottom: "1.5rem" }}>Send a Message</h3>
             <form style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
               <div className="form-group">
                 <label className="form-label">Full Name</label>

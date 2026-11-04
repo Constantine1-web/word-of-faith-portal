@@ -166,7 +166,7 @@ export default function AdmissionsReviewClient({
 
       {/* Filter Bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
-        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "280px", maxWidth: "600px" }}>
+        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "min(100%, 280px)", maxWidth: "600px", flexWrap: "wrap" }}>
           <div style={{ position: "relative", flex: 1 }}>
             <FiSearch style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)", color: "var(--color-gray-400)" }} />
             <input
@@ -329,7 +329,7 @@ export default function AdmissionsReviewClient({
                 </select>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
                 <div className="form-group">
                   <label className="form-label">Parent Phone</label>
                   <input

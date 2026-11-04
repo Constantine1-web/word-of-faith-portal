@@ -74,20 +74,20 @@ export default function AdmissionsPage() {
       }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "linear-gradient(rgba(10,37,64,0.85), rgba(10,37,64,0.95))" }}></div>
         <div className="container" style={{ position: "relative", zIndex: 1, maxWidth: "800px" }}>
-          <h1 style={{ fontSize: "clamp(2.5rem, 5vw, 4rem)", marginBottom: "1rem", color: "white" }}>Online Admissions</h1>
-          <p style={{ fontSize: "1.2rem", color: "rgba(255, 255, 255, 0.9)" }}>
+          <h1 style={{ fontSize: "clamp(1.75rem, 5vw, 3.5rem)", marginBottom: "1rem", color: "white" }}>Online Admissions</h1>
+          <p style={{ fontSize: "clamp(1rem, 3vw, 1.2rem)", color: "rgba(255, 255, 255, 0.9)" }}>
             Begin your child's journey to excellence. Fill out the application form below.
           </p>
         </div>
       </section>
 
       {/* Main Content Area */}
-      <section className="container" style={{ padding: "5rem 1rem" }}>
-        <div className="responsive-grid" style={{ gap: "4rem", alignItems: "start" }}>
+      <section className="container" style={{ padding: "clamp(2.5rem, 6vw, 5rem) 1rem" }}>
+        <div className="responsive-grid" style={{ gap: "clamp(1.5rem, 4vw, 4rem)", alignItems: "start" }}>
           
           {/* Multi-Step Form */}
-          <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)" }}>
-            <h2 style={{ color: "var(--color-navy-blue)", fontSize: "2rem", marginBottom: "2rem" }}>Admission Application</h2>
+          <div style={{ background: "var(--color-white)", padding: "clamp(1.25rem, 4vw, 3rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)" }}>
+            <h2 style={{ color: "var(--color-navy-blue)", fontSize: "clamp(1.4rem, 4vw, 2rem)", marginBottom: "2rem" }}>Admission Application</h2>
             
             {success ? (
               <div style={{ textAlign: "center", padding: "3rem 1rem" }}>

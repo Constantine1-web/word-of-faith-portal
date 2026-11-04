@@ -18,7 +18,7 @@ export default function DashboardLoading() {
       }} />
 
       {/* Grid Cards Skeleton */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1.5rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 250px), 1fr))", gap: "1.5rem" }}>
         <div style={{ height: "100px", background: "var(--color-gray-200)", borderRadius: "var(--radius-md)" }} />
         <div style={{ height: "100px", background: "var(--color-gray-200)", borderRadius: "var(--radius-md)" }} />
         <div style={{ height: "100px", background: "var(--color-gray-200)", borderRadius: "var(--radius-md)" }} />

@@ -576,7 +576,7 @@ export default function AdminResultsClient({
 
       {/* TAB 3: MANUAL / BULK UPLOAD OVERRIDE */}
       {activeTab === "upload" && (
-        <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "1fr 1fr" }}>
+        <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))" }}>
           {/* Bulk Upload Widget */}
           <div
             style={{
@@ -655,7 +655,7 @@ export default function AdminResultsClient({
                 </select>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
                 <div className="form-group">
                   <label className="form-label">CA Score (Max 40)</label>
                   <input

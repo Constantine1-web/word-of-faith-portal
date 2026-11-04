@@ -88,7 +88,7 @@ export default function Home() {
           <h2 style={{ fontSize: "2rem", color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Currently Offering Admission</h2>
           <p style={{ color: "var(--color-gray-600)", marginBottom: "2.5rem", fontSize: "1.1rem" }}>Join our community for the 2026/2027 Academic Session. Registration is open for the following levels:</p>
           
-          <AutoSlider className={styles.mobileSwipeGrid} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }} interval={5000}>
+          <AutoSlider className={styles.mobileSwipeGrid} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1.5rem", maxWidth: "900px", margin: "0 auto" }} interval={5000}>
             <Link href="/academics#early-years" style={{ textDecoration: "none" }}>
               <div style={{ background: "var(--color-white)", padding: "2rem 1rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", borderTop: "4px solid var(--color-primary-green)", height: "100%", transition: "transform 0.2s ease" }} className="hover-lift">
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.2rem", marginBottom: "0.5rem" }}>Creche & Nursery</h3>

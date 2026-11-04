@@ -292,7 +292,7 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
                 </select>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
                 <div className="form-group">
                   <label className="form-label">Start Date (Optional)</label>
                   <input

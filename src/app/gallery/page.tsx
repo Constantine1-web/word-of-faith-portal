@@ -20,18 +20,18 @@ export default function GalleryPage() {
         borderBottom: "4px solid var(--color-primary-green)"
       }}>
         <div className="container" style={{ maxWidth: "800px" }}>
-          <h1 style={{ fontSize: "clamp(2.5rem, 5vw, 4rem)", marginBottom: "1rem", color: "white" }}>Photo Gallery</h1>
-          <p style={{ fontSize: "1.2rem", color: "rgba(255, 255, 255, 0.9)" }}>
+          <h1 style={{ fontSize: "clamp(1.75rem, 5vw, 3.5rem)", marginBottom: "1rem", color: "white" }}>Photo Gallery</h1>
+          <p style={{ fontSize: "clamp(1rem, 3vw, 1.2rem)", color: "rgba(255, 255, 255, 0.9)" }}>
             A glimpse into the vibrant life, achievements, and celebrations at Word of Faith Schools.
           </p>
         </div>
       </section>
 
       {/* Gallery Grid */}
-      <section className="container" style={{ padding: "5rem 1rem" }}>
+      <section className="container" style={{ padding: "clamp(2.5rem, 6vw, 5rem) 1rem" }}>
         <div style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 250px), 1fr))",
           gap: "1.5rem",
           gridAutoRows: "300px",
           gridAutoFlow: "dense"

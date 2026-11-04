@@ -14,19 +14,19 @@ export default function About() {
       }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "linear-gradient(rgba(10,37,64,0.8), rgba(10,37,64,0.9))" }}></div>
         <div className="container" style={{ position: "relative", zIndex: 1, maxWidth: "800px" }}>
-          <h1 style={{ fontSize: "clamp(2.5rem, 5vw, 4rem)", marginBottom: "1rem", color: "#FFFFFF" }}>About Us</h1>
-          <p style={{ fontSize: "1.2rem", color: "rgba(255,255,255,0.9)", lineHeight: 1.6 }}>
+          <h1 style={{ fontSize: "clamp(1.75rem, 5vw, 3.5rem)", marginBottom: "1rem", color: "#FFFFFF" }}>About Us</h1>
+          <p style={{ fontSize: "clamp(1rem, 3vw, 1.2rem)", color: "rgba(255,255,255,0.9)", lineHeight: 1.6 }}>
             Discover the legacy, vision, and core values that drive educational excellence at Word of Faith Schools.
           </p>
         </div>
       </section>
 
-      <section className="container" style={{ padding: "5rem 1rem" }}>
-        <div style={{ display: "grid", gap: "3rem", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))" }}>
+      <section className="container" style={{ padding: "clamp(2.5rem, 6vw, 5rem) 1rem" }}>
+        <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))" }}>
           {/* Vision Card */}
           <div style={{ 
             background: "var(--color-white)", 
-            padding: "3rem 2rem", 
+            padding: "clamp(1.5rem, 4vw, 3rem) clamp(1rem, 3vw, 2rem)", 
             borderRadius: "var(--radius-lg)", 
             boxShadow: "var(--shadow-lg)",
             borderTop: "4px solid var(--color-primary-green)",
@@ -65,7 +65,7 @@ export default function About() {
             <p style={{ color: "var(--color-gray-300)" }}>These five pillars guide everything we do, from the classroom to the playground</p>
           </div>
 
-          <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+          <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))" }}>
             {[
               { title: "Faith", desc: "Christian principles aren't just a subject we teach; they are the foundation of our daily school life." },
               { title: "Knowledge", desc: "We push for deep, practical understanding, going far beyond standard memorization." },

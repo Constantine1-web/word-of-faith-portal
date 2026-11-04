@@ -29,32 +29,34 @@ export default function CoursesPage() {
       <div style={{ background: "var(--color-white)", padding: "2rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" }}>
         <p style={{ marginBottom: "1.5rem", color: "var(--color-gray-800)" }}>Your registered subjects and assigned teachers for this session.</p>
         
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "var(--color-gray-100)", borderBottom: "2px solid var(--color-gray-200)", textAlign: "left" }}>
-              <th style={{ padding: "1rem" }}>Subject Code</th>
-              <th style={{ padding: "1rem" }}>Subject Name</th>
-              <th style={{ padding: "1rem" }}>Teacher</th>
-              <th style={{ padding: "1rem" }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {academics.length > 0 ? academics.map((ac, idx) => (
-              <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
-                <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>{ac.subject.slice(0, 3).toUpperCase()}-101</td>
-                <td style={{ padding: "1rem", fontWeight: 500, color: "var(--color-gray-900)" }}>{ac.subject}</td>
-                <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>{ac.teacher}</td>
-                <td style={{ padding: "1rem", color: "var(--color-primary-green)", fontWeight: 500 }}>Registered</td>
+        <div className="table-scroll">
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "500px" }}>
+            <thead>
+              <tr style={{ background: "var(--color-gray-100)", borderBottom: "2px solid var(--color-gray-200)", textAlign: "left" }}>
+                <th style={{ padding: "1rem" }}>Subject Code</th>
+                <th style={{ padding: "1rem" }}>Subject Name</th>
+                <th style={{ padding: "1rem" }}>Teacher</th>
+                <th style={{ padding: "1rem" }}>Status</th>
               </tr>
-            )) : (
-              <tr>
-                <td colSpan={4} style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)", fontStyle: "italic" }}>
-                  No courses registered.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {academics.length > 0 ? academics.map((ac, idx) => (
+                <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
+                  <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>{ac.subject.slice(0, 3).toUpperCase()}-101</td>
+                  <td style={{ padding: "1rem", fontWeight: 500, color: "var(--color-gray-900)" }}>{ac.subject}</td>
+                  <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>{ac.teacher}</td>
+                  <td style={{ padding: "1rem", color: "var(--color-primary-green)", fontWeight: 500 }}>Registered</td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan={4} style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)", fontStyle: "italic" }}>
+                    No courses registered.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

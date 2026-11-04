@@ -1,0 +1,149 @@
+/* =========================================================
+   Portal shell (Admin Control Center + Educator Workspace)
+   Mobile-first: the sidebar is an off-canvas drawer below
+   1024px and a fixed-width column from 1024px up.
+   ========================================================= */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 4.5rem);
+  min-height: calc(100dvh - 4.5rem);
+  width: 100%;
+}
+
+/* Bar with the drawer toggle (mobile / tablet only) */
+.mobileBar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(90deg, #0A2540 0%, #0F3456 100%);
+  color: #FFFFFF;
+}
+
+.menuBtn,
+.closeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.6rem;
+  color: #FFFFFF;
+  cursor: pointer;
+  font-size: 1.25rem;
+}
+
+.mobileTitle {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.overlay {
+  display: none;
+}
+
+.overlay.open {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1050; /* above the sticky navbar (1000) */
+}
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(85vw, 300px);
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform 0.3s ease, visibility 0.3s;
+  z-index: 1100;
+  color: #FFFFFF;
+  padding: 1rem 0 1.5rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar.open {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.drawerHeader {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1rem 0.5rem;
+}
+
+/* Comfortable touch targets for every nav link (drawer mode only) */
+@media (max-width: 1023.98px) {
+  .sidebar a {
+    min-height: 44px;
+  }
+}
+
+.main {
+  flex: 1;
+  min-width: 0; /* critical: lets wide tables scroll inside instead of widening the page */
+  background: var(--color-gray-50);
+  padding: 1rem;
+}
+
+@media (min-width: 480px) {
+  .main {
+    padding: 1.5rem;
+  }
+}
+
+/* Desktop: classic two-column layout */
+@media (min-width: 1024px) {
+  .shell {
+    flex-direction: row;
+  }
+
+  .mobileBar,
+  .drawerHeader {
+    display: none;
+  }
+
+  .overlay.open {
+    display: none;
+  }
+
+  .sidebar {
+    position: relative;
+    top: auto;
+    left: auto;
+    bottom: auto;
+    width: var(--sidebar-width, 270px);
+    height: auto;
+    flex-shrink: 0;
+    overflow: visible;
+    transform: none;
+    visibility: visible;
+    transition: none;
+    z-index: auto;
+    padding: 1.5rem 0;
+  }
+
+  .main {
+    padding: 2rem;
+    overflow-y: auto;
+  }
+}

@@ -15,15 +15,15 @@ export default function News() {
         borderBottom: "4px solid var(--color-primary-green)"
       }}>
         <div className="container" style={{ maxWidth: "800px" }}>
-          <h1 style={{ fontSize: "clamp(2.5rem, 5vw, 4rem)", marginBottom: "1rem", color: "white" }}>News & Events</h1>
-          <p style={{ fontSize: "1.2rem", color: "rgba(255, 255, 255, 0.9)" }}>
+          <h1 style={{ fontSize: "clamp(1.75rem, 5vw, 3.5rem)", marginBottom: "1rem", color: "white" }}>News & Events</h1>
+          <p style={{ fontSize: "clamp(1rem, 3vw, 1.2rem)", color: "rgba(255, 255, 255, 0.9)" }}>
             Stay updated with the latest happenings, announcements, and celebrations across our campuses.
           </p>
         </div>
       </section>
 
-      <section className="container" style={{ padding: "5rem 1rem" }}>
-        <div style={{ display: "grid", gap: "3rem", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))" }}>
+      <section className="container" style={{ padding: "clamp(2.5rem, 6vw, 5rem) 1rem" }}>
+        <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))" }}>
           {newsItems.map((item, index) => (
             <div key={index} style={{ 
               background: "var(--color-white)", 

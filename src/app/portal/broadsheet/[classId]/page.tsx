@@ -165,13 +165,13 @@ export default async function BroadsheetPage({ params }: { params: Promise<{ cla
 
       {/* Signatures & Certification */}
       <div style={{ marginTop: "3rem", display: "flex", justifyContent: "space-between", alignItems: "flex-end", paddingTop: "1.5rem" }}>
-        <div style={{ textAlign: "center", width: "250px" }}>
+        <div style={{ textAlign: "center", width: "min(100%, 250px)" }}>
           <div style={{ borderBottom: "1px solid black", height: "40px", marginBottom: "0.5rem" }}></div>
           <p style={{ margin: 0, fontWeight: "bold" }}>{classData.FormMaster?.Email || "Form Master"}</p>
           <p style={{ margin: 0, fontSize: "0.8rem", color: "#6B7280" }}>Form Master / Class Teacher</p>
         </div>
 
-        <div style={{ textAlign: "center", width: "250px" }}>
+        <div style={{ textAlign: "center", width: "min(100%, 250px)" }}>
           <div style={{ borderBottom: "1px solid black", height: "40px", marginBottom: "0.5rem" }}></div>
           <p style={{ margin: 0, fontWeight: "bold" }}>School Principal / Director</p>
           <p style={{ margin: 0, fontSize: "0.8rem", color: "#6B7280" }}>Word of Faith Schools</p>

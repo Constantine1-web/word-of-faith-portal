@@ -171,7 +171,7 @@ export default function CardsClient({
           {/* Printable Cards Grid */}
           <div className="printable-cards-grid" style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
             gap: "1rem",
             maxHeight: "500px",
             overflowY: "auto",
@@ -236,7 +236,7 @@ export default function CardsClient({
 
       {/* Controls & Filter Bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
-        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "280px", maxWidth: "700px" }}>
+        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "min(100%, 280px)", maxWidth: "700px", flexWrap: "wrap" }}>
           <div style={{ position: "relative", flex: 1 }}>
             <FiSearch style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)", color: "var(--color-gray-400)" }} />
             <input

@@ -78,41 +78,43 @@ export default function ResultsPage() {
               <p style={{ color: "var(--color-gray-800)", fontWeight: "bold" }}>Terminal Report Card</p>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "2rem", color: "var(--color-gray-900)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem", marginBottom: "2rem", color: "var(--color-gray-900)" }}>
               <div>
                 <p><strong>Student:</strong> {resultData.student?.User?.Email?.split('@')[0].toUpperCase()}</p>
                 <p><strong>Admission No:</strong> {resultData.student?.AdmissionNo}</p>
               </div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "left" }}>
                 <p><strong>Class:</strong> {resultData.student?.Class?.ClassName}</p>
                 <p><strong>Term:</strong> {resultData.term?.TermName}</p>
               </div>
             </div>
             
-            <table style={{ width: "100%", borderCollapse: "collapse", color: "var(--color-gray-900)" }}>
-              <thead>
-                <tr style={{ background: "var(--color-gray-100)", borderBottom: "2px solid var(--color-gray-200)" }}>
-                  <th style={{ padding: "0.75rem", textAlign: "left" }}>Subject</th>
-                  <th style={{ padding: "0.75rem", textAlign: "center" }}>CA</th>
-                  <th style={{ padding: "0.75rem", textAlign: "center" }}>Exam</th>
-                  <th style={{ padding: "0.75rem", textAlign: "center" }}>Total</th>
-                  <th style={{ padding: "0.75rem", textAlign: "center" }}>Grade</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resultData.results.length > 0 ? resultData.results.map((res: any, idx: number) => (
-                  <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
-                    <td style={{ padding: "0.75rem" }}>{res.Subject?.SubjectName || `Subject ${res.SubjectID}`}</td>
-                    <td style={{ padding: "0.75rem", textAlign: "center" }}>{res.CAScore}</td>
-                    <td style={{ padding: "0.75rem", textAlign: "center" }}>{res.ExamScore}</td>
-                    <td style={{ padding: "0.75rem", textAlign: "center", fontWeight: "bold" }}>{res.TotalScore}</td>
-                    <td style={{ padding: "0.75rem", textAlign: "center", color: res.Grade === 'F' ? 'red' : 'var(--color-primary-green)', fontWeight: "bold" }}>{res.Grade}</td>
+            <div className="table-scroll">
+              <table style={{ width: "100%", borderCollapse: "collapse", color: "var(--color-gray-900)", minWidth: "500px" }}>
+                <thead>
+                  <tr style={{ background: "var(--color-gray-100)", borderBottom: "2px solid var(--color-gray-200)" }}>
+                    <th style={{ padding: "0.75rem", textAlign: "left" }}>Subject</th>
+                    <th style={{ padding: "0.75rem", textAlign: "center" }}>CA</th>
+                    <th style={{ padding: "0.75rem", textAlign: "center" }}>Exam</th>
+                    <th style={{ padding: "0.75rem", textAlign: "center" }}>Total</th>
+                    <th style={{ padding: "0.75rem", textAlign: "center" }}>Grade</th>
                   </tr>
-                )) : (
-                  <tr><td colSpan={5} style={{ padding: "1rem", textAlign: "center" }}>No results found for this term.</td></tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {resultData.results.length > 0 ? resultData.results.map((res: any, idx: number) => (
+                    <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
+                      <td style={{ padding: "0.75rem" }}>{res.Subject?.SubjectName || `Subject ${res.SubjectID}`}</td>
+                      <td style={{ padding: "0.75rem", textAlign: "center" }}>{res.CAScore}</td>
+                      <td style={{ padding: "0.75rem", textAlign: "center" }}>{res.ExamScore}</td>
+                      <td style={{ padding: "0.75rem", textAlign: "center", fontWeight: "bold" }}>{res.TotalScore}</td>
+                      <td style={{ padding: "0.75rem", textAlign: "center", color: res.Grade === 'F' ? 'red' : 'var(--color-primary-green)', fontWeight: "bold" }}>{res.Grade}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={5} style={{ padding: "1rem", textAlign: "center" }}>No results found for this term.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
             <div style={{ marginTop: "2rem", display: "flex", justifyContent: "center" }}>
               <button className="btn btn-secondary" onClick={() => window.print()}>Print / Download PDF</button>
             </div>

@@ -108,7 +108,7 @@ export default function PaymentsClient({
 
       {/* Control & Filter Bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
-        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "280px", maxWidth: "700px" }}>
+        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "min(100%, 280px)", maxWidth: "700px", flexWrap: "wrap" }}>
           <div style={{ position: "relative", flex: 1 }}>
             <FiSearch style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)", color: "var(--color-gray-400)" }} />
             <input

@@ -101,8 +101,8 @@ export default function AuditClient({
           border: "1px solid var(--color-gray-200)",
         }}
       >
-        <div style={{ display: "flex", gap: "0.75rem", flex: 1, minWidth: "260px", flexWrap: "wrap" }}>
-          <div style={{ position: "relative", flex: 1, minWidth: "220px" }}>
+        <div style={{ display: "flex", gap: "0.75rem", flex: 1, minWidth: "min(100%, 260px)", flexWrap: "wrap" }}>
+          <div style={{ position: "relative", flex: 1, minWidth: "min(100%, 220px)" }}>
             <FiSearch
               style={{
                 position: "absolute",
@@ -229,7 +229,7 @@ export default function AuditClient({
           overflowX: "auto",
         }}
       >
-        <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "750px" }}>
           <thead>
             <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
               <th style={{ padding: "0.9rem 1rem", textAlign: "left" }}>Timestamp</th>
@@ -335,7 +335,7 @@ export default function AuditClient({
               </button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem", fontSize: "0.8rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "0.75rem", marginBottom: "1rem", fontSize: "0.8rem" }}>
               <div style={{ padding: "0.75rem", background: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
                 <div style={{ color: "var(--color-gray-500)", fontWeight: 700 }}>PrevHash</div>
                 <div style={{ fontFamily: "monospace", wordBreak: "break-all" }}>

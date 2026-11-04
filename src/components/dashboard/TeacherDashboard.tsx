@@ -878,7 +878,7 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                     )}
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))", gap: "0.75rem" }}>
                     {cls.TeacherMaps?.map((map: any) => {
                       const isSub = cls.SubjectSubmissions?.some((s: any) => s.SubjectID === map.SubjectID);
                       return (
@@ -1019,7 +1019,7 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
                 <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "0.75rem", fontSize: "0.95rem" }}>
                   Behavioral & Affective Domain (Rate 1 to 5)
                 </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "0.75rem" }}>
                   {Object.entries(affectiveTraits).map(([trait, rating]) => (
                     <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--color-gray-50)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)" }}>
                       <span style={{ fontSize: "0.85rem", textTransform: "capitalize" }}>{trait}:</span>

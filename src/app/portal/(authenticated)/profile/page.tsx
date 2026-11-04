@@ -58,9 +58,9 @@ export default function ProfilePage() {
           </div>
 
           {/* Details Form */}
-          <form onSubmit={handleSubmit} style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.5rem", minWidth: "300px" }}>
+          <form onSubmit={handleSubmit} style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.5rem", minWidth: "min(100%, 300px)" }}>
             
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
               <div>
                 <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, color: "var(--color-gray-900)" }}>Registration No.</label>
                 <input type="text" value={profile?.admissionNo || ""} disabled style={{ width: "100%", padding: "0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-200)", background: "var(--color-gray-50)", color: "var(--color-gray-600)" }} />

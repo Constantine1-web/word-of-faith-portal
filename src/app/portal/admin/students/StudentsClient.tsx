@@ -51,7 +51,7 @@ export default function StudentsClient({ initialStudents, classes }: { initialSt
 
       {showAdd && (
         <form onSubmit={handleAdd} style={{ background: "white", padding: "1.5rem", borderRadius: "var(--radius-md)", marginBottom: "2rem", display: "grid", gap: "1rem", boxShadow: "var(--shadow-sm)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
             <input type="text" placeholder="First Name" required value={formData.firstName} onChange={(e) => setFormData({...formData, firstName: e.target.value})} style={{ padding: "0.5rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }} />
             <input type="text" placeholder="Last Name" required value={formData.lastName} onChange={(e) => setFormData({...formData, lastName: e.target.value})} style={{ padding: "0.5rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }} />
             <input type="email" placeholder="Email Address" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} style={{ padding: "0.5rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }} />

@@ -63,7 +63,7 @@ export default function AdminCbtClient({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
           gap: "1rem",
           marginBottom: "1.75rem",
         }}
@@ -192,7 +192,7 @@ export default function AdminCbtClient({
             overflowX: "auto",
           }}
         >
-          <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "600px" }}>
             <thead>
               <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
                 <th style={{ padding: "1rem", textAlign: "left" }}>Student</th>
@@ -264,7 +264,7 @@ export default function AdminCbtClient({
             overflowX: "auto",
           }}
         >
-          <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "600px" }}>
             <thead>
               <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
                 <th style={{ padding: "1rem", textAlign: "left" }}>Student</th>
@@ -351,7 +351,7 @@ export default function AdminCbtClient({
             overflowX: "auto",
           }}
         >
-          <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "600px" }}>
             <thead>
               <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
                 <th style={{ padding: "1rem", textAlign: "left" }}>Timestamp</th>

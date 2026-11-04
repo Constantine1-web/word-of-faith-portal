@@ -56,7 +56,7 @@ export default function Login() {
         background: "rgba(46, 220, 133, 0.1)",
         backdropFilter: "blur(20px) saturate(180%)",
         WebkitBackdropFilter: "blur(20px) saturate(180%)",
-        padding: "3rem",
+        padding: "clamp(1.5rem, 5vw, 2.5rem)",
         borderRadius: "20px",
         boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.4)",
         width: "100%",

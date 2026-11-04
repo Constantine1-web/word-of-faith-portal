@@ -148,7 +148,7 @@ export default function Sidebar() {
         <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
           {userRole === "admin" ? "Admin Suite" : userRole === "teacher" ? "Teacher Portal" : "Student Portal"}
         </span>
-        <button className={styles.hamburgerBtn} onClick={() => setIsMobileOpen(true)}>
+        <button className={styles.hamburgerBtn} onClick={() => setIsMobileOpen(true)} aria-label="Open navigation menu" aria-expanded={isMobileOpen}>
           <FiMenu />
         </button>
       </div>
@@ -158,6 +158,7 @@ export default function Sidebar() {
         onClick={() => setIsMobileOpen(false)} 
       />
 
+      {/* Sizing/positioning lives in DashboardLayout.module.css so media queries can control it */}
       <aside 
         className={[styles.sidebarWrapper, isMobileOpen ? styles.open : ""].filter(Boolean).join(" ")}
         style={{
@@ -167,18 +168,13 @@ export default function Sidebar() {
           color: "white",
           border: "1px solid rgba(255, 255, 255, 0.15)",
           boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.3)",
-          borderRadius: "20px",
-          margin: "1rem",
-          minHeight: "calc(100vh - 6.5rem)",
-          maxHeight: "calc(100vh - 6.5rem)",
-          width: "260px",
-          maxWidth: "75vw",
-          display: "flex",
-          flexDirection: "column",
-          padding: "1.25rem 0",
-          zIndex: 90
         }}
       >
+        <div className={styles.drawerClose}>
+          <button className={styles.hamburgerBtn} onClick={() => setIsMobileOpen(false)} aria-label="Close navigation menu">
+            <FiX />
+          </button>
+        </div>
         {/* User Info Header */}
         <div style={{ padding: "0 1.25rem 1.25rem 1.25rem", borderBottom: "1px solid rgba(255, 255, 255, 0.1)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>

@@ -246,7 +246,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
           gap: "1rem",
         }}
       >
-        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "280px", maxWidth: "600px" }}>
+        <div style={{ display: "flex", gap: "1rem", flex: 1, minWidth: "min(100%, 280px)", maxWidth: "600px", flexWrap: "wrap" }}>
           <div style={{ position: "relative", flex: 1 }}>
             <FiSearch
               style={{
@@ -562,7 +562,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
                   gap: "0.65rem",
                   marginBottom: "1.25rem",
                 }}
