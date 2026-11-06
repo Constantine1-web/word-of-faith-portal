@@ -48,7 +48,8 @@ export default function Sidebar() {
   );
   const isAdminStaff = userRoles.some(r => ["admin", "super_admin", "principal", "bursar", "admissions"].includes(r));
   const isEducator = userRoles.some(r => ["teacher", "form_master"].includes(r));
-  const userRole = isAdminStaff ? "admin" : isEducator ? "teacher" : rawRole;
+  const isParent = !isAdminStaff && !isEducator && userRoles.includes("parent");
+  const userRole = isAdminStaff ? "admin" : isEducator ? "teacher" : isParent ? "parent" : rawRole;
 
   // Build role-tailored navigation items
   const getNavItems = () => {
@@ -92,9 +93,9 @@ export default function Sidebar() {
             { name: "CBT Portal", href: "/portal/cbt" },
           ]
         },
-        {
-          name: "Security & Audit",
-          icon: <FiSettings />,
+        { 
+          name: "Security & Audit", 
+          icon: <FiSettings />, 
           children: [
             { name: "Audit Hash Explorer", href: "/portal/admin/audit" },
           ]
@@ -119,7 +120,31 @@ export default function Sidebar() {
       ];
     }
 
-    // Default: Student / Parent
+    if (userRole === "parent") {
+      return [
+        { name: "Parent Dashboard", href: "/portal/dashboard", icon: <FiHome /> },
+        { 
+          name: "Academics", 
+          icon: <FiBookOpen />, 
+          children: [
+            { name: "Check Results", href: "/portal/results" },
+            { name: "CBT Performance", href: "/portal/cbt" },
+          ]
+        },
+        { 
+          name: "Fee Management", 
+          icon: <FiCreditCard />, 
+          children: [
+            { name: "Pay School Fees", href: "/portal/fees" },
+            { name: "Payment Receipts", href: "/portal/fees/history" },
+          ]
+        },
+        { name: "Messages", href: "/portal/messages", icon: <FiFileText /> },
+        { name: "My Profile", href: "/portal/profile", icon: <FiUser /> },
+      ];
+    }
+
+    // Default: Student
     return [
       { name: "Student Dashboard", href: "/portal/dashboard", icon: <FiHome /> },
       { 
@@ -148,7 +173,7 @@ export default function Sidebar() {
     <>
       <div className={styles.mobileHeader}>
         <span style={{ fontWeight: "bold", fontSize: "1.1rem" }}>
-          {userRole === "admin" ? "Admin Suite" : userRole === "teacher" ? "Teacher Portal" : "Student Portal"}
+          {userRole === "admin" ? "Admin Suite" : userRole === "teacher" ? "Teacher Portal" : userRole === "parent" ? "Parent Portal" : "Student Portal"}
         </span>
         <button className={styles.hamburgerBtn} onClick={() => setIsMobileOpen(true)} aria-label="Open navigation menu" aria-expanded={isMobileOpen}>
           <FiMenu />

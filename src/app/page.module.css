@@ -344,7 +344,7 @@
 
 .principalText {
   flex: 1;
-  min-width: 300px;
+  min-width: min(100%, 300px);
 }
 
 .eventsSection {

@@ -2,7 +2,7 @@
 
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { requireRole, writeAuditLog } from "@/lib/authz";
+import { requireActiveUser, requireRole, writeAuditLog } from "@/lib/authz";
 
 async function requireTermAdmin() {
   return requireRole(["PRINCIPAL", "SUPER_ADMIN", "Admin"]);
@@ -10,6 +10,7 @@ async function requireTermAdmin() {
 
 export async function getTerms() {
   try {
+    await requireActiveUser();
     const terms = await prisma.academic_Term.findMany({
       orderBy: [{ SessionName: "desc" }, { TermID: "asc" }],
       include: {
@@ -31,6 +32,7 @@ export async function getTerms() {
 
 export async function getActiveTerm() {
   try {
+    await requireActiveUser();
     const term = await prisma.academic_Term.findFirst({
       where: { IsActive: true },
     });
@@ -77,7 +79,7 @@ export async function createAcademicTerm(data: {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "TERM_CREATE",
       targetTable: "Academic_Term",
       targetId: String(term.TermID),
@@ -110,7 +112,7 @@ export async function setActiveTerm(termId: number) {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "TERM_SET_ACTIVE",
       targetTable: "Academic_Term",
       targetId: String(termId),
@@ -138,7 +140,7 @@ export async function toggleTermLock(termId: number, isLocked: boolean) {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: isLocked ? "TERM_FREEZE" : "TERM_UNFREEZE",
       targetTable: "Academic_Term",
       targetId: String(termId),

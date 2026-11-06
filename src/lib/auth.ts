@@ -33,12 +33,39 @@ declare module "next-auth/jwt" {
   }
 }
 
+const DUMMY_BCRYPT_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4oL9.xK0S2";
+
+function resolveNextAuthSecret(): string {
+  const configured = process.env.NEXTAUTH_SECRET?.trim();
+  if (configured && configured.length >= 16) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("CRITICAL_SECURITY_ERROR: NEXTAUTH_SECRET must be configured in production.");
+  }
+  return configured || "dev-ephemeral-nextauth-secret-local-only-2026";
+}
+
+const isProd = process.env.NODE_ENV === "production";
+
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
     maxAge: 8 * 60 * 60, // 8 hours absolute session lifetime
+    updateAge: 60 * 60, // Rotate session token every 1 hour
   },
-  secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-dev",
+  secret: resolveNextAuthSecret(),
+  cookies: {
+    sessionToken: {
+      name: isProd ? "__Secure-next-auth.session-token" : "next-auth.session-token",
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: isProd,
+      },
+    },
+  },
   pages: {
     signIn: "/portal/login",
   },
@@ -51,11 +78,11 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials, req) {
         const rawIp = req?.headers?.["x-forwarded-for"] || "127.0.0.1";
-        const ip = Array.isArray(rawIp) ? rawIp[0] : String(rawIp);
+        const ip = (Array.isArray(rawIp) ? rawIp[0] : String(rawIp)).split(",")[0].trim();
 
-        // IP Throttling for Login
-        const rateLimitResult = await rateLimit(`login:${ip}`, 10, 60);
-        if (!rateLimitResult.success) {
+        // 1. Per-IP Throttling for Login
+        const ipRateLimit = await rateLimit(`login:ip:${ip}`, 10, 60);
+        if (!ipRateLimit.success) {
           throw new Error("Too many login attempts from this network. Please try again shortly.");
         }
 
@@ -64,6 +91,12 @@ export const authOptions: NextAuthOptions = {
         }
 
         const normalizedEmail = credentials.email.trim().toLowerCase();
+
+        // 2. Per-Account Throttling for Login (blocks distributed credential stuffing)
+        const acctRateLimit = await rateLimit(`login:acct:${normalizedEmail}`, 5, 300);
+        if (!acctRateLimit.success) {
+          throw new Error("Too many login attempts for this account. Please wait 5 minutes and try again.");
+        }
 
         // Find user case-insensitively to handle legacy seeded emails while enforcing normalized comparison
         let user: any = null;
@@ -94,8 +127,9 @@ export const authOptions: NextAuthOptions = {
           });
         }
 
-        // Generic failure path to prevent account enumeration
+        // Generic failure path with constant-time dummy bcrypt check to prevent timing enumeration
         if (!user || !user.IsActive) {
+          await bcrypt.compare(credentials.password, DUMMY_BCRYPT_HASH).catch(() => {});
           return null;
         }
 
@@ -156,6 +190,17 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      // Allow relative callback URLs
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      // Allow callback URLs on the same origin
+      try {
+        if (new URL(url).origin === baseUrl) return url;
+      } catch {
+        // Ignore invalid URLs
+      }
+      return baseUrl;
+    },
     async jwt({ token, user }) {
       if (user) {
         token.id = Number(user.id);
@@ -181,3 +226,4 @@ export const authOptions: NextAuthOptions = {
     },
   },
 };
+

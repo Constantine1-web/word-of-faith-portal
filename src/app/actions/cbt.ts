@@ -3,7 +3,8 @@
 import prisma from "@/lib/db";
 import crypto from "crypto";
 import { revalidatePath } from "next/cache";
-import { fetchQuestions } from "@/lib/cbt-api";
+import { fetchQuestions, SUBJECTS } from "@/lib/cbt-api";
+import { getAlocKeyDiagnostics } from "@/lib/aloc-api";
 import {
   analyzeAttemptWithGemini,
   explainQuestionWithGemini,
@@ -14,6 +15,7 @@ import {
   can,
   writeAuditLog,
 } from "@/lib/authz";
+import { rateLimit } from "@/lib/security";
 import { IntegrityEventType, AttemptMode } from "@prisma/client";
 
 // Decision 10.3: 2 Hard Strikes before terminating attempt & locking for the current Lagos day
@@ -42,8 +44,8 @@ export async function getLagosDayKey(date: Date = new Date()): Promise<string> {
 }
 
 /**
- * Resolves the Student profile for the currently authenticated user, creating a default practice profile
- * if a staff member is testing the CBT environment.
+ * Resolves the Student profile for the currently authenticated user.
+ * Prevents teachers/staff from silently mutating or locking an arbitrary student's CBT records (HIGH-08).
  */
 async function resolveCurrentStudent() {
   const actor = await requireActiveUser();
@@ -53,8 +55,12 @@ async function resolveCurrentStudent() {
     include: { Class: true },
   });
 
-  if (!student && (actor.roles.has("TEACHER") || actor.roles.has("PRINCIPAL") || actor.roles.has("SUPER_ADMIN"))) {
-    // Allow staff to test CBT using the first enrolled student profile or a staff sandbox check
+  if (
+    !student &&
+    process.env.NODE_ENV !== "production" &&
+    process.env.ALLOW_ADMIN_CBT_SANDBOX === "true" &&
+    actor.roles.has("SUPER_ADMIN")
+  ) {
     student = await prisma.student.findFirst({
       include: { Class: true },
       orderBy: { StudentID: "asc" },
@@ -963,6 +969,8 @@ export async function getAttemptAiAnalysis(attemptId: string) {
 
 /**
  * On-demand AI explanation generator for individual questions in the CBT review.
+ * Security (HIGH-07): Blocked while the student has an ACTIVE CBT attempt in progress,
+ * and rate-limited per user to prevent Gemini quota abuse.
  */
 export async function getQuestionAiExplanation(params: {
   questionId?: string;
@@ -974,7 +982,56 @@ export async function getQuestionAiExplanation(params: {
   examBody: string;
 }) {
   try {
-    await requireActiveUser();
+    const actor = await requireActiveUser();
+
+    const rl = await rateLimit(`cbt_ai_explain:${actor.UserID}`, 15, 300);
+    if (!rl.success) {
+      return {
+        success: false,
+        error: "AI explanation rate limit reached. Please wait a few minutes before requesting more explanations.",
+      };
+    }
+
+    const student = await prisma.student.findFirst({
+      where: { UserID: actor.UserID },
+      select: { StudentID: true },
+    });
+
+    if (student) {
+      const activeAttempt = await prisma.cbtAttempt.findFirst({
+        where: {
+          studentId: student.StudentID,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      });
+
+      if (activeAttempt) {
+        return {
+          success: false,
+          error: "AI explanations are disabled while you have an active CBT exam in progress.",
+        };
+      }
+
+      if (params.questionId) {
+        const completedAttempt = await prisma.cbtAttempt.findFirst({
+          where: {
+            studentId: student.StudentID,
+            status: { in: ["SUBMITTED", "EXPIRED"] },
+            items: { some: { questionId: String(params.questionId) } },
+          },
+          select: { id: true },
+        });
+
+        if (!completedAttempt) {
+          return {
+            success: false,
+            error: "AI explanations are only available for questions in your completed CBT attempts.",
+          };
+        }
+      }
+    }
+
     const explanation = await explainQuestionWithGemini(params);
     return { success: true, explanation };
   } catch (error: any) {
@@ -1055,7 +1112,7 @@ export async function liftCbtDayLock(lockId: string, reason: string) {
 
     await writeAuditLog({
       actorId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "CBT_DAY_LOCK_LIFTED",
       entity: "CbtDayLock",
       entityId: updated.id,
@@ -1075,3 +1132,267 @@ export async function liftCbtDayLock(lockId: string, reason: string) {
     return { success: false, error: error.message || "Failed to lift CBT day lock" };
   }
 }
+
+/**
+ * Automated Cron / Worker Reaper:
+ * Scans for orphaned ACTIVE CBT attempts whose timer has expired (expiresAt < now).
+ * Computes scores based on answers recorded so far, sets status to 'EXPIRED',
+ * and records an audit log entry for forensic accountability.
+ */
+export async function reapExpiredCbtAttempts(limit = 50) {
+  try {
+    const now = new Date();
+    // Allow a 15-second grace window past expiresAt for network latency before reaping
+    const threshold = new Date(now.getTime() - 15000);
+
+    const expiredAttempts = await prisma.cbtAttempt.findMany({
+      where: {
+        status: "ACTIVE",
+        expiresAt: { lt: threshold },
+      },
+      include: {
+        items: {
+          orderBy: { position: "asc" },
+          include: {
+            question: {
+              include: {
+                answerKey: true,
+              },
+            },
+          },
+        },
+      },
+      take: limit,
+    });
+
+    if (expiredAttempts.length === 0) {
+      return { success: true, reapedCount: 0, attemptIds: [] };
+    }
+
+    const reapedIds: string[] = [];
+
+    for (const attempt of expiredAttempts) {
+      let correctCount = 0;
+
+      await prisma.$transaction(async (tx) => {
+        for (const item of attempt.items) {
+          const correctKey = (item.question.answerKey?.correctKey || "a").toLowerCase().trim();
+          const isCorrect = Boolean(item.selectedKey && item.selectedKey.toLowerCase() === correctKey);
+          if (isCorrect) correctCount++;
+
+          await tx.cbtAttemptQuestion.update({
+            where: { id: item.id },
+            data: { isCorrect },
+          });
+        }
+
+        const percentageTenths =
+          attempt.questionCount > 0 ? Math.trunc((correctCount / attempt.questionCount) * 1000) : 0;
+
+        await tx.cbtAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            status: "EXPIRED",
+            submittedAt: now,
+            scoreTenths: percentageTenths,
+            terminationReason: "Exam timer expired (automatically finalized by CBT Reaper)",
+          },
+        });
+
+        await writeAuditLog({
+          tx,
+          action: "CBT_ATTEMPT_REAPED_EXPIRED",
+          entity: "CbtAttempt",
+          entityId: attempt.id,
+          reason: "Automated session finalization upon timer expiration",
+          newValue: {
+            studentId: attempt.studentId,
+            correctCount,
+            questionCount: attempt.questionCount,
+            scoreTenths: percentageTenths,
+            reapedAt: now.toISOString(),
+          },
+        });
+      });
+
+      reapedIds.push(attempt.id);
+    }
+
+    return {
+      success: true,
+      reapedCount: reapedIds.length,
+      attemptIds: reapedIds,
+    };
+  } catch (error: any) {
+    console.error("reapExpiredCbtAttempts error:", error);
+    return { success: false, reapedCount: 0, error: error.message || "Failed to reap expired attempts" };
+  }
+}
+
+/**
+ * Returns CBT ALOC & Secondary Provider Key Diagnostics and Internal Question Pool counts per subject.
+ */
+export async function getCbtProviderDiagnostics() {
+  try {
+    const actor = await requireActiveUser();
+    const isStaff =
+      can(actor, "cbt:lift_lock") ||
+      actor.roles.has("TEACHER") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("Admin");
+
+    if (!isStaff) {
+      throw new Error("Unauthorized to view CBT provider diagnostics.");
+    }
+
+    const keyDiagnostics = getAlocKeyDiagnostics();
+
+    const poolCountsRaw = await prisma.cbtQuestion.groupBy({
+      by: ["subjectCode"],
+      where: { isActive: true },
+      _count: { id: true },
+    });
+
+    const poolMap: Record<string, number> = {};
+    for (const row of poolCountsRaw) {
+      poolMap[row.subjectCode.toLowerCase()] = row._count.id;
+    }
+
+    const subjectPools = SUBJECTS.map((sub) => ({
+      subjectCode: sub,
+      cachedCount: poolMap[sub] || 0,
+    }));
+
+    return {
+      success: true,
+      diagnostics: keyDiagnostics,
+      subjectPools,
+      totalCachedQuestions: Object.values(poolMap).reduce((a, b) => a + b, 0),
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || "Failed to load CBT provider diagnostics",
+    };
+  }
+}
+
+/**
+ * Synchronizes/refills the internal CBT Question Pool for a specific subject (or all 17 subjects if subjectCode === "ALL")
+ * using ALOC Station v1 -> ALOC v2 -> SdashAPI -> Verified Fallback Bank.
+ */
+export async function syncSubjectQuestionPool(subjectCode: string = "ALL", examBody: string = "WASSCE") {
+  try {
+    const actor = await requireActiveUser();
+    const isStaff =
+      can(actor, "cbt:lift_lock") ||
+      actor.roles.has("TEACHER") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("Admin");
+
+    if (!isStaff) {
+      throw new Error("Unauthorized to synchronize CBT question pool.");
+    }
+
+    const normalizedExamBody = examBody.toUpperCase().trim() || "WASSCE";
+    const targetSubjects =
+      subjectCode.toUpperCase() === "ALL" ? SUBJECTS : [subjectCode.toLowerCase().trim()];
+
+    let totalIngested = 0;
+
+    for (const sub of targetSubjects) {
+      const fetched = await fetchQuestions(sub, 20, normalizedExamBody);
+      for (const item of fetched) {
+        if (!item.question) continue;
+        const externalId = String(item.id || crypto.createHash("md5").update(item.question).digest("hex"));
+        const optionsArr = Object.entries(item.option || {})
+          .filter(([, val]) => Boolean(val))
+          .map(([key, text]) => ({
+            key: key.toLowerCase(),
+            text: String(text),
+          }));
+
+        if (optionsArr.length < 2) continue;
+
+        const contentHash = crypto
+          .createHash("sha256")
+          .update(`${sub}:${item.question}:${JSON.stringify(optionsArr)}`)
+          .digest("hex");
+
+        const upsertedQ = await prisma.cbtQuestion.upsert({
+          where: {
+            provider_externalId: {
+              provider: "SDASH_ALOC",
+              externalId: `${sub}-${externalId}`,
+            },
+          },
+          update: {
+            stem: item.question,
+            optionsJson: optionsArr,
+            imageUrl: item.image || null,
+            isActive: true,
+          },
+          create: {
+            provider: "SDASH_ALOC",
+            externalId: `${sub}-${externalId}`,
+            examBody: normalizedExamBody,
+            subjectCode: sub,
+            examYear: item.examyear ? parseInt(item.examyear, 10) || null : null,
+            stem: item.question,
+            imageUrl: item.image || null,
+            optionsJson: optionsArr,
+            contentHash,
+            licenseRef: "WOF-CBT-EDU-2026",
+            isActive: true,
+          },
+        });
+
+        await prisma.cbtAnswerKey.upsert({
+          where: { questionId: upsertedQ.id },
+          update: {
+            correctKey: (item.answer || "a").toLowerCase().trim(),
+            explanation: item.solution || null,
+          },
+          create: {
+            questionId: upsertedQ.id,
+            correctKey: (item.answer || "a").toLowerCase().trim(),
+            explanation: item.solution || null,
+          },
+        });
+
+        totalIngested++;
+      }
+    }
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "CBT_POOL_SYNCHRONIZED",
+      entity: "CbtQuestion",
+      entityId: subjectCode.toUpperCase(),
+      newValue: {
+        subjectCode,
+        examBody: normalizedExamBody,
+        totalIngested,
+      },
+    });
+
+    revalidatePath("/portal/admin/cbt");
+    revalidatePath("/portal/cbt");
+
+    return {
+      success: true,
+      totalIngested,
+      diagnostics: getAlocKeyDiagnostics(),
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || "Failed to synchronize CBT question pool",
+    };
+  }
+}
+
+

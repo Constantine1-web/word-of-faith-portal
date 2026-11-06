@@ -41,6 +41,12 @@
   --nav-bg-glass: rgba(243, 244, 246, 0.6);
   --nav-bg-overlay: rgba(243, 244, 246, 0.3);
   --nav-bg-img: url('/school_light.png');
+
+  /* Safe Area Insets (iOS Safari, notch & dynamic island adaptation) */
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
 }
 
 [data-theme='dark'] {
@@ -64,12 +70,20 @@
   --btn-primary-text: #000000;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
 body {
   background-color: var(--color-gray-50);
   color: var(--color-gray-900);
   font-family: var(--font-primary);
   line-height: 1.5;
   min-height: 100vh;
+  min-height: 100dvh;
+  min-width: 320px;
   display: flex;
   flex-direction: column;
 }
@@ -459,4 +473,61 @@ html, body {
 
 .form-input::placeholder {
   color: var(--color-gray-500);
+}
+
+/* =========================================
+   IOS / IPADOS AUTO-ZOOM PREVENTION
+   ========================================= */
+@media (max-width: 768px) {
+  .form-input,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px !important; /* Prevents auto-zoom on iOS/iPadOS */
+  }
+}
+
+/* =========================================
+   TABLET & IPAD VIEWPORT OPTIMIZATIONS (768px - 1023px)
+   ========================================= */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  .container {
+    padding: 0 1.5rem;
+  }
+}
+
+/* =========================================
+   TOUCHSCREEN HOVER STATE STABILIZATION
+   Prevents sticky hover animations on iPads and touch screens
+   ========================================= */
+@media (hover: none) and (pointer: coarse) {
+  .btn:hover {
+    transform: none !important;
+  }
+  .hover-lift:hover {
+    transform: none !important;
+  }
+  .gallery-item:hover {
+    transform: none !important;
+  }
+}
+
+/* =========================================
+   FLUID PORTAL RESPONSIVE UTILITIES
+   ========================================= */
+.portal-page-container {
+  padding: clamp(1rem, 2.5vw, 2rem);
+  width: 100%;
+}
+
+.portal-card {
+  background: var(--color-white);
+  padding: clamp(1rem, 2.5vw, 2rem);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }

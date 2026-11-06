@@ -8,7 +8,15 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminAuditPage() {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "Admin" && session.user.role !== "admin")) {
+  const roleUpper = (session?.user?.role || "").toUpperCase();
+  const isAuthorizedAdmin =
+    roleUpper === "ADMIN" ||
+    roleUpper === "SUPER_ADMIN" ||
+    roleUpper === "PRINCIPAL" ||
+    roleUpper === "BURSAR" ||
+    roleUpper === "ADMISSIONS";
+
+  if (!session || !isAuthorizedAdmin) {
     redirect("/portal/login");
   }
 

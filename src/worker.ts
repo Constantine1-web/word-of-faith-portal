@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { invalidateCache } from './lib/cache';
 import cron from "node-cron";
 import { performBackup } from "./scripts/backup";
+import { reapExpiredCbtAttempts } from "./app/actions/cbt";
 
 const prisma = new PrismaClient();
 
@@ -16,6 +17,20 @@ cron.schedule("0 0 * * *", () => {
 });
 
 console.log("Scheduled automated daily database backup (00:00).");
+
+// Schedule CBT Timeout Reaper (Runs every 2 minutes)
+cron.schedule("*/2 * * * *", async () => {
+  try {
+    const res = await reapExpiredCbtAttempts();
+    if (res.reapedCount > 0) {
+      console.log(`[CbtReaper] Successfully reaped ${res.reapedCount} expired CBT attempts.`);
+    }
+  } catch (err: any) {
+    console.error("[CbtReaper] Error reaping expired attempts:", err.message);
+  }
+});
+
+console.log("Scheduled automated CBT timeout reaper (every 2 minutes).");
 
 // 1. Email Worker (Processes SMTP dispatch)
 const emailWorker = new Worker('email-queue', async job => {
@@ -42,9 +57,10 @@ const paymentWorker = new Worker('payment-queue', async job => {
       StudentID: studentId,
       TermID: termId,
       AmountPaid: amount,
+      AmountKobo: BigInt(Math.round(Number(amount || 0) * 100)),
       Description: description,
-      Status: "Approved", 
-      ReceiptUrl: `/receipts/mock-${Date.now()}.pdf`
+      Status: "Pending",
+      ReceiptUrl: `/receipts/teller-${Date.now()}.pdf`
     }
   });
 

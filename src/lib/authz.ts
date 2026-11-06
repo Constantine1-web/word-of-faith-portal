@@ -293,7 +293,7 @@ export async function requireCapability(required: Capability | Capability[]) {
 /**
  * Verifies that the active user possesses at least one of the allowed roles.
  */
-export async function requireRole(allowedRoles: GranularRole[]) {
+export async function requireRole(allowedRoles: readonly (GranularRole | string)[]) {
   const actor = await requireActiveUser();
   const { roles } = actor;
 
@@ -447,6 +447,119 @@ export async function checkStudentFeeClearance(studentId: number, termId: number
   };
 }
 
+let auditChainMutex: Promise<void> = Promise.resolve();
+
+/**
+ * Verifies that the current actor owns the target Student record (as the Student or linked Guardian/Parent),
+ * OR holds an administrative/supervisory capability.
+ */
+export async function requireStudentOwnershipOrAdmin(
+  studentId: number,
+  options?: { allowTeachersInClass?: boolean; allowFinance?: boolean }
+) {
+  const actor = await requireActiveUser();
+  const student = await prisma.student.findUnique({
+    where: { StudentID: studentId },
+    include: {
+      ParentLinks: { include: { Parent: true } },
+      Class: true,
+    },
+  });
+
+  if (!student) {
+    throw new AuthorizationError("Student record not found.", 404);
+  }
+
+  const isSuperOrPrincipal =
+    actor.roles.has("SUPER_ADMIN") ||
+    actor.roles.has("PRINCIPAL") ||
+    actor.roles.has("EXAM_OFFICER") ||
+    actor.roles.has("ADMISSIONS") ||
+    actor.roles.has("Admin") ||
+    actor.capabilities.has("MANAGE_STUDENTS");
+
+  if (isSuperOrPrincipal) {
+    return { actor, student };
+  }
+
+  if (
+    options?.allowFinance &&
+    (actor.roles.has("BURSAR") ||
+      actor.capabilities.has("MANAGE_FINANCE") ||
+      actor.capabilities.has("APPROVE_PAYMENTS"))
+  ) {
+    return { actor, student };
+  }
+
+  // Direct student owner
+  if (student.UserID === actor.UserID) {
+    return { actor, student };
+  }
+
+  // Linked Parent / Guardian
+  const isLinkedGuardian =
+    student.ParentLinks.some((link) => link.Parent?.UserID === actor.UserID) ||
+    (student.ParentEmail && student.ParentEmail.toLowerCase() === actor.Email.toLowerCase());
+  if (isLinkedGuardian) {
+    return { actor, student };
+  }
+
+  // Optionally allow Form Master or Subject Teacher assigned to the student's class
+  if (options?.allowTeachersInClass) {
+    if (student.Class?.FormMasterID === actor.UserID) {
+      return { actor, student };
+    }
+    const teachesSubjectInClass = await prisma.teacher_Subject_Map.findFirst({
+      where: { ClassID: student.ClassID, TeacherID: actor.UserID },
+      select: { id: true },
+    });
+    if (teachesSubjectInClass) {
+      return { actor, student };
+    }
+  }
+
+  throw new AuthorizationError("FORBIDDEN: You do not have permission to access this student's record.");
+}
+
+/**
+ * Verifies that the current actor is the Form Master of the class, teaches a subject in the class,
+ * or holds administrative/supervisory privileges.
+ */
+export async function requireClassTeacherOrAdmin(classId: number) {
+  const actor = await requireActiveUser();
+  if (
+    actor.roles.has("SUPER_ADMIN") ||
+    actor.roles.has("PRINCIPAL") ||
+    actor.roles.has("EXAM_OFFICER") ||
+    actor.roles.has("ADMISSIONS") ||
+    actor.roles.has("Admin") ||
+    actor.capabilities.has("MANAGE_STRUCTURE") ||
+    actor.capabilities.has("MANAGE_STUDENTS")
+  ) {
+    return actor;
+  }
+
+  const cls = await prisma.class.findUnique({
+    where: { ClassID: classId },
+    select: { FormMasterID: true },
+  });
+
+  if (cls?.FormMasterID === actor.UserID) {
+    return actor;
+  }
+
+  const subjectAllocation = await prisma.teacher_Subject_Map.findFirst({
+    where: { ClassID: classId, TeacherID: actor.UserID },
+    select: { id: true },
+  });
+
+  if (subjectAllocation) {
+    return actor;
+  }
+
+  throw new AuthorizationError("FORBIDDEN: You are not assigned to this class arm.");
+}
+
 /**
  * Writes a cryptographically hash-chained entry to the append-only AuditLog table (Section 1 & 4).
  * Computes SHA-256(prevHash + canonicalJson) so tampering or row gaps are mathematically detectable.
@@ -471,71 +584,110 @@ export async function writeAuditLog(params: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tx?: any;
 }) {
-  const client = params.tx || prisma;
-  const resolvedActorId = params.actorId ?? params.actorUserId ?? null;
-  const resolvedEntity = params.entity ?? params.targetTable ?? "System";
-  const resolvedEntityId = String(params.entityId ?? params.targetId ?? "0");
-  const resolvedOld = params.oldValue ?? params.beforeState;
-  const resolvedNew = params.newValue ?? params.afterState;
+  const executeWrite = async () => {
+    const client = params.tx || prisma;
+    const resolvedActorId = params.actorId ?? params.actorUserId ?? null;
+    const resolvedEntity = params.entity ?? params.targetTable ?? "System";
+    const resolvedEntityId = String(params.entityId ?? params.targetId ?? "0");
+    const resolvedOld = params.oldValue ?? params.beforeState;
+    const resolvedNew = params.newValue ?? params.afterState;
 
-  try {
-    const lastEntry = await client.auditLog
-      .findFirst({
-        orderBy: { CreatedAt: "desc" },
-        select: { Hash: true, id: true },
-      })
-      .catch(() => null);
+    try {
+      const lastEntry = await client.auditLog
+        .findFirst({
+          orderBy: [{ CreatedAt: "desc" }, { id: "desc" }],
+          select: { Hash: true, id: true },
+        })
+        .catch(() => null);
 
-    const prevHash = lastEntry?.Hash || "GENESIS";
-    const canonicalPayload = JSON.stringify({
-      actorId: resolvedActorId,
-      onBehalfOfId: params.onBehalfOfId ?? null,
-      action: params.action,
-      entity: resolvedEntity,
-      entityId: resolvedEntityId,
-      oldValue: resolvedOld ?? null,
-      newValue: resolvedNew ?? null,
-      reason: params.reason ?? null,
-    });
-    const hash = crypto
-      .createHash("sha256")
-      .update(`${prevHash}:${canonicalPayload}`)
-      .digest("hex");
+      const prevHash = lastEntry?.Hash || "GENESIS";
+      const canonicalPayload = JSON.stringify({
+        actorId: resolvedActorId,
+        onBehalfOfId: params.onBehalfOfId ?? null,
+        action: params.action,
+        entity: resolvedEntity,
+        entityId: resolvedEntityId,
+        oldValue: resolvedOld ?? null,
+        newValue: resolvedNew ?? null,
+        reason: params.reason ?? null,
+      });
+      const hash = crypto
+        .createHash("sha256")
+        .update(`${prevHash}:${canonicalPayload}`)
+        .digest("hex");
 
-    await client.auditLog.create({
-      data: {
-        ActorID: resolvedActorId,
-        OnBehalfOfID: params.onBehalfOfId ?? null,
-        Action: params.action,
-        Entity: resolvedEntity,
-        EntityID: resolvedEntityId,
-        Reason: params.reason ?? null,
-        PrevHash: prevHash,
-        Hash: hash,
-        OldValue: resolvedOld !== undefined ? JSON.parse(JSON.stringify(resolvedOld)) : undefined,
-        NewValue:
-          resolvedNew !== undefined
-            ? JSON.parse(
-                JSON.stringify(
-                  params.actorRoles || params.reason
-                    ? {
-                        ...(typeof resolvedNew === "object" && resolvedNew !== null
-                          ? resolvedNew
-                          : { value: resolvedNew }),
-                        actorRoles: params.actorRoles,
-                        reason: params.reason,
-                      }
-                    : resolvedNew
+      await client.auditLog.create({
+        data: {
+          ActorID: resolvedActorId,
+          OnBehalfOfID: params.onBehalfOfId ?? null,
+          Action: params.action,
+          Entity: resolvedEntity,
+          EntityID: resolvedEntityId,
+          Reason: params.reason ?? null,
+          PrevHash: prevHash,
+          Hash: hash,
+          OldValue: resolvedOld !== undefined ? JSON.parse(JSON.stringify(resolvedOld)) : undefined,
+          NewValue:
+            resolvedNew !== undefined
+              ? JSON.parse(
+                  JSON.stringify(
+                    params.actorRoles || params.reason
+                      ? {
+                          ...(typeof resolvedNew === "object" && resolvedNew !== null
+                            ? resolvedNew
+                            : { value: resolvedNew }),
+                          actorRoles: params.actorRoles,
+                          reason: params.reason,
+                        }
+                      : resolvedNew
+                  )
                 )
-              )
-            : undefined,
-        IpAddress: params.ipAddress ?? null,
-        UserAgent: params.userAgent ?? null,
-      },
-    });
-  } catch (err) {
-    console.error("Failed to write audit log:", err);
+              : undefined,
+          IpAddress: params.ipAddress ?? null,
+          UserAgent: params.userAgent ?? null,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to write audit log:", err);
+    }
+  };
+
+  if (params.tx) {
+    await executeWrite();
+    return;
   }
+
+  const next = auditChainMutex.then(executeWrite, executeWrite);
+  auditChainMutex = next;
+  await next;
+}
+
+/**
+ * Verifies the cryptographic integrity of the AuditLog hash chain.
+ */
+export async function verifyAuditLogChain(limit: number = 500): Promise<{
+  valid: boolean;
+  checkedCount: number;
+  brokenAtId?: string;
+}> {
+  const entries = await prisma.auditLog.findMany({
+    orderBy: [{ CreatedAt: "asc" }, { id: "asc" }],
+    take: limit,
+    select: {
+      id: true,
+      PrevHash: true,
+      Hash: true,
+    },
+  });
+
+  for (let i = 1; i < entries.length; i++) {
+    const prev = entries[i - 1];
+    const curr = entries[i];
+    if (curr.PrevHash && prev.Hash && curr.PrevHash !== prev.Hash) {
+      return { valid: false, checkedCount: i + 1, brokenAtId: curr.id };
+    }
+  }
+  return { valid: true, checkedCount: entries.length };
 }
 
 /**
@@ -548,3 +700,4 @@ export function sanitizeCsvCell(value: unknown): string {
   }
   return `"${str}"`;
 }
+

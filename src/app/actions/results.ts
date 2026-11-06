@@ -18,6 +18,7 @@ import {
   requireActiveUser,
   requireRole,
   requireCapability,
+  requireClassTeacherOrAdmin,
   can,
   assertSeparationOfDuties,
   assertTeacherAssigned,
@@ -25,6 +26,7 @@ import {
   writeAuditLog,
   sanitizeCsvCell,
 } from "@/lib/authz";
+import { SAFE_USER_SELECT } from "@/lib/security";
 
 const ScoreRowSchema = z.object({
   studentId: z.number().int().positive(),
@@ -185,7 +187,7 @@ export async function getStudentsAndScoresForSubject(classId: number, subjectId:
     const students = await prisma.student.findMany({
       where: { ClassID: Number(classId) },
       include: {
-        User: true,
+        User: { select: SAFE_USER_SELECT },
         Results: {
           where: {
             SubjectID: Number(subjectId),
@@ -1327,7 +1329,8 @@ export async function submitClassResultsToAdmin(classId: number, termId: number)
 
 export async function getClassBroadsheet(classId: number, termId?: number) {
   try {
-    await requireRole(["TEACHER", "FORM_MASTER", "PRINCIPAL", "SUPER_ADMIN", "Teacher", "Admin"]);
+    await requireRole(["TEACHER", "FORM_MASTER", "PRINCIPAL", "SUPER_ADMIN", "EXAM_OFFICER", "Teacher", "Admin"]);
+    await requireClassTeacherOrAdmin(Number(classId));
 
     let targetTermId = termId;
     if (!targetTermId) {
@@ -1340,7 +1343,7 @@ export async function getClassBroadsheet(classId: number, termId?: number) {
     const classData = await prisma.class.findUnique({
       where: { ClassID: Number(classId) },
       include: {
-        FormMaster: true,
+        FormMaster: { select: SAFE_USER_SELECT },
         Broadsheets: {
           where: { termId: Number(targetTermId) },
         },
@@ -1360,7 +1363,7 @@ export async function getClassBroadsheet(classId: number, termId?: number) {
           },
         },
         TeacherMaps: {
-          include: { Subject: true, Teacher: true },
+          include: { Subject: true, Teacher: { select: SAFE_USER_SELECT } },
         },
         SubjectSubmissions: {
           where: { TermID: Number(targetTermId) },
@@ -1780,10 +1783,10 @@ export async function saveResult(data: {
 
 export async function getStudentsInClass(classId: number) {
   try {
-    await requireActiveUser();
+    await requireClassTeacherOrAdmin(Number(classId));
     return await prisma.student.findMany({
       where: { ClassID: Number(classId) },
-      include: { User: true },
+      include: { User: { select: SAFE_USER_SELECT } },
     });
   } catch {
     return [];
@@ -1792,7 +1795,18 @@ export async function getStudentsInClass(classId: number) {
 
 export async function getTeacherSubjects(teacherUserId: number) {
   try {
-    await requireActiveUser();
+    const actor = await requireActiveUser();
+    const isAdmin =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("EXAM_OFFICER") ||
+      actor.roles.has("Admin") ||
+      actor.capabilities.has("MANAGE_STRUCTURE");
+
+    if (actor.UserID !== Number(teacherUserId) && !isAdmin) {
+      return [];
+    }
+
     return await prisma.teacher_Subject_Map.findMany({
       where: { TeacherID: Number(teacherUserId) },
       include: { Subject: true, Class: true },

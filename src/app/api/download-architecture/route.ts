@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { requireRole } from "@/lib/authz";
 
 export async function GET() {
   try {
+    await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
+
     const rootFile = path.join(process.cwd(), "System_Architecture.docx");
     const publicFile = path.join(process.cwd(), "public", "downloads", "System_Architecture.docx");
     const targetPath = fs.existsSync(rootFile) ? rootFile : publicFile;
@@ -24,6 +27,6 @@ export async function GET() {
       },
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Download failed" }, { status: 500 });
+    return NextResponse.json({ error: "Unauthorized or download failed" }, { status: 403 });
   }
 }

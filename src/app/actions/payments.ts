@@ -11,8 +11,15 @@ import {
   assertSeparationOfDuties,
   writeAuditLog,
 } from "@/lib/authz";
+import { SAFE_USER_SELECT } from "@/lib/security";
 
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || "sk_test_mocked_key";
+function getPaystackSecretKey(): string {
+  const key = process.env.PAYSTACK_SECRET_KEY?.trim();
+  if (!key || key === "sk_test_mocked_key") {
+    throw new Error("PAYSTACK_SECRET_KEY is not configured on the server.");
+  }
+  return key;
+}
 
 async function requirePaymentManager() {
   return requireCapability(["MANAGE_FINANCE", "APPROVE_PAYMENTS"]);
@@ -51,7 +58,7 @@ export async function getAdminPaymentAuditList(filters?: {
       where: whereClause,
       include: {
         Student: {
-          include: { Class: true, User: true },
+          include: { Class: true, User: { select: SAFE_USER_SELECT } },
         },
         Term: true,
       },
@@ -115,7 +122,7 @@ export async function approvePaymentRecord(paymentId: number) {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "PAYMENT_APPROVE",
       targetTable: "Payment_Record",
       targetId: String(paymentId),
@@ -152,7 +159,7 @@ export async function rejectPaymentRecord(paymentId: number, rejectionReason?: s
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "PAYMENT_REJECT",
       targetTable: "Payment_Record",
       targetId: String(paymentId),
@@ -173,7 +180,7 @@ export async function rejectPaymentRecord(paymentId: number, rejectionReason?: s
 // STUDENT: INITIATE PAYMENT & UPLOAD RECEIPT
 // ==========================================
 
-export function generateOrderTrackingId(termName?: string, sessionName?: string) {
+export async function generateOrderTrackingId(termName?: string, sessionName?: string) {
   const cleanYear = (sessionName || "2026/2027").split("/")[0] || "2026";
   const termCode = termName?.toLowerCase().includes("second")
     ? "T2"
@@ -197,7 +204,7 @@ export async function getOrCreateStudentFeeOrder() {
       where: { UserID: actor.UserID },
       include: {
         Class: true,
-        User: true,
+        User: { select: SAFE_USER_SELECT },
       },
     });
 
@@ -269,7 +276,7 @@ export async function getOrCreateStudentFeeOrder() {
     }
 
     // 3. Create a fresh consolidated School Fees order with a unique Tracking ID
-    const trackingId = generateOrderTrackingId(activeTerm.TermName, activeTerm.SessionName);
+    const trackingId = await generateOrderTrackingId(activeTerm.TermName, activeTerm.SessionName);
     const defaultAmount = 65000; // Comprehensive School Fees
     const defaultAmountKobo = BigInt(defaultAmount * 100);
 
@@ -440,6 +447,8 @@ export async function uploadBankTellerReceipt(formData: FormData) {
   }
 }
 
+const MINIMUM_TERM_FEE_NAIRA = 65000;
+
 export async function initializePayment(data: { amount: number; description: string; termId: number; trackingId?: string }) {
   let actor;
   try {
@@ -450,42 +459,65 @@ export async function initializePayment(data: { amount: number; description: str
 
   const student = await prisma.student.findFirst({
     where: { UserID: actor.UserID },
-    include: { User: true },
+    include: { User: { select: SAFE_USER_SELECT } },
   });
 
   if (!student) {
     return { error: "Student profile not found" };
   }
 
-  const reference = data.trackingId || `WOF-PAY-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
-  const amountInKobo = Math.round(data.amount * 100);
+  const reference = data.trackingId?.trim() || `WOF-PAY-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
 
   try {
+    const paystackKey = getPaystackSecretKey();
+
     // Check if order exists with this reference
     const existing = await prisma.payment_Record.findUnique({
       where: { Reference: reference },
     });
 
+    let authoritativeKobo: bigint;
+    let authoritativeNaira: number;
+
     if (existing) {
+      // Prevent IDOR: student cannot attach to or overwrite another student's reference
+      if (existing.StudentID !== student.StudentID) {
+        return { error: "FORBIDDEN: Payment reference belongs to another student." };
+      }
+      if (existing.Status === "Approved") {
+        return { error: "This fee order has already been paid and approved." };
+      }
+      // Never allow client-supplied data.amount to reduce the server-authoritative order amount
+      const existingKobo =
+        existing.AmountKobo > BigInt(0)
+          ? existing.AmountKobo
+          : BigInt(Math.round(Math.max(existing.AmountPaid || MINIMUM_TERM_FEE_NAIRA, MINIMUM_TERM_FEE_NAIRA) * 100));
+      authoritativeKobo = existingKobo;
+      authoritativeNaira = Number(existingKobo) / 100;
+
       await prisma.payment_Record.update({
         where: { Reference: reference },
         data: {
-          AmountPaid: data.amount,
-          AmountKobo: BigInt(amountInKobo),
+          AmountPaid: authoritativeNaira,
+          AmountKobo: authoritativeKobo,
           Channel: "PAYSTACK",
         },
       });
     } else {
+      authoritativeNaira = Math.max(Number(data.amount) || MINIMUM_TERM_FEE_NAIRA, MINIMUM_TERM_FEE_NAIRA);
+      authoritativeKobo = BigInt(Math.round(authoritativeNaira * 100));
+
       await prisma.payment_Record.create({
         data: {
           StudentID: student.StudentID,
-          TermID: data.termId,
-          AmountPaid: data.amount,
-          AmountKobo: BigInt(amountInKobo),
+          TermID: Number(data.termId),
+          AmountPaid: authoritativeNaira,
+          AmountKobo: authoritativeKobo,
           Channel: "PAYSTACK",
-          Description: data.description || "Consolidated School Fees",
+          Description: String(data.description || "Consolidated School Fees").slice(0, 200),
           Reference: reference,
           Status: "Pending",
+          SubmittedBy: actor.UserID,
         },
       });
     }
@@ -493,12 +525,13 @@ export async function initializePayment(data: { amount: number; description: str
     const response = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        Authorization: `Bearer ${paystackKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         email: student.User?.Email,
-        amount: amountInKobo,
+        amount: Number(authoritativeKobo),
+        currency: "NGN",
         reference: reference,
         callback_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/portal/fees?payment=verify`,
       }),
@@ -526,15 +559,54 @@ export async function verifyPaystackPayment(reference: string) {
   }
 
   const cleanRef = reference?.trim();
-  if (!cleanRef) {
-    return { success: false, error: "Transaction reference is required." };
+  if (!cleanRef || cleanRef.length > 120) {
+    return { success: false, error: "Valid transaction reference is required." };
   }
 
   try {
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${cleanRef}`, {
+    const paystackKey = getPaystackSecretKey();
+
+    const payment = await prisma.payment_Record.findUnique({
+      where: { Reference: cleanRef },
+      include: {
+        Student: {
+          include: { ParentLinks: { include: { Parent: true } } },
+        },
+      },
+    });
+
+    if (!payment) {
+      return { success: false, error: "Payment record not found for this reference." };
+    }
+
+    // Enforce ownership or finance admin authorization (blocks IDOR)
+    const isFinanceAdmin =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("BURSAR") ||
+      actor.roles.has("Admin") ||
+      actor.capabilities.has("MANAGE_FINANCE") ||
+      actor.capabilities.has("APPROVE_PAYMENTS");
+    const isOwner =
+      payment.Student.UserID === actor.UserID ||
+      payment.Student.ParentLinks.some((l) => l.Parent?.UserID === actor.UserID) ||
+      Boolean(
+        payment.Student.ParentEmail &&
+          payment.Student.ParentEmail.toLowerCase() === actor.Email.toLowerCase()
+      );
+
+    if (!isOwner && !isFinanceAdmin) {
+      return { success: false, error: "FORBIDDEN: You are not authorized to verify this payment." };
+    }
+
+    if (payment.Status === "Approved") {
+      return { success: true, message: "Payment is already verified and approved." };
+    }
+
+    const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        Authorization: `Bearer ${paystackKey}`,
       },
     });
 
@@ -547,29 +619,77 @@ export async function verifyPaystackPayment(reference: string) {
       };
     }
 
-    const payment = await prisma.payment_Record.findUnique({
-      where: { Reference: cleanRef },
+    // Verify currency and exact amount in kobo
+    const gatewayCurrency = String(data.data?.currency || "").toUpperCase();
+    if (gatewayCurrency && gatewayCurrency !== "NGN") {
+      return {
+        success: false,
+        error: `SECURITY_VIOLATION: Unexpected payment currency (${gatewayCurrency}). Expected NGN.`,
+      };
+    }
+
+    const paidKobo = BigInt(Math.round(Number(data.data?.amount || 0)));
+    const expectedKobo =
+      payment.AmountKobo > BigInt(0)
+        ? payment.AmountKobo
+        : BigInt(Math.round(Math.max(payment.AmountPaid || MINIMUM_TERM_FEE_NAIRA, MINIMUM_TERM_FEE_NAIRA) * 100));
+
+    if (paidKobo < expectedKobo) {
+      await writeAuditLog({
+        actorId: actor.UserID,
+        action: "PAYMENT_AMOUNT_MISMATCH_BLOCKED",
+        entity: "Payment_Record",
+        entityId: payment.PaymentID,
+        newValue: {
+          reference: cleanRef,
+          paidKobo: paidKobo.toString(),
+          expectedKobo: expectedKobo.toString(),
+        },
+      });
+      return {
+        success: false,
+        error: "SECURITY_VIOLATION: Amount paid on gateway is less than the required invoice amount.",
+      };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.webhookEvent.upsert({
+        where: { eventKey: cleanRef },
+        update: {},
+        create: {
+          provider: "PAYSTACK",
+          eventKey: cleanRef,
+          processedAt: new Date(),
+        },
+      });
+
+      await tx.payment_Record.update({
+        where: { Reference: cleanRef },
+        data: {
+          Status: "Approved",
+          Channel: "PAYSTACK",
+          ReviewedAt: new Date(),
+        },
+      });
+
+      await tx.student.update({
+        where: { StudentID: payment.StudentID },
+        data: { HasPaidFees: true },
+      });
+
+      await tx.enrollment.updateMany({
+        where: { StudentID: payment.StudentID, TermID: payment.TermID },
+        data: { Status: "ACTIVE" },
+      });
     });
 
-    if (payment) {
-      await prisma.$transaction([
-        prisma.payment_Record.update({
-          where: { Reference: cleanRef },
-          data: {
-            Status: "Approved",
-            ReviewedAt: new Date(),
-          },
-        }),
-        prisma.student.update({
-          where: { StudentID: payment.StudentID },
-          data: { HasPaidFees: true },
-        }),
-        prisma.enrollment.updateMany({
-          where: { StudentID: payment.StudentID, TermID: payment.TermID },
-          data: { Status: "ACTIVE" },
-        }),
-      ]);
-    }
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "PAYSTACK_PAYMENT_VERIFIED",
+      entity: "Payment_Record",
+      entityId: payment.PaymentID,
+      newValue: { reference: cleanRef, paidKobo: paidKobo.toString() },
+    });
 
     revalidatePath("/portal/fees");
     revalidatePath("/portal/admin/payments");

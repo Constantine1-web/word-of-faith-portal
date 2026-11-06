@@ -95,7 +95,7 @@ export default async function BroadsheetPage({ params }: { params: Promise<{ cla
         <h2 style={{ fontSize: "1.1rem", margin: "0 0 0.5rem 0", color: "#14532D", fontWeight: "bold" }}>
           OFFICIAL TERMINAL MASTER BROAD-SHEET
         </h2>
-        <div style={{ display: "flex", justifyContent: "center", gap: "2rem", fontSize: "0.9rem", color: "#374151" }}>
+        <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: "0.75rem 1.5rem", fontSize: "0.9rem", color: "#374151" }}>
           <span><strong>Class:</strong> {classData.ClassName} ({classData.Level})</span>
           <span><strong>Session / Term:</strong> {activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "Active Term"}</span>
           <span><strong>Form Master:</strong> {classData.FormMaster?.Email || "Not Assigned"}</span>

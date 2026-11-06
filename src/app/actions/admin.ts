@@ -24,6 +24,15 @@ import {
   generateRecoveryCodes,
 } from "@/server/security/totp";
 import { sendAdmissionDecisionNotification } from "@/lib/email";
+import {
+  encryptTotpSecret,
+  decryptTotpSecret,
+  claimTotpCodeSingleUse,
+  grantStepUpSession,
+  requireStepUpIfTotpEnabled,
+  timingSafeCompare,
+  rateLimit,
+} from "@/lib/security";
 
 // Ensure the user holds an authorized administrative role in Layer 3
 async function requireAdmin() {
@@ -210,8 +219,9 @@ export async function getUsersList(roleFilter?: string) {
           u.Role?.RoleName
         )
       );
+      const { PasswordHash, TotpSecret, TotpBackupCodes, ...safeUser } = u;
       return {
-        ...u,
+        ...safeUser,
         resolvedCapabilities: resolvedCaps,
       };
     });
@@ -266,6 +276,7 @@ export async function updateAdminCapabilities(data: {
 }) {
   try {
     const actor = await requireCapability("MANAGE_USERS");
+    await requireStepUpIfTotpEnabled(actor.UserID, "updateAdminCapabilities");
     const targetUserId = Number(data.targetUserId);
 
     if (actor.UserID === targetUserId) {
@@ -344,9 +355,10 @@ export async function createUserAccount(data: {
   name?: string;
 }) {
   try {
-    await requireAdmin();
+    const actor = await requireCapability("MANAGE_USERS");
+    const emailClean = data.email.trim().toLowerCase();
     const existing = await prisma.user.findUnique({
-      where: { Email: data.email.trim().toLowerCase() }
+      where: { Email: emailClean },
     });
 
     if (existing) {
@@ -354,23 +366,50 @@ export async function createUserAccount(data: {
     }
 
     const role = await prisma.role.findUnique({
-      where: { RoleName: data.roleName }
+      where: { RoleName: data.roleName },
     });
 
     if (!role) {
       return { success: false, error: `Role '${data.roleName}' does not exist.` };
     }
 
+    const requestedUpper = role.RoleName.toUpperCase();
+    if (
+      (requestedUpper === "SUPER_ADMIN" || requestedUpper === "ADMIN") &&
+      !actor.roles.has("SUPER_ADMIN") &&
+      !actor.roles.has("Admin")
+    ) {
+      return {
+        success: false,
+        error: "Privilege Guardrail: Only a SUPER_ADMIN can provision another full Admin account.",
+      };
+    }
+
     const defaultPassword = data.password || "wofschools2026";
-    const passwordHash = await bcrypt.hash(defaultPassword, 10);
+    const passwordHash = await bcrypt.hash(defaultPassword, 12);
 
     const user = await prisma.user.create({
       data: {
-        Email: data.email.trim().toLowerCase(),
+        Email: emailClean,
         PasswordHash: passwordHash,
         RoleID: role.RoleID,
-        IsActive: true
-      }
+        IsActive: true,
+      },
+      select: {
+        UserID: true,
+        Email: true,
+        RoleID: true,
+        IsActive: true,
+      },
+    });
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "USER_ACCOUNT_CREATED",
+      entity: "User",
+      entityId: user.UserID,
+      newValue: { email: user.Email, roleName: role.RoleName },
     });
 
     revalidatePath("/portal/admin/users");
@@ -385,6 +424,7 @@ export async function createUserAccount(data: {
 export async function toggleUserStatus(userId: number, isActive: boolean) {
   try {
     const actor = await requireCapability("MANAGE_USERS");
+    await requireStepUpIfTotpEnabled(actor.UserID, "toggleUserStatus");
     if (!isActive && actor.UserID === userId) {
       return {
         success: false,
@@ -428,7 +468,7 @@ export async function toggleUserStatus(userId: number, isActive: boolean) {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: isActive ? "USER_ACTIVATE" : "USER_DEACTIVATE",
       targetTable: "User",
       targetId: String(userId),
@@ -446,6 +486,28 @@ export async function toggleUserStatus(userId: number, isActive: boolean) {
 export async function adminResetPassword(userId: number, newPassword?: string) {
   try {
     const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "Admin"]);
+    await requireStepUpIfTotpEnabled(actor.UserID, "adminResetPassword");
+    const target = await prisma.user.findUnique({
+      where: { UserID: userId },
+      include: { Role: true, RoleAssignments: true },
+    });
+
+    if (!target) {
+      return { success: false, error: "Target user account not found." };
+    }
+
+    const targetIsSuperAdmin =
+      target.Role?.RoleName === "SUPER_ADMIN" ||
+      target.Role?.RoleName === "Admin" ||
+      target.RoleAssignments.some((ra) => ra.Role === "SUPER_ADMIN");
+
+    if (targetIsSuperAdmin && !actor.roles.has("SUPER_ADMIN") && !actor.roles.has("Admin")) {
+      return {
+        success: false,
+        error: "Privilege Guardrail: Only a SUPER_ADMIN can reset another SUPER_ADMIN password.",
+      };
+    }
+
     const pass = newPassword || "wofschools2026";
     const passwordHash = await bcrypt.hash(pass, 12);
 
@@ -461,7 +523,7 @@ export async function adminResetPassword(userId: number, newPassword?: string) {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "USER_PASSWORD_RESET",
       targetTable: "User",
       targetId: String(userId),
@@ -485,22 +547,27 @@ export async function getClassesWithAllocations() {
     await requireAdmin();
     const classes = await prisma.class.findMany({
       include: {
-        FormMaster: true,
+        FormMaster: {
+          select: { UserID: true, Email: true, IsActive: true, RoleID: true },
+        },
         Students: true,
         TeacherMaps: {
           include: {
-            Teacher: true,
+            Teacher: {
+              select: { UserID: true, Email: true, IsActive: true, RoleID: true },
+            },
             Subject: true,
             Term: true,
-          }
-        }
+          },
+        },
       },
-      orderBy: { ClassName: "asc" }
+      orderBy: { ClassName: "asc" },
     });
 
     const teachers = await prisma.user.findMany({
       where: { Role: { RoleName: { in: ["Teacher", "TEACHER", "FORM_MASTER"] } }, IsActive: true },
-      orderBy: { Email: "asc" }
+      select: { UserID: true, Email: true, IsActive: true, RoleID: true },
+      orderBy: { Email: "asc" },
     });
 
     const subjects = await prisma.subject.findMany({
@@ -813,7 +880,7 @@ export async function addStudent(data: {
   await requireAdmin();
 
   try {
-    const defaultPassword = await bcrypt.hash("wofschools2026", 10);
+    const defaultPassword = await bcrypt.hash("wofschools2026", 12);
     
     await prisma.$transaction(async (tx) => {
       const studentRole = await tx.role.findUnique({ where: { RoleName: "Student" } });
@@ -944,6 +1011,14 @@ export async function claimStudentAccountWithCode(data: {
       };
     }
 
+    const rl = await rateLimit(`claim_student:${admissionNo.toLowerCase()}`, 5, 900);
+    if (!rl.success) {
+      return {
+        success: false,
+        error: "Too many claim attempts for this admission number. Please wait 15 minutes.",
+      };
+    }
+
     const student = await prisma.student.findUnique({
       where: { AdmissionNo: admissionNo },
       include: {
@@ -958,12 +1033,16 @@ export async function claimStudentAccountWithCode(data: {
     // Uniform generic error to prevent enumeration (Section 2)
     const genericClaimError = "Invalid or expired admission number / claim code combination.";
 
-    if (!student) {
+    if (!student || student.UserID) {
       return { success: false, error: genericClaimError };
     }
 
     const inputHash = crypto.createHash("sha256").update(rawCode).digest("hex");
     const activeClaim = student.Claims?.[0];
+
+    if (activeClaim && activeClaim.attempts >= 5) {
+      return { success: false, error: genericClaimError };
+    }
 
     const expectedHash = activeClaim?.codeHash || student.ClaimCodeHash;
     const expiresAt = activeClaim?.expiresAt || student.ClaimCodeExpiresAt;
@@ -972,9 +1051,7 @@ export async function claimStudentAccountWithCode(data: {
       return { success: false, error: genericClaimError };
     }
 
-    const bufA = Buffer.from(expectedHash, "utf8");
-    const bufB = Buffer.from(inputHash, "utf8");
-    const isMatch = bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+    const isMatch = timingSafeCompare(expectedHash, inputHash);
 
     if (!isMatch) {
       if (activeClaim) {
@@ -1199,13 +1276,14 @@ export async function initiateUserTotpEnrollment() {
   try {
     const actor = await requireActiveUser();
     const secret = generateTotpSecret();
+    const encryptedSecret = encryptTotpSecret(secret);
     const otpAuthUri = buildOtpAuthUri(actor.Email, secret);
     const { plainCodes, codeHashes } = generateRecoveryCodes();
 
     await prisma.user.update({
       where: { UserID: actor.UserID },
       data: {
-        TotpSecret: secret,
+        TotpSecret: encryptedSecret,
         TotpBackupCodes: JSON.stringify(codeHashes),
       },
     });
@@ -1224,20 +1302,41 @@ export async function initiateUserTotpEnrollment() {
 export async function confirmUserTotpEnrollment(code: string) {
   try {
     const actor = await requireActiveUser();
+    const rl = await rateLimit(`totp_confirm:${actor.UserID}`, 5, 300);
+    if (!rl.success) {
+      return { success: false, error: "Too many TOTP confirmation attempts. Please wait 5 minutes." };
+    }
+
     const user = await prisma.user.findUnique({ where: { UserID: actor.UserID } });
     if (!user?.TotpSecret) {
       return { success: false, error: "No pending TOTP secret found. Start enrollment first." };
     }
 
-    const isValid = verifyTotpCode(user.TotpSecret, code);
+    const plainSecret = decryptTotpSecret(user.TotpSecret);
+    const isValid = verifyTotpCode(plainSecret, code);
     if (!isValid) {
       return { success: false, error: "Invalid 6-digit TOTP code. Check your authenticator app clock." };
     }
 
+    const claimed = await claimTotpCodeSingleUse(actor.UserID, code);
+    if (!claimed) {
+      return { success: false, error: "This TOTP code has already been used. Wait for the next 30-second window." };
+    }
+
+    // Ensure secret is stored encrypted if it wasn't already
+    const encryptedSecret = user.TotpSecret.startsWith("enc:v1:")
+      ? user.TotpSecret
+      : encryptTotpSecret(plainSecret);
+
     await prisma.user.update({
       where: { UserID: actor.UserID },
-      data: { TotpEnabled: true },
+      data: {
+        TotpEnabled: true,
+        TotpSecret: encryptedSecret,
+      },
     });
+
+    await grantStepUpSession(actor.UserID, "ALL", 300);
 
     await writeAuditLog({
       actorId: actor.UserID,
@@ -1256,6 +1355,14 @@ export async function confirmUserTotpEnrollment(code: string) {
 export async function verifyStepUpTotpAction(code: string, actionName: string) {
   try {
     const actor = await requireActiveUser();
+    const rl = await rateLimit(`totp_stepup:${actor.UserID}`, 5, 300);
+    if (!rl.success) {
+      return {
+        success: false,
+        error: "Too many failed 2FA attempts. Step-up verification is locked for 5 minutes.",
+      };
+    }
+
     const user = await prisma.user.findUnique({ where: { UserID: actor.UserID } });
 
     if (!user?.TotpEnabled || !user.TotpSecret) {
@@ -1265,7 +1372,42 @@ export async function verifyStepUpTotpAction(code: string, actionName: string) {
       };
     }
 
-    const isValid = verifyTotpCode(user.TotpSecret, code);
+    const cleanCode = (code || "").trim().toUpperCase();
+    const plainSecret = decryptTotpSecret(user.TotpSecret);
+
+    let isValid = verifyTotpCode(plainSecret, cleanCode);
+    let usedRecoveryCode = false;
+
+    if (isValid) {
+      const firstUse = await claimTotpCodeSingleUse(actor.UserID, cleanCode);
+      if (!firstUse) {
+        return {
+          success: false,
+          error: "This TOTP code was already used. Please wait for the next 6-digit code.",
+        };
+      }
+    } else if (user.TotpBackupCodes) {
+      // Check if cleanCode matches a single-use recovery code hash
+      try {
+        const storedHashes: string[] = JSON.parse(user.TotpBackupCodes);
+        if (Array.isArray(storedHashes)) {
+          const inputHash = crypto.createHash("sha256").update(cleanCode).digest("hex");
+          const matchIndex = storedHashes.findIndex((h) => timingSafeCompare(h, inputHash));
+          if (matchIndex !== -1) {
+            isValid = true;
+            usedRecoveryCode = true;
+            storedHashes.splice(matchIndex, 1);
+            await prisma.user.update({
+              where: { UserID: actor.UserID },
+              data: { TotpBackupCodes: JSON.stringify(storedHashes) },
+            });
+          }
+        }
+      } catch {
+        // Ignore malformed backup code JSON
+      }
+    }
+
     if (!isValid) {
       await writeAuditLog({
         actorId: actor.UserID,
@@ -1277,12 +1419,14 @@ export async function verifyStepUpTotpAction(code: string, actionName: string) {
       return { success: false, error: "Invalid 6-digit TOTP step-up code." };
     }
 
+    await grantStepUpSession(actor.UserID, actionName, 300);
+
     await writeAuditLog({
       actorId: actor.UserID,
       action: "STEP_UP_TOTP_VERIFIED",
       entity: "User",
       entityId: actor.UserID,
-      newValue: { verifiedForAction: actionName, validForMinutes: 5 },
+      newValue: { verifiedForAction: actionName, validForMinutes: 5, usedRecoveryCode },
     });
 
     return {

@@ -6,7 +6,15 @@ import TermsClient from "./TermsClient";
 
 export default async function AdminTermsPage() {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== "Admin" && session.user.role !== "admin")) {
+  const roleUpper = (session?.user?.role || "").toUpperCase();
+  const isAuthorizedAdmin =
+    roleUpper === "ADMIN" ||
+    roleUpper === "SUPER_ADMIN" ||
+    roleUpper === "PRINCIPAL" ||
+    roleUpper === "BURSAR" ||
+    roleUpper === "ADMISSIONS";
+
+  if (!session || !isAuthorizedAdmin) {
     redirect("/portal/login");
   }
 
@@ -18,18 +26,31 @@ export default async function AdminTermsPage() {
           Results: true,
           ScratchCards: true,
           PaymentRecords: true,
-        }
-      }
-    }
+        },
+      },
+    },
   });
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem", flexWrap: "wrap", gap: "1rem" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "2rem",
+          borderBottom: "2px solid var(--color-gray-200)",
+          paddingBottom: "1rem",
+          flexWrap: "wrap",
+          gap: "1rem",
+        }}
+      >
         <div>
-          <h1 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.75rem" }}>Academic Session & Term Master</h1>
+          <h1 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.75rem" }}>
+            Academic Session & Term Master
+          </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            Set the school's global active period and freeze/unfreeze score entries across all subjects.
+            Set the school&apos;s global active period and freeze/unfreeze score entries across all subjects.
           </p>
         </div>
       </div>

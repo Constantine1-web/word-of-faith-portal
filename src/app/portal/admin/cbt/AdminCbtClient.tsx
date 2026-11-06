@@ -1,23 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { liftCbtDayLock } from "@/app/actions/cbt";
-import { FiShield, FiUnlock, FiAlertTriangle, FiActivity, FiCheckCircle } from "react-icons/fi";
+import { liftCbtDayLock, syncSubjectQuestionPool, getCbtProviderDiagnostics } from "@/app/actions/cbt";
+import { FiShield, FiUnlock, FiAlertTriangle, FiActivity, FiCheckCircle, FiDatabase, FiRefreshCw } from "react-icons/fi";
 
 export default function AdminCbtClient({
   initialActiveLocks,
   initialRecentAttempts,
   initialRecentEvents,
+  initialProviderDiagnostics,
 }: {
   initialActiveLocks: any[];
   initialRecentAttempts: any[];
   initialRecentEvents: any[];
+  initialProviderDiagnostics?: any;
 }) {
   const [activeLocks, setActiveLocks] = useState(initialActiveLocks);
   const [recentAttempts] = useState(initialRecentAttempts);
   const [recentEvents] = useState(initialRecentEvents);
-  const [activeTab, setActiveTab] = useState<"locks" | "attempts" | "events">("locks");
+  const [providerDiag, setProviderDiag] = useState<any>(initialProviderDiagnostics);
+  const [activeTab, setActiveTab] = useState<"locks" | "attempts" | "events" | "providers">("locks");
   const [loading, setLoading] = useState(false);
+  const [syncingSubject, setSyncingSubject] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
 
   const handleLiftLock = async (lockId: string, studentName: string) => {
@@ -42,6 +46,28 @@ export default function AdminCbtClient({
     setLoading(false);
   };
 
+  const handleSyncPool = async (subjectCode: string = "ALL") => {
+    setSyncingSubject(subjectCode);
+    setMessage(null);
+    const res = await syncSubjectQuestionPool(subjectCode, "WASSCE");
+    if (res.success) {
+      const refreshed = await getCbtProviderDiagnostics();
+      if (refreshed.success) {
+        setProviderDiag(refreshed);
+      }
+      setMessage({
+        type: "success",
+        text: `Synchronized CBT Question Pool (${subjectCode.toUpperCase()}): ${res.totalIngested} verified questions upserted into database pool.`,
+      });
+    } else {
+      setMessage({
+        type: "error",
+        text: res.error || "Failed to synchronize question pool.",
+      });
+    }
+    setSyncingSubject(null);
+  };
+
   return (
     <div>
       {message && (
@@ -63,7 +89,7 @@ export default function AdminCbtClient({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))",
           gap: "1rem",
           marginBottom: "1.75rem",
         }}
@@ -113,6 +139,22 @@ export default function AdminCbtClient({
           </div>
           <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#b45309" }}>
             {recentEvents.length}
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: "var(--color-white)",
+            padding: "1.25rem",
+            borderRadius: "var(--radius-lg)",
+            border: "1px solid var(--color-gray-200)",
+          }}
+        >
+          <div style={{ fontSize: "0.82rem", color: "var(--color-gray-500)", fontWeight: 600 }}>
+            CACHED CBT QUESTION POOL
+          </div>
+          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#15803d" }}>
+            {providerDiag?.totalCachedQuestions ?? 0}
           </div>
         </div>
       </div>
@@ -179,6 +221,24 @@ export default function AdminCbtClient({
           }}
         >
           <FiActivity /> Integrity Events Log ({recentEvents.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab("providers")}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0.75rem 1rem",
+            fontWeight: "bold",
+            color: activeTab === "providers" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
+            borderBottom: activeTab === "providers" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.4rem",
+          }}
+        >
+          <FiDatabase /> ALOC Keys & Question Pool ({providerDiag?.totalCachedQuestions ?? 0})
         </button>
       </div>
 
@@ -402,6 +462,140 @@ export default function AdminCbtClient({
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* TAB 4: ALOC KEYS & QUESTION POOL */}
+      {activeTab === "providers" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          <div
+            style={{
+              background: "var(--color-white)",
+              borderRadius: "var(--radius-lg)",
+              border: "1px solid var(--color-gray-200)",
+              padding: "1.5rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "1rem",
+                marginBottom: "1.25rem",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, color: "var(--color-navy-blue)" }}>
+                  CBT Provider Keys & Multi-Tier Resilience Status
+                </h3>
+                <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.85rem", color: "var(--color-gray-600)" }}>
+                  Tier 1: ALOC Station v1 (`dev.aloc.com.ng`) → Tier 2: ALOC v2 (`questions.aloc.com.ng`) → Tier 3: SdashAPI → Tier 4: 17-Subject Verified Fallback Bank
+                </p>
+              </div>
+              <button
+                onClick={() => handleSyncPool("ALL")}
+                disabled={syncingSubject !== null}
+                className="btn btn-primary"
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+              >
+                <FiRefreshCw />
+                {syncingSubject === "ALL" ? "Synchronizing All 17 Subjects..." : "Sync All 17 Subjects Into DB Pool"}
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))",
+                gap: "1rem",
+              }}
+            >
+              <div style={{ padding: "1rem", background: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--color-gray-500)", fontWeight: 700 }}>
+                  ALOC_API_KEY (Primary v1 + v2)
+                </div>
+                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.alocConfigured ? "#15803d" : "#b91c1c", marginTop: "0.25rem" }}>
+                  {providerDiag?.diagnostics?.alocConfigured ? `Operational (${providerDiag.diagnostics.alocKeyPreview})` : "Missing"}
+                </div>
+              </div>
+
+              <div style={{ padding: "1rem", background: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--color-gray-500)", fontWeight: 700 }}>
+                  SDASH_API_KEY (Secondary Cloud)
+                </div>
+                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.sdashConfigured ? "#15803d" : "#b45309", marginTop: "0.25rem" }}>
+                  {providerDiag?.diagnostics?.sdashConfigured ? `Operational (${providerDiag.diagnostics.sdashKeyPreview})` : "Fallback Only"}
+                </div>
+              </div>
+
+              <div style={{ padding: "1rem", background: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--color-gray-500)", fontWeight: 700 }}>
+                  GEMINI AI TUTOR KEY
+                </div>
+                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.geminiConfigured ? "#15803d" : "#b45309", marginTop: "0.25rem" }}>
+                  {providerDiag?.diagnostics?.geminiConfigured ? `Operational (${providerDiag.diagnostics.geminiKeyPreview})` : "Heuristic Fallback"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: "var(--color-white)",
+              borderRadius: "var(--radius-lg)",
+              border: "1px solid var(--color-gray-200)",
+              overflowX: "auto",
+            }}
+          >
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "560px" }}>
+              <thead>
+                <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
+                  <th style={{ padding: "0.9rem 1rem", textAlign: "left" }}>Subject Code</th>
+                  <th style={{ padding: "0.9rem 1rem", textAlign: "center" }}>Cached DB Questions</th>
+                  <th style={{ padding: "0.9rem 1rem", textAlign: "center" }}>Resilience Status</th>
+                  <th style={{ padding: "0.9rem 1rem", textAlign: "right" }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(providerDiag?.subjectPools || []).map((row: any) => (
+                  <tr key={row.subjectCode} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
+                    <td style={{ padding: "0.85rem 1rem", fontWeight: 700, color: "var(--color-navy-blue)" }}>
+                      {row.subjectCode.toUpperCase()}
+                    </td>
+                    <td style={{ padding: "0.85rem 1rem", textAlign: "center", fontWeight: 700 }}>
+                      {row.cachedCount}
+                    </td>
+                    <td style={{ padding: "0.85rem 1rem", textAlign: "center" }}>
+                      <span
+                        style={{
+                          padding: "0.2rem 0.65rem",
+                          borderRadius: "999px",
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          background: row.cachedCount > 0 ? "#dcfce7" : "#dbeafe",
+                          color: row.cachedCount > 0 ? "#15803d" : "#1d4ed8",
+                        }}
+                      >
+                        {row.cachedCount > 0 ? "DB Pool + Cloud Ready" : "Cloud + Offline Bank Ready"}
+                      </span>
+                    </td>
+                    <td style={{ padding: "0.85rem 1rem", textAlign: "right" }}>
+                      <button
+                        onClick={() => handleSyncPool(row.subjectCode)}
+                        disabled={syncingSubject !== null}
+                        className="btn btn-outline"
+                        style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem" }}
+                      >
+                        {syncingSubject === row.subjectCode ? "Syncing..." : "Sync Subject Pool"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

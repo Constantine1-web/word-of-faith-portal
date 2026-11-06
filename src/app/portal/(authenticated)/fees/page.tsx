@@ -168,10 +168,10 @@ export default function PayFeesPage() {
   // If student is ALREADY cleared for this term
   if (feeOrder?.isCleared) {
     return (
-      <div style={{ padding: "2rem", maxWidth: "720px", margin: "0 auto" }}>
+      <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)", maxWidth: "720px", margin: "0 auto" }}>
         <div style={{
           background: "var(--color-white)",
-          padding: "2.5rem",
+          padding: "clamp(1.5rem, 4vw, 2.5rem)",
           borderRadius: "var(--radius-lg)",
           boxShadow: "var(--shadow-floating)",
           borderTop: "6px solid var(--color-primary-green)",
@@ -436,7 +436,7 @@ export default function PayFeesPage() {
       {activeTab === "TELLER" && (
         <div style={{
           background: "var(--color-white)",
-          padding: "2rem",
+          padding: "clamp(1rem, 2.5vw, 2rem)",
           borderRadius: "var(--radius-lg)",
           boxShadow: "var(--shadow-sm)",
           border: "1px solid var(--color-gray-200)"

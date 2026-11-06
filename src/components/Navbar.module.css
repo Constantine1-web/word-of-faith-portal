@@ -4,7 +4,7 @@
   position: sticky;
   top: 0;
   z-index: 1000;
-  padding: 1rem 0;
+  padding: max(1rem, var(--sat)) 0 1rem 0;
   transition: all var(--transition-normal);
 }
 
@@ -137,6 +137,12 @@
     justify-content: center;
     min-width: 44px;
     min-height: 44px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .mobileMenuOverlay {
+    display: none !important;
   }
 }
 

@@ -1,20 +1,27 @@
 import { NextResponse } from "next/server";
+import { requireRole } from "@/lib/authz";
 
 export async function GET() {
-  const envKeys = Object.keys(process.env);
-  
-  // Also check if the specific Postgres URLs exist and are valid strings
-  const postgresVars = {
-    has_POSTGRES_URL: !!process.env.POSTGRES_URL,
-    has_POSTGRES_PRISMA_URL: !!process.env.POSTGRES_PRISMA_URL,
-    has_POSTGRES_URL_NON_POOLING: !!process.env.POSTGRES_URL_NON_POOLING,
-    has_DATABASE_URL: !!process.env.DATABASE_URL,
-    POSTGRES_URL_prefix: process.env.POSTGRES_URL ? process.env.POSTGRES_URL.substring(0, 15) : null,
-    POSTGRES_URL_NON_POOLING_prefix: process.env.POSTGRES_URL_NON_POOLING ? process.env.POSTGRES_URL_NON_POOLING.substring(0, 15) : null,
-  };
+  if (process.env.NODE_ENV === "production" && process.env.ENABLE_DEBUG_ENV !== "true") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
-  return NextResponse.json({
-    keys: envKeys.filter(k => k.includes('POSTGRES') || k.includes('DATABASE') || k.includes('SUPABASE')),
-    details: postgresVars
-  });
+  try {
+    await requireRole(["SUPER_ADMIN", "Admin"]);
+
+    return NextResponse.json({
+      status: "ok",
+      details: {
+        has_POSTGRES_URL: Boolean(process.env.POSTGRES_URL),
+        has_POSTGRES_PRISMA_URL: Boolean(process.env.POSTGRES_PRISMA_URL),
+        has_POSTGRES_URL_NON_POOLING: Boolean(process.env.POSTGRES_URL_NON_POOLING),
+        has_DATABASE_URL: Boolean(process.env.DATABASE_URL),
+        has_ALOC_API_KEY: Boolean(process.env.ALOC_API_KEY),
+        has_SDASH_API_KEY: Boolean(process.env.SDASH_API_KEY),
+        has_GOOGLE_GENERATIVE_AI_API_KEY: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY),
+      },
+    });
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
 }

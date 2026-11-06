@@ -43,10 +43,10 @@ export default function ProfilePage() {
   if (loading) return <div style={{ padding: "2rem" }}>Loading profile...</div>;
 
   return (
-    <div style={{ padding: "2rem" }}>
+    <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)" }}>
       <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "2rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem" }}>Profile Management</h1>
 
-      <div style={{ background: "var(--color-white)", padding: "2rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)", maxWidth: "800px" }}>
+      <div style={{ background: "var(--color-white)", padding: "clamp(1rem, 2.5vw, 2rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)", maxWidth: "800px" }}>
         
         <div style={{ display: "flex", gap: "2rem", alignItems: "flex-start", flexWrap: "wrap" }}>
           {/* Avatar Section */}

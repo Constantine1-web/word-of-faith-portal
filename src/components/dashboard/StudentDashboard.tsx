@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getStudentProfile, uploadPaymentReceipt } from "@/app/actions/studentProfile";
-import { debounce } from "@/lib/debounce";
+import { getStudentProfile } from "@/app/actions/studentProfile";
 import Link from "next/link";
-import { FiCreditCard, FiUser, FiFileText } from "react-icons/fi";
+import { FiCreditCard, FiUser, FiFileText, FiUploadCloud } from "react-icons/fi";
 import InspirationSlideshow from "./InspirationSlideshow";
 import NoticeBoard from "./NoticeBoard";
 import QuickLinkCard from "./QuickLinkCard";
@@ -14,14 +13,6 @@ export default function StudentDashboard({ session }: { session: any }) {
   const [academics, setAcademics] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploadStatus, setUploadStatus] = useState("");
-
-  const handleUpload = debounce(async () => {
-    setUploadStatus("Uploading...");
-    // Mock student ID and term ID for demonstration
-    const res = await uploadPaymentReceipt(profile?.id || 1, 1, "School Fees", 50000);
-    setUploadStatus(res.success ? "Receipt uploaded and pending verification." : "Upload failed.");
-  }, 1000);
 
   useEffect(() => {
     async function loadData() {
@@ -44,7 +35,7 @@ export default function StudentDashboard({ session }: { session: any }) {
   const isPrimary = profile?.level === "Primary";
 
   return (
-    <div style={{ padding: "2rem" }}>
+    <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)" }}>
       
       {/* Dynamic Profile Header */}
       <div style={{ 
@@ -52,7 +43,7 @@ export default function StudentDashboard({ session }: { session: any }) {
           ? "linear-gradient(135deg, #059669, #047857)" 
           : "linear-gradient(135deg, var(--color-navy-blue), #1e3a8a)", 
         borderRadius: "var(--radius-lg)", 
-        padding: "2rem", 
+        padding: "clamp(1.25rem, 3vw, 2rem)", 
         color: "white", 
         marginBottom: "2rem", 
         display: "flex", 
@@ -107,17 +98,20 @@ export default function StudentDashboard({ session }: { session: any }) {
         />
       </div>
 
-      {/* Upload Receipt Action */}
-      <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", marginBottom: "2rem" }}>
-        <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Submit Payment Receipt</h3>
-        <button 
-          className="btn btn-primary" 
-          onClick={() => handleUpload()}
-          disabled={uploadStatus === "Uploading..."}
+      {/* Pay Fees & Upload Teller Receipt Action */}
+      <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+        <div>
+          <h3 style={{ color: "var(--color-navy-blue)", margin: "0 0 0.25rem 0" }}>School Fees & Billing Portal</h3>
+          <p style={{ margin: 0, color: "var(--color-gray-600)", fontSize: "0.9rem" }}>Make direct Paystack card/transfer payments or upload verified bank teller receipts.</p>
+        </div>
+        <Link 
+          href="/portal/fees" 
+          className="btn btn-primary"
+          style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", textDecoration: "none" }}
         >
-          {uploadStatus === "Uploading..." ? "Uploading..." : "Upload Receipt (Demo)"}
-        </button>
-        {uploadStatus && <p style={{ marginTop: "0.5rem", color: "var(--color-primary-green)", fontWeight: "bold" }}>{uploadStatus}</p>}
+          <FiUploadCloud size={18} />
+          <span>Pay Fees & Upload Receipt</span>
+        </Link>
       </div>
 
       <NoticeBoard />

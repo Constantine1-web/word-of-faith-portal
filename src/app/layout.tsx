@@ -12,10 +12,16 @@ export const metadata: Metadata = {
 };
 
 // Next.js 16: viewport must be its own export (metadata.viewport is unsupported).
-// This renders <meta name="viewport" content="width=device-width, initial-scale=1">.
+// Configured with viewportFit cover and scaling bounds for edge-to-edge mobile & iPad displays.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#14532D" },
+    { media: "(prefers-color-scheme: dark)", color: "#0A2540" },
+  ],
 };
 
 export default function RootLayout({

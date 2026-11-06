@@ -10,13 +10,18 @@ import {
   checkStudentFeeClearance,
   writeAuditLog,
 } from "@/lib/authz";
+import { SAFE_USER_SELECT, rateLimit } from "@/lib/security";
 
-const PEPPER_KEYS: Record<string, string> = {
-  v1:
-    process.env.SCRATCH_CARD_PEPPER ||
-    process.env.NEXTAUTH_SECRET ||
-    "wof-default-pepper-2026-v1",
-};
+function resolveScratchCardPepper(): string {
+  const configured = process.env.SCRATCH_CARD_PEPPER?.trim() || process.env.NEXTAUTH_SECRET?.trim();
+  if (configured && configured.length >= 16) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("CRITICAL: SCRATCH_CARD_PEPPER (or NEXTAUTH_SECRET) must be configured in production.");
+  }
+  return "wof-dev-only-scratch-pepper-do-not-use-in-prod";
+}
 
 const CURRENT_KEY_ID = "v1";
 const BASE32_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // Unambiguous Base32 (no 0/O/1/I)
@@ -40,9 +45,9 @@ function generateRandomBase32Serial(): string {
 export async function computeSerialPinHmac(
   serial: string,
   pin: string,
-  keyId: string = CURRENT_KEY_ID
+  _keyId: string = CURRENT_KEY_ID
 ): Promise<string> {
-  const secret = PEPPER_KEYS[keyId] || PEPPER_KEYS.v1;
+  const secret = resolveScratchCardPepper();
   const normalizedSerial = serial.trim().toUpperCase();
   const normalizedPin = pin.trim();
   return crypto
@@ -52,8 +57,8 @@ export async function computeSerialPinHmac(
 }
 
 // Legacy HMAC/SHA256 helpers for backward compatibility with earlier seeded cards
-export async function hashPin(pin: string, keyId: string = CURRENT_KEY_ID) {
-  const secret = PEPPER_KEYS[keyId] || PEPPER_KEYS.v1;
+export async function hashPin(pin: string, _keyId: string = CURRENT_KEY_ID) {
+  const secret = resolveScratchCardPepper();
   return crypto.createHmac("sha256", secret).update(pin.trim()).digest("hex");
 }
 
@@ -167,7 +172,7 @@ export async function createBatchScratchCards(data: {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "SCRATCH_CARD_BATCH_CREATE",
       targetTable: "ScratchCardBatch",
       targetId: batch.id,
@@ -201,7 +206,7 @@ export async function issueScratchCardBatch(batchId: string) {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "SCRATCH_CARD_BATCH_ISSUE",
       targetTable: "ScratchCardBatch",
       targetId: batchId,
@@ -228,7 +233,7 @@ export async function unlockScratchCard(cardId: number, reason: string) {
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "SCRATCH_CARD_UNLOCK",
       targetTable: "Scratch_Card",
       targetId: String(card.CardID),
@@ -337,6 +342,42 @@ export async function verifyScratchCard(
   }
 
   const studentId = studentRecord.StudentID;
+
+  const rl = await rateLimit(`scratch_verify:${studentId}`, 10, 300);
+  if (!rl.success) {
+    return {
+      success: false,
+      error: "Too many scratch card verification attempts. Please wait 5 minutes.",
+    };
+  }
+
+  const term = await prisma.academic_Term.findUnique({
+    where: { TermID: termId },
+  });
+
+  if (!term) {
+    return {
+      success: false,
+      error: "Selected academic term does not exist.",
+    };
+  }
+
+  const broadsheet = await prisma.classBroadsheet.findUnique({
+    where: {
+      classArmId_termId: {
+        classArmId: studentRecord.ClassID,
+        termId: term.TermID,
+      },
+    },
+    select: { status: true },
+  });
+
+  if (broadsheet && broadsheet.status !== "PUBLISHED" && !term.IsLocked) {
+    return {
+      success: false,
+      error: "Terminal results for this class and term have not yet been published by the Principal.",
+    };
+  }
 
   // Section 6.4: Enforce server-side derived fee-clearance check before returning results
   const clearance = await checkStudentFeeClearance(studentId, termId);
@@ -503,18 +544,17 @@ export async function verifyScratchCard(
       },
     });
 
-    const term = await prisma.academic_Term.findUnique({
-      where: { TermID: termId },
-    });
-
     const student = await prisma.student.findUnique({
       where: { StudentID: studentId },
-      include: { Class: true, User: true },
+      include: {
+        Class: true,
+        User: { select: SAFE_USER_SELECT },
+      },
     });
 
     await writeAuditLog({
       actorUserId: actor.UserID,
-      actorRoles: actor.roles.join(","),
+      actorRoles: Array.from(actor.roles).join(","),
       action: "SCRATCH_CARD_VERIFY_RESULT",
       targetTable: "Scratch_Card",
       targetId: String(card.CardID),

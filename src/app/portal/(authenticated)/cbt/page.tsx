@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { EXAM_TYPES, SUBJECTS } from "@/lib/cbt-constants";
 import styles from "./page.module.css";
-import { EXAM_TYPES, SUBJECTS } from "@/lib/cbt-api";
 import {
   getCbtStudentStatus,
   startAttempt,

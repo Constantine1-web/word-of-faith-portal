@@ -124,7 +124,7 @@ export default function Home() {
       <section className={styles.principalSection}>
         <motion.div className={`container ${styles.principalContent}`} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
           <div className={styles.principalText}>
-            <h2 style={{ fontSize: "2.5rem", color: "var(--color-navy-blue)", marginBottom: "1.5rem" }}>Welcome from the Administrator</h2>
+            <h2 style={{ fontSize: "clamp(1.6rem, 4vw, 2.5rem)", color: "var(--color-navy-blue)", marginBottom: "1.5rem" }}>Welcome from the Administrator</h2>
             <p style={{ fontSize: "1.1rem", lineHeight: "1.8", color: "var(--color-gray-800)", marginBottom: "1.5rem" }}>
               Welcome to Word of Faith Schools. We are dedicated to providing a safe, supportive, and faith-filled environment where every child can discover their God-given potential. Our comprehensive curriculum blends rigorous academics with strong moral values to shape the leaders of tomorrow.
             </p>
@@ -149,7 +149,7 @@ export default function Home() {
 
       <section className={styles.eventsSection}>
         <motion.div className="container" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
-          <h2 style={{ textAlign: "center", fontSize: "2.5rem", color: "var(--color-navy-blue)", marginBottom: "3rem" }}>Upcoming Events</h2>
+          <h2 style={{ textAlign: "center", fontSize: "clamp(1.6rem, 4vw, 2.5rem)", color: "var(--color-navy-blue)", marginBottom: "3rem" }}>Upcoming Events</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", maxWidth: "800px", margin: "0 auto" }}>
             <div className={styles.eventCard}>
               <div className={styles.eventDate}>
@@ -177,7 +177,7 @@ export default function Home() {
 
       <section className="container">
         <motion.div className={styles.features} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.4 }}>
-          <h2 style={{ textAlign: "center", fontSize: "2.5rem", color: "var(--color-navy-blue)" }}>Our Core Focus</h2>
+          <h2 style={{ textAlign: "center", fontSize: "clamp(1.6rem, 4vw, 2.5rem)", color: "var(--color-navy-blue)" }}>Our Core Focus</h2>
           <AutoSlider className={`${styles.featuresGrid} ${styles.mobileSwipeGrid}`} interval={5000}>
             <div className={styles.featureCard}>
               <h3 className={styles.featureTitle}>Montessori Foundations</h3>
@@ -197,7 +197,7 @@ export default function Home() {
 
       <section className={styles.quotesSection}>
         <div className="container">
-          <h2 style={{ textAlign: "center", fontSize: "2.5rem", color: "var(--color-navy-blue)", marginBottom: "2rem" }}>Inspiration for Greatness</h2>
+          <h2 style={{ textAlign: "center", fontSize: "clamp(1.6rem, 4vw, 2.5rem)", color: "var(--color-navy-blue)", marginBottom: "2rem" }}>Inspiration for Greatness</h2>
           <div className={styles.slideshowContainer}>
             <div className={`${styles.flashcard} ${fade ? styles.fadeIn : styles.fadeOut}`}>
               <p className={styles.quoteText}>{quotes[currentIndex].text}</p>

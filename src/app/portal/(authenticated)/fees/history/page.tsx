@@ -23,10 +23,10 @@ export default function FeesHistoryPage() {
   if (loading) return <div style={{ padding: "2rem" }}>Loading fee history...</div>;
 
   return (
-    <div style={{ padding: "2rem" }}>
+    <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)" }}>
       <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "2rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem" }}>Payment History</h1>
 
-      <div style={{ background: "var(--color-white)", padding: "2rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" }}>
+      <div style={{ background: "var(--color-white)", padding: "clamp(1rem, 2.5vw, 2rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" }}>
         <p style={{ marginBottom: "1.5rem", color: "var(--color-gray-800)" }}>Track all your academic fees and transaction statuses across all terms.</p>
         
         <div className="table-scroll">

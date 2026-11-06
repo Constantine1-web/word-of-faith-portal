@@ -23,6 +23,7 @@ export default function Register() {
   const [claimCode, setClaimCode] = useState("");
   const [preferredName, setPreferredName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -57,7 +58,7 @@ export default function Register() {
     const result = await initiateRegistration(admissionNo, email, claimCode);
 
     if (result.success) {
-      setSuccess("Verification code sent to your email!");
+      setSuccess("Verification code sent to your registration email!");
       setStep(2);
     } else {
       setError(result.error || "Failed to initiate registration");
@@ -71,7 +72,7 @@ export default function Register() {
     setError("");
     setSuccess("");
 
-    const result = await verifyRegistration(admissionNo, preferredName, email, password, otp);
+    const result = await verifyRegistration(admissionNo, preferredName, email, password, otp, phone);
 
     if (result.success) {
       setSuccess(result.message || "Success");
@@ -123,8 +124,13 @@ export default function Register() {
             </div>
 
             <div className={styles.formGroup}>
-              <label htmlFor="email" className={styles.label}>Setup Email Address</label>
-              <input type="email" id="email" className={styles.input} placeholder="Your personal email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <label htmlFor="email" className={styles.label}>Registration Email Address (Direct Email Alerts) *</label>
+              <input type="email" id="email" className={styles.input} placeholder="Your active email address" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label htmlFor="phone" className={styles.label}>Phone Number (Direct WhatsApp & SMS Alerts) *</label>
+              <input type="tel" id="phone" className={styles.input} placeholder="e.g. 08012345678" value={phone} onChange={(e) => setPhone(e.target.value)} required />
             </div>
 
             <div className={styles.formGroup}>
