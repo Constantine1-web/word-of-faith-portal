@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/cbt-reaper",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 1 * * *"
     }
   ]
 }
