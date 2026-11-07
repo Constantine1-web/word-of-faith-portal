@@ -119,15 +119,20 @@ export async function getAttendanceForClass(classId: number, dateStr: string) {
   try {
     await requireClassTeacherOrAdmin(Number(classId));
 
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
+    const dayOnly = String(dateStr).split("T")[0];
+    const startOfDay = new Date(`${dayOnly}T00:00:00.000Z`);
+    const endOfDay = new Date(`${dayOnly}T23:59:59.999Z`);
+    if (isNaN(startOfDay.getTime())) {
       return { success: false, error: "Invalid date." };
     }
 
     const attendances = await prisma.attendance.findMany({
       where: {
         Student: { ClassID: Number(classId) },
-        Date: date,
+        Date: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
       },
     });
 
@@ -138,3 +143,41 @@ export async function getAttendanceForClass(classId: number, dateStr: string) {
   }
 }
 
+export async function markClassAttendanceBatch(params: {
+  classId: number;
+  termId: number;
+  dateStr: string;
+  entries: { studentId: number; status: string; notes?: string }[];
+}) {
+  try {
+    await requireRole(ALLOWED_ATTENDANCE_ROLES);
+    await requireClassTeacherOrAdmin(Number(params.classId));
+
+    const dayOnly = String(params.dateStr).split("T")[0];
+    const canonicalDate = new Date(`${dayOnly}T08:00:00.000Z`);
+    if (isNaN(canonicalDate.getTime())) {
+      return { success: false, error: "Invalid attendance date." };
+    }
+
+    let savedCount = 0;
+    for (const entry of params.entries) {
+      const res = await markAttendance(
+        Number(entry.studentId),
+        Number(params.termId),
+        canonicalDate.toISOString(),
+        entry.status,
+        entry.notes
+      );
+      if (res.success) savedCount++;
+    }
+
+    return {
+      success: true,
+      savedCount,
+      message: `Recorded daily attendance for ${savedCount} student(s) on ${dayOnly}.`,
+    };
+  } catch (error: any) {
+    console.error("markClassAttendanceBatch error:", error);
+    return { success: false, error: error?.message || "Failed to save class attendance" };
+  }
+}

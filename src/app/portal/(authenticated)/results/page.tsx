@@ -82,6 +82,35 @@ export default function ResultsPage() {
       ? "Satisfactory result. Put in more effort next term."
       : "Must work harder next term.");
 
+  let parsedAffective: Record<string, number> = {
+    punctuality: 5,
+    neatness: 5,
+    politeness: 5,
+    attentiveness: 4,
+    selfControl: 5,
+  };
+  let parsedPsychomotor: Record<string, number> = {
+    handwriting: 4,
+    sports: 5,
+    verbalFluency: 4,
+    laboratorySkills: 4,
+  };
+
+  if (resultData?.formMasterReport?.AffectiveTraits) {
+    try {
+      parsedAffective = JSON.parse(resultData.formMasterReport.AffectiveTraits);
+    } catch {}
+  }
+  if (resultData?.formMasterReport?.PsychomotorTraits) {
+    try {
+      parsedPsychomotor = JSON.parse(resultData.formMasterReport.PsychomotorTraits);
+    } catch {}
+  }
+
+  const attendanceLabel = resultData?.attendanceSummary?.totalRecordedDays
+    ? `${resultData.attendanceSummary.presentDays} / ${resultData.attendanceSummary.totalRecordedDays} Days Present`
+    : "Cleared";
+
   const handlePrintOfficialReportCard = () => {
     if (!resultData) return;
     const win = window.open("", "_blank", "width=900,height=1050");
@@ -107,6 +136,20 @@ export default function ResultsPage() {
       )
       .join("");
 
+    const affectiveHtml = Object.entries(parsedAffective)
+      .map(
+        ([k, v]) =>
+          `<span style="display:inline-block;margin-right:10px;margin-bottom:4px;background:#fff;border:1px solid #cbd5e1;padding:3px 8px;border-radius:4px;font-size:11.5px;"><strong style="text-transform:capitalize;">${k}:</strong> ${v}/5</span>`
+      )
+      .join("");
+
+    const psychomotorHtml = Object.entries(parsedPsychomotor)
+      .map(
+        ([k, v]) =>
+          `<span style="display:inline-block;margin-right:10px;margin-bottom:4px;background:#fff;border:1px solid #86efac;padding:3px 8px;border-radius:4px;font-size:11.5px;"><strong style="text-transform:capitalize;">${k}:</strong> ${v}/5</span>`
+      )
+      .join("");
+
     win.document.write(`
       <!DOCTYPE html>
       <html>
@@ -125,6 +168,8 @@ export default function ResultsPage() {
             th { background: #0A2540; color: #fff; padding: 10px 8px; text-transform: uppercase; font-size: 11px; text-align: left; }
             td { padding: 10px 8px; border-bottom: 1px solid #cbd5e1; }
             tr:nth-child(even) td { background: #f8fafc; }
+            .traits-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+            .traits-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; font-size: 12px; }
             .remarks-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px; font-size: 13px; }
             .remarks-box div { margin-bottom: 8px; }
             .footer-sigs { display: flex; justify-content: space-between; margin-top: 28px; padding-top: 16px; border-top: 1px dashed #94a3b8; font-size: 12px; color: #475569; }
@@ -143,7 +188,7 @@ export default function ResultsPage() {
               <div class="bio-item"><strong>Class / Level</strong>${resultData.student?.Class?.ClassName || "—"} (${resultData.student?.Class?.Level || "Secondary"})</div>
               <div class="bio-item"><strong>Total Marks Obtained</strong>${totalObtained} / ${maxPossible}</div>
               <div class="bio-item"><strong>Terminal Average</strong>${averagePct}%</div>
-              <div class="bio-item"><strong>Card Verification Serial</strong>${resultData.cardMeta?.serialNumber || "VERIFIED"}</div>
+              <div class="bio-item"><strong>Term Attendance</strong>${attendanceLabel}</div>
             </div>
             <table>
               <thead>
@@ -161,6 +206,16 @@ export default function ResultsPage() {
                 ${rowsHtml}
               </tbody>
             </table>
+            <div class="traits-grid">
+              <div class="traits-card">
+                <div style="font-weight: 800; color: #0A2540; margin-bottom: 6px; text-transform: uppercase; font-size: 11px;">Affective &amp; Behavioral Domain (1–5)</div>
+                ${affectiveHtml}
+              </div>
+              <div class="traits-card">
+                <div style="font-weight: 800; color: #15803d; margin-bottom: 6px; text-transform: uppercase; font-size: 11px;">Psychomotor &amp; Practical Skills (1–5)</div>
+                ${psychomotorHtml}
+              </div>
+            </div>
             <div class="remarks-box">
               <div><strong>Form Master's Remark:</strong> ${formMasterRemark}</div>
               <div style="margin-bottom: 0;"><strong>Principal's Official Remark:</strong> ${principalRemark}</div>
@@ -368,6 +423,10 @@ export default function ResultsPage() {
                 </div>
               </div>
               <div>
+                <div style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Term Attendance</div>
+                <div style={{ fontWeight: 800, color: "#0A2540", marginTop: "0.15rem" }}>{attendanceLabel}</div>
+              </div>
+              <div>
                 <div style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 700, textTransform: "uppercase" }}>Terminal Average</div>
                 <div style={{ fontWeight: 800, color: "#15803d", fontSize: "1.05rem", marginTop: "0.1rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
                   <FiAward /> {averagePct}%
@@ -424,10 +483,88 @@ export default function ResultsPage() {
               </table>
             </div>
 
+            {/* Affective & Psychomotor Behavioral Domain Ratings */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gap: "1rem",
+                marginTop: "1.35rem",
+              }}
+            >
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "10px",
+                  padding: "1rem 1.15rem",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    fontWeight: 800,
+                    color: "#0A2540",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                    marginBottom: "0.65rem",
+                    borderBottom: "1px solid #e2e8f0",
+                    paddingBottom: "0.4rem",
+                  }}
+                >
+                  Affective Domain Assessment (1–5 Scale)
+                </div>
+                <div style={{ display: "grid", gap: "0.35rem", fontSize: "0.83rem" }}>
+                  {Object.entries(parsedAffective).map(([key, val]) => (
+                    <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "#475569", textTransform: "capitalize" }}>
+                        {key.replace(/([A-Z])/g, " $1")}
+                      </span>
+                      <span style={{ fontWeight: 800, color: "#0A2540" }}>{String(val)} / 5</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: "10px",
+                  padding: "1rem 1.15rem",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    fontWeight: 800,
+                    color: "#166534",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                    marginBottom: "0.65rem",
+                    borderBottom: "1px solid #bbf7d0",
+                    paddingBottom: "0.4rem",
+                  }}
+                >
+                  Psychomotor Skills Assessment (1–5 Scale)
+                </div>
+                <div style={{ display: "grid", gap: "0.35rem", fontSize: "0.83rem" }}>
+                  {Object.entries(parsedPsychomotor).map(([key, val]) => (
+                    <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "#14532d", textTransform: "capitalize" }}>
+                        {key.replace(/([A-Z])/g, " $1")}
+                      </span>
+                      <span style={{ fontWeight: 800, color: "#15803d" }}>{String(val)} / 5</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {/* Official Remarks & Verification Footer */}
             <div
               style={{
-                marginTop: "1.5rem",
+                marginTop: "1.25rem",
                 background: "#f0fdf4",
                 border: "1px solid #bbf7d0",
                 borderRadius: "10px",

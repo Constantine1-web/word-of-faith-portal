@@ -4,7 +4,7 @@ import { escapeHtml, sanitizeEmailHeader } from "./security";
 const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
 const smtpPort = parseInt(process.env.SMTP_PORT || "465", 10);
 const smtpUser = process.env.SMTP_USER?.trim() || "";
-const smtpPass = process.env.SMTP_PASSWORD?.trim() || "";
+const smtpPass = process.env.SMTP_PASSWORD?.trim() || process.env.SMTP_PASS?.trim() || "";
 const smtpFrom = process.env.SMTP_FROM?.trim() || smtpUser || "noreply@wordoffaith.edu.ng";
 
 // Resilient Nodemailer transport configured with SSL / TLS options

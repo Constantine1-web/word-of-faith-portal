@@ -14,6 +14,7 @@ import {
   stageScoreSheetImportCsv,
   commitScoreSheetImportBatch,
 } from "@/app/actions/results";
+import { getAttendanceForClass, markClassAttendanceBatch } from "@/app/actions/attendance";
 import { calculateGrade } from "@/lib/grading";
 import Link from "next/link";
 import ClassListSyncModal from "@/components/portal/ClassListSyncModal";
@@ -31,6 +32,7 @@ import {
   FiAlertCircle,
   FiDownload,
   FiUploadCloud,
+  FiCalendar,
 } from "react-icons/fi";
 
 export default function TeacherDashboard({ teacherId, initialAssignments }: { teacherId?: string; initialAssignments?: any[] }) {
@@ -39,8 +41,8 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Tab State: "subject-scores" vs "form-master-hub"
-  const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub">("subject-scores");
+  // Tab State: "subject-scores" vs "form-master-hub" vs "attendance-hub"
+  const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub" | "attendance-hub">("subject-scores");
 
   // Class List PDF Sync Modal
   const [showSyncModal, setShowSyncModal] = useState(false);
@@ -67,8 +69,21 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
     neatness: 5,
     politeness: 5,
     attentiveness: 4,
-    selfControl: 5
+    selfControl: 5,
   });
+  const [psychomotorTraits, setPsychomotorTraits] = useState<Record<string, number>>({
+    handwriting: 4,
+    sports: 5,
+    verbalFluency: 4,
+    laboratorySkills: 4,
+    musicalSkills: 4,
+  });
+
+  // Daily Attendance Roll Call State
+  const [attendanceDate, setAttendanceDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [attendanceMap, setAttendanceMap] = useState<Record<number, { status: string; notes: string }>>({});
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [savingAttendance, setSavingAttendance] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -353,6 +368,11 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
         setAffectiveTraits(JSON.parse(existing.AffectiveTraits));
       } catch {}
     }
+    if (existing?.PsychomotorTraits) {
+      try {
+        setPsychomotorTraits(JSON.parse(existing.PsychomotorTraits));
+      } catch {}
+    }
   };
 
   const handleSaveFormMasterRemark = async (e: React.FormEvent) => {
@@ -368,17 +388,69 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
       termId: dashboardData.activeTerm.TermID,
       formMasterRemark: formMasterRemarkText,
       principalRemark: principalRemarkText,
-      affectiveTraits
+      affectiveTraits,
+      psychomotorTraits,
     });
 
     if (res.success) {
-      setSuccess(`Remarks saved for ${selectedStudentForRemark.PreferredName || selectedStudentForRemark.AdmissionNo}`);
+      setSuccess(`Remarks & Affective/Psychomotor traits saved for ${selectedStudentForRemark.PreferredName || selectedStudentForRemark.AdmissionNo}`);
       setSelectedStudentForRemark(null);
       loadData();
     } else {
       setError(res.error || "Failed to save remarks");
     }
     setLoading(false);
+  };
+
+  // Load attendance records when in attendance-hub or when date/allocation changes
+  useEffect(() => {
+    if (activeTab !== "attendance-hub" || !selectedAllocation) return;
+    async function fetchClassAttendance() {
+      setLoadingAttendance(true);
+      const res = await getAttendanceForClass(selectedAllocation.ClassID, attendanceDate);
+      const map: Record<number, { status: string; notes: string }> = {};
+      subjectStudents.forEach((st: any) => {
+        map[st.StudentID] = { status: "Present", notes: "" };
+      });
+      if (res.success && Array.isArray(res.attendances)) {
+        res.attendances.forEach((att: any) => {
+          map[att.StudentID] = {
+            status: att.Status || "Present",
+            notes: att.Notes || "",
+          };
+        });
+      }
+      setAttendanceMap(map);
+      setLoadingAttendance(false);
+    }
+    fetchClassAttendance();
+  }, [activeTab, selectedAllocation?.ClassID, attendanceDate, subjectStudents]);
+
+  const handleSaveClassAttendance = async () => {
+    if (!selectedAllocation || !dashboardData?.activeTerm) return;
+    setSavingAttendance(true);
+    setError("");
+    setSuccess("");
+
+    const entries = subjectStudents.map((st: any) => ({
+      studentId: st.StudentID,
+      status: attendanceMap[st.StudentID]?.status || "Present",
+      notes: attendanceMap[st.StudentID]?.notes || "",
+    }));
+
+    const res = await markClassAttendanceBatch({
+      classId: selectedAllocation.ClassID,
+      termId: dashboardData.activeTerm.TermID,
+      dateStr: attendanceDate,
+      entries,
+    });
+
+    if (res.success) {
+      setSuccess(res.message || "Daily class attendance saved!");
+    } else {
+      setError(res.error || "Failed to save daily attendance");
+    }
+    setSavingAttendance(false);
   };
 
   const handleSubmitClassToAdmin = async (classId: number, className: string) => {
@@ -443,7 +515,7 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
             {dashboardData?.activeTerm?.SessionName} — {dashboardData?.activeTerm?.TermName}
           </h2>
           <p style={{ margin: "0.25rem 0 0 0", opacity: 0.85, fontSize: "0.9rem" }}>
-            Record Continuous Assessment (CA) and Examination grades for your assigned class arms.
+            Record Continuous Assessment (CA), Examination grades, Daily Attendance, and Form Master remarks.
           </p>
         </div>
 
@@ -458,14 +530,14 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
       </div>
 
       {/* Navigation Mode Tabs */}
-      <div style={{ display: "flex", gap: "1rem", borderBottom: "2px solid var(--color-gray-200)", marginBottom: "2rem" }}>
+      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", borderBottom: "2px solid var(--color-gray-200)", marginBottom: "2rem" }}>
         <button
           onClick={() => setActiveTab("subject-scores")}
           style={{
             background: "none",
             border: "none",
             padding: "0.75rem 1rem",
-            fontSize: "1.05rem",
+            fontSize: "1.02rem",
             fontWeight: "bold",
             color: activeTab === "subject-scores" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
             borderBottom: activeTab === "subject-scores" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
@@ -485,7 +557,7 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
               background: "none",
               border: "none",
               padding: "0.75rem 1rem",
-              fontSize: "1.05rem",
+              fontSize: "1.02rem",
               fontWeight: "bold",
               color: activeTab === "form-master-hub" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
               borderBottom: activeTab === "form-master-hub" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
@@ -498,6 +570,25 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
             <FiUserCheck /> My Class Compilation (Form Master Hub)
           </button>
         )}
+
+        <button
+          onClick={() => setActiveTab("attendance-hub")}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0.75rem 1rem",
+            fontSize: "1.02rem",
+            fontWeight: "bold",
+            color: activeTab === "attendance-hub" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
+            borderBottom: activeTab === "attendance-hub" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem"
+          }}
+        >
+          <FiCalendar /> Daily Class Attendance Roll Call
+        </button>
       </div>
 
       {/* ========================================================================= */}
@@ -1004,12 +1095,190 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
         </div>
       )}
 
-      {/* Form Master Remarks & Affective Domain Modal */}
+      {/* ========================================================================= */}
+      {/* MODE 3: DAILY CLASS ATTENDANCE ROLL CALL */}
+      {/* ========================================================================= */}
+      {activeTab === "attendance-hub" && (
+        <div
+          style={{
+            background: "var(--color-white)",
+            borderRadius: "var(--radius-lg)",
+            padding: "2rem",
+            border: "1px solid var(--color-gray-200)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "1rem",
+              borderBottom: "2px solid var(--color-gray-100)",
+              paddingBottom: "1.25rem",
+              marginBottom: "1.5rem",
+            }}
+          >
+            <div>
+              <h2 style={{ color: "var(--color-navy-blue)", margin: "0 0 0.25rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <FiCalendar color="var(--color-primary-green)" /> Daily Class Attendance Roll Call
+              </h2>
+              <p style={{ color: "var(--color-gray-500)", margin: 0, fontSize: "0.9rem" }}>
+                Mark daily roll call for your assigned class. Marking a student <strong>Absent</strong> automatically dispatches an email alert to their parent/guardian.
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: "0.2rem" }}>
+                  Class Arm
+                </label>
+                <select
+                  className="form-input"
+                  value={selectedAllocationId}
+                  onChange={(e) => setSelectedAllocationId(e.target.value)}
+                  style={{ minWidth: "220px", padding: "0.5rem 0.75rem", fontWeight: 600 }}
+                >
+                  {dashboardData?.subjectAllocations?.map((alloc: any) => (
+                    <option key={alloc.id} value={alloc.id.toString()}>
+                      {alloc.Class?.ClassName} ({alloc.Subject?.SubjectName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: "0.2rem" }}>
+                  Attendance Date
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={attendanceDate}
+                  onChange={(e) => setAttendanceDate(e.target.value)}
+                  style={{ padding: "0.5rem 0.75rem", fontWeight: 600 }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {loadingAttendance || loadingStudents ? (
+            <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)" }}>
+              Loading class attendance roster...
+            </div>
+          ) : subjectStudents.length === 0 ? (
+            <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)" }}>
+              No students enrolled in this class arm.
+            </div>
+          ) : (
+            <>
+              <div style={{ overflowX: "auto" }}>
+                <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", marginBottom: "1.5rem" }}>
+                  <thead>
+                    <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
+                      <th style={{ padding: "0.85rem", textAlign: "left" }}>Admission No</th>
+                      <th style={{ padding: "0.85rem", textAlign: "left" }}>Student Name</th>
+                      <th style={{ padding: "0.85rem", textAlign: "center", width: "200px" }}>Roll Call Status</th>
+                      <th style={{ padding: "0.85rem", textAlign: "left" }}>Teacher Note / Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subjectStudents.map((st: any) => {
+                      const currentStatus = attendanceMap[st.StudentID]?.status || "Present";
+                      const currentNotes = attendanceMap[st.StudentID]?.notes || "";
+                      return (
+                        <tr key={st.StudentID} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
+                          <td style={{ padding: "0.85rem", fontFamily: "monospace", fontWeight: 700, color: "var(--color-navy-blue)" }}>
+                            {st.AdmissionNo}
+                          </td>
+                          <td style={{ padding: "0.85rem", fontWeight: 600 }}>
+                            {st.PreferredName || `${st.FirstName || ""} ${st.LastName || ""}`.trim() || st.AdmissionNo}
+                          </td>
+                          <td style={{ padding: "0.85rem", textAlign: "center" }}>
+                            <select
+                              value={currentStatus}
+                              onChange={(e) =>
+                                setAttendanceMap((prev) => ({
+                                  ...prev,
+                                  [st.StudentID]: {
+                                    ...prev[st.StudentID],
+                                    status: e.target.value,
+                                  },
+                                }))
+                              }
+                              style={{
+                                padding: "0.45rem 0.75rem",
+                                borderRadius: "8px",
+                                fontWeight: 700,
+                                border: "1px solid #cbd5e1",
+                                background:
+                                  currentStatus === "Present"
+                                    ? "#dcfce7"
+                                    : currentStatus === "Absent"
+                                    ? "#fee2e2"
+                                    : "#fef3c7",
+                                color:
+                                  currentStatus === "Present"
+                                    ? "#15803d"
+                                    : currentStatus === "Absent"
+                                    ? "#b91c1c"
+                                    : "#b45309",
+                              }}
+                            >
+                              <option value="Present">Present</option>
+                              <option value="Late">Late</option>
+                              <option value="Excused">Excused</option>
+                              <option value="Absent">Absent (Alerts Parent)</option>
+                            </select>
+                          </td>
+                          <td style={{ padding: "0.85rem" }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="Optional note (e.g. Arrived on time / Medical excuse)"
+                              value={currentNotes}
+                              onChange={(e) =>
+                                setAttendanceMap((prev) => ({
+                                  ...prev,
+                                  [st.StudentID]: {
+                                    ...prev[st.StudentID],
+                                    notes: e.target.value,
+                                  },
+                                }))
+                              }
+                              style={{ padding: "0.45rem 0.75rem", fontSize: "0.85rem" }}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={handleSaveClassAttendance}
+                  disabled={savingAttendance}
+                  className="btn btn-primary"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
+                >
+                  <FiSave /> {savingAttendance ? "Saving Roll Call..." : `Save Attendance for ${attendanceDate}`}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Form Master Remarks & Affective / Psychomotor Domain Modal */}
       {selectedStudentForRemark && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-          <div className="modal-content" style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "2rem", width: "100%", maxWidth: "560px", maxHeight: "90vh", overflowY: "auto", boxShadow: "var(--shadow-floating)" }}>
+          <div className="modal-content" style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "2rem", width: "100%", maxWidth: "620px", maxHeight: "90vh", overflowY: "auto", boxShadow: "var(--shadow-floating)" }}>
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.25rem" }}>
-              Form Master Assessment & Remarks
+              Form Master Assessment, Affective &amp; Psychomotor Ratings
             </h3>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
               Evaluating <strong>{selectedStudentForRemark.PreferredName || selectedStudentForRemark.AdmissionNo}</strong> ({selectedStudentForRemark.AdmissionNo})
@@ -1040,18 +1309,43 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
               </div>
 
               {/* Affective Domain Ratings */}
-              <div style={{ marginTop: "1.5rem", marginBottom: "1.5rem" }}>
-                <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "0.75rem", fontSize: "0.95rem" }}>
-                  Behavioral & Affective Domain (Rate 1 to 5)
+              <div style={{ marginTop: "1.25rem", marginBottom: "1.25rem" }}>
+                <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "0.65rem", fontSize: "0.92rem" }}>
+                  1. Behavioral &amp; Affective Domain (Rate 1 to 5)
                 </h4>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "0.75rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))", gap: "0.65rem" }}>
                   {Object.entries(affectiveTraits).map(([trait, rating]) => (
-                    <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--color-gray-50)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)" }}>
-                      <span style={{ fontSize: "0.85rem", textTransform: "capitalize" }}>{trait}:</span>
+                    <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--color-gray-50)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid #e2e8f0" }}>
+                      <span style={{ fontSize: "0.84rem", textTransform: "capitalize", fontWeight: 600 }}>{trait}:</span>
                       <select
                         value={rating}
                         onChange={(e) => setAffectiveTraits(prev => ({ ...prev, [trait]: parseInt(e.target.value) }))}
-                        style={{ padding: "0.2rem 0.4rem", borderRadius: "4px", border: "1px solid var(--color-gray-300)" }}
+                        style={{ padding: "0.2rem 0.4rem", borderRadius: "4px", border: "1px solid var(--color-gray-300)", fontWeight: 600 }}
+                      >
+                        <option value={5}>5 - Excellent</option>
+                        <option value={4}>4 - Good</option>
+                        <option value={3}>3 - Fair</option>
+                        <option value={2}>2 - Poor</option>
+                        <option value={1}>1 - Very Poor</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Psychomotor Domain Ratings */}
+              <div style={{ marginTop: "1.25rem", marginBottom: "1.5rem" }}>
+                <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "0.65rem", fontSize: "0.92rem" }}>
+                  2. Psychomotor &amp; Practical Skills Domain (Rate 1 to 5)
+                </h4>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))", gap: "0.65rem" }}>
+                  {Object.entries(psychomotorTraits).map(([trait, rating]) => (
+                    <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f0fdf4", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid #bbf7d0" }}>
+                      <span style={{ fontSize: "0.84rem", textTransform: "capitalize", fontWeight: 600 }}>{trait}:</span>
+                      <select
+                        value={rating}
+                        onChange={(e) => setPsychomotorTraits(prev => ({ ...prev, [trait]: parseInt(e.target.value) }))}
+                        style={{ padding: "0.2rem 0.4rem", borderRadius: "4px", border: "1px solid #86efac", fontWeight: 600 }}
                       >
                         <option value={5}>5 - Excellent</option>
                         <option value={4}>4 - Good</option>
@@ -1067,7 +1361,7 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "1rem", marginTop: "1.5rem" }}>
                 <button type="button" className="btn btn-outline" onClick={() => setSelectedStudentForRemark(null)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? "Saving..." : "Save Assessment"}
+                  {loading ? "Saving..." : "Save Assessment & Traits"}
                 </button>
               </div>
             </form>
