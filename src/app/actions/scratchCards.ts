@@ -534,23 +534,45 @@ export async function verifyScratchCard(
       };
     }
 
-    const results = await prisma.result.findMany({
-      where: {
-        StudentID: studentId,
-        TermID: termId,
-      },
-      include: {
-        Subject: true,
-      },
-    });
+    const [results, student, formMasterReport, attendances] = await Promise.all([
+      prisma.result.findMany({
+        where: {
+          StudentID: studentId,
+          TermID: termId,
+        },
+        include: {
+          Subject: true,
+        },
+        orderBy: {
+          Subject: { SubjectName: "asc" },
+        },
+      }),
+      prisma.student.findUnique({
+        where: { StudentID: studentId },
+        include: {
+          Class: true,
+          User: { select: SAFE_USER_SELECT },
+        },
+      }),
+      prisma.form_Master_Report.findUnique({
+        where: {
+          StudentID_TermID: {
+            StudentID: studentId,
+            TermID: termId,
+          },
+        },
+      }),
+      prisma.attendance.findMany({
+        where: {
+          StudentID: studentId,
+          TermID: termId,
+        },
+      }),
+    ]);
 
-    const student = await prisma.student.findUnique({
-      where: { StudentID: studentId },
-      include: {
-        Class: true,
-        User: { select: SAFE_USER_SELECT },
-      },
-    });
+    const presentDays = attendances.filter(
+      (a) => a.Status === "Present" || a.Status === "PRESENT" || a.Status === "Late"
+    ).length;
 
     await writeAuditLog({
       actorUserId: actor.UserID,
@@ -569,7 +591,22 @@ export async function verifyScratchCard(
 
     return {
       success: true,
-      data: { results, term, student },
+      data: {
+        results,
+        term,
+        student,
+        formMasterReport,
+        attendanceSummary: {
+          presentDays,
+          totalRecordedDays: attendances.length,
+        },
+        cardMeta: {
+          serialNumber: card.SerialNumber,
+          remainingUses: Math.max(0, card.MaxUsage - (card.UsageCount + incrementBy)),
+          maxUsage: card.MaxUsage,
+          verifiedAt: new Date().toISOString(),
+        },
+      },
       message: `Card validated (${card.SerialNumber}). Remaining report checks: ${
         card.MaxUsage - (card.UsageCount + incrementBy)
       }`,

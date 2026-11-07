@@ -67,15 +67,23 @@ export async function getStudentProfile(userId: number) {
     const payments = student.PaymentRecords;
 
     const safeAcademics = academics.map((a) => ({
+      subject: a.Subject.SubjectName,
+      teacher: a.Teacher.Email,
       SubjectName: a.Subject.SubjectName,
       TeacherName: a.Teacher.Email,
     }));
+
+    const fullName =
+      student.PreferredName ||
+      `${student.FirstName || ""} ${student.LastName || ""}`.trim() ||
+      student.AdmissionNo;
 
     const finalResponse = {
       success: true,
       student: {
         id: student.StudentID,
         admissionNo: student.AdmissionNo,
+        fullName,
         className: student.Class.ClassName,
         level: student.Class.Level,
         email: student.User?.Email,
@@ -86,16 +94,20 @@ export async function getStudentProfile(userId: number) {
       academics: safeAcademics,
       payments: payments.map((p) => ({
         id: p.PaymentID,
+        uuid: p.Uuid,
+        reference: p.Reference || `WOF-REC-${String(p.PaymentID).padStart(6, "0")}`,
+        channel: p.Channel || "BANK_TELLER",
         term: p.Term.TermName,
         session: p.Term.SessionName,
         amount: p.AmountPaid,
         description: p.Description,
         status: p.Status,
         date: p.PaymentDate,
+        reviewedAt: p.ReviewedAt,
       })),
     };
 
-    await setCachedData(cacheKey, finalResponse, 86400);
+    await setCachedData(cacheKey, finalResponse, 300);
 
     return finalResponse;
   } catch (error: any) {

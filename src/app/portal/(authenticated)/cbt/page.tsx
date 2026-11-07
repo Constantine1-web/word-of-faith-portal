@@ -9,6 +9,8 @@ import {
   startAttempt,
   getCbtIntegrityDashboard,
   liftCbtDayLock,
+  getCompletedAttemptReview,
+  getAttemptAiAnalysis,
 } from "@/app/actions/cbt";
 import {
   FiShield,
@@ -18,6 +20,11 @@ import {
   FiClock,
   FiCheckCircle,
   FiPlay,
+  FiBarChart2,
+  FiBookOpen,
+  FiX,
+  FiCpu,
+  FiAward,
 } from "react-icons/fi";
 
 const QUANTITATIVE_SUBJECTS = new Set([
@@ -54,6 +61,12 @@ export default function CBTLandingPage() {
   const [studentStatus, setStudentStatus] = useState<any>(null);
   const [integrityData, setIntegrityData] = useState<any>(null);
   const [liftingId, setLiftingId] = useState<string | null>(null);
+
+  // Past Attempt Review & AI Tutor state
+  const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
+  const [selectedReview, setSelectedReview] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<any>(null);
 
   const loadStatus = async () => {
     setStatusLoading(true);
@@ -131,9 +144,44 @@ export default function CBTLandingPage() {
     setLiftingId(null);
   };
 
+  const handleOpenReview = async (attemptId: string) => {
+    setReviewLoadingId(attemptId);
+    setAiAnalysis(null);
+    const res = await getCompletedAttemptReview(attemptId);
+    if (res.success) {
+      setSelectedReview(res);
+    } else {
+      alert(res.error || "Unable to load attempt review.");
+    }
+    setReviewLoadingId(null);
+  };
+
+  const handleRunAiTutor = async (attemptId: string) => {
+    setAiLoading(true);
+    const res = await getAttemptAiAnalysis(attemptId);
+    if (res.success) {
+      setAiAnalysis(res.analysis);
+    } else {
+      alert(res.error || "Unable to generate AI diagnostic analysis.");
+    }
+    setAiLoading(false);
+  };
+
   const allocatedTimeLabel = formatAllocatedDuration(amount, secondsPerQuestion);
   const canClickStart =
     acceptedRules && !isLoading && !statusLoading && !studentStatus?.isLocked;
+
+  const pastAttempts: any[] = (studentStatus?.recentAttempts || []).filter(
+    (a: any) => a.status !== "ACTIVE"
+  );
+  const completedScores = pastAttempts
+    .filter((a: any) => typeof a.scoreTenths === "number")
+    .map((a: any) => Math.round(a.scoreTenths / 10));
+  const avgScore =
+    completedScores.length > 0
+      ? Math.round(completedScores.reduce((acc, v) => acc + v, 0) / completedScores.length)
+      : 0;
+  const bestScore = completedScores.length > 0 ? Math.max(...completedScores) : 0;
 
   return (
     <div className={styles.container}>
@@ -408,6 +456,472 @@ export default function CBTLandingPage() {
               : `Start Self-Paced Practice (${amount} Qs · ${allocatedTimeLabel})`}
           </button>
         </form>
+      </div>
+
+      {/* Past CBT Attempts & Performance History Dashboard */}
+      <div
+        style={{
+          maxWidth: "900px",
+          margin: "2.25rem auto 0 auto",
+          background: "white",
+          borderRadius: "12px",
+          padding: "clamp(1.25rem, 3vw, 2rem)",
+          border: "1px solid #e2e8f0",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "1rem",
+            marginBottom: "1.25rem",
+          }}
+        >
+          <div>
+            <h2
+              style={{
+                color: "#0A2540",
+                margin: "0 0 0.3rem 0",
+                fontSize: "1.25rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+              }}
+            >
+              <FiBarChart2 color="#16a34a" /> Past CBT Attempts &amp; Performance History
+            </h2>
+            <p style={{ color: "#64748b", fontSize: "0.86rem", margin: 0 }}>
+              Review your completed Self-Paced Practice and Strict Exam attempts, inspect explanations, and run AI Tutor diagnostics.
+            </p>
+          </div>
+        </div>
+
+        {/* Summary KPI Strip */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+            gap: "0.85rem",
+            marginBottom: "1.5rem",
+          }}
+        >
+          <div
+            style={{
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "10px",
+              padding: "0.9rem 1rem",
+            }}
+          >
+            <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>
+              Completed Sessions
+            </div>
+            <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#0A2540", marginTop: "0.2rem" }}>
+              {pastAttempts.length}
+            </div>
+          </div>
+          <div
+            style={{
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "10px",
+              padding: "0.9rem 1rem",
+            }}
+          >
+            <div style={{ fontSize: "0.75rem", color: "#166534", fontWeight: 600, textTransform: "uppercase" }}>
+              Average Score
+            </div>
+            <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#15803d", marginTop: "0.2rem" }}>
+              {avgScore}%
+            </div>
+          </div>
+          <div
+            style={{
+              background: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: "10px",
+              padding: "0.9rem 1rem",
+            }}
+          >
+            <div style={{ fontSize: "0.75rem", color: "#1e40af", fontWeight: 600, textTransform: "uppercase" }}>
+              Highest Score
+            </div>
+            <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#1d4ed8", marginTop: "0.2rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+              <FiAward size={18} /> {bestScore}%
+            </div>
+          </div>
+          <div
+            style={{
+              background: "#fefce8",
+              border: "1px solid #fde047",
+              borderRadius: "10px",
+              padding: "0.9rem 1rem",
+            }}
+          >
+            <div style={{ fontSize: "0.75rem", color: "#854d0e", fontWeight: 600, textTransform: "uppercase" }}>
+              Practice / Strict Split
+            </div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "#713f12", marginTop: "0.35rem" }}>
+              {pastAttempts.filter((a) => a.mode !== "MOCK").length} Practice ·{" "}
+              {pastAttempts.filter((a) => a.mode === "MOCK").length} Exam
+            </div>
+          </div>
+        </div>
+
+        {statusLoading ? (
+          <div style={{ padding: "1.5rem", textAlign: "center", color: "#64748b", fontSize: "0.9rem" }}>
+            Loading past CBT attempts...
+          </div>
+        ) : pastAttempts.length === 0 ? (
+          <div
+            style={{
+              padding: "2rem 1rem",
+              background: "#f8fafc",
+              borderRadius: "10px",
+              textAlign: "center",
+              color: "#64748b",
+              fontSize: "0.9rem",
+              border: "1px dashed #cbd5e1",
+            }}
+          >
+            No completed CBT attempts yet. Configure and start a Self-Paced Practice or Timed Exam session above!
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.86rem", minWidth: "660px" }}>
+              <thead>
+                <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #cbd5e1", textAlign: "left" }}>
+                  <th style={{ padding: "0.75rem" }}>Date</th>
+                  <th style={{ padding: "0.75rem" }}>Subject &amp; Exam</th>
+                  <th style={{ padding: "0.75rem" }}>Mode</th>
+                  <th style={{ padding: "0.75rem", textAlign: "center" }}>Questions</th>
+                  <th style={{ padding: "0.75rem", textAlign: "center" }}>Score</th>
+                  <th style={{ padding: "0.75rem", textAlign: "center" }}>Status</th>
+                  <th style={{ padding: "0.75rem", textAlign: "right" }}>Review</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pastAttempts.map((att: any) => {
+                  const pct =
+                    typeof att.scoreTenths === "number" ? Math.round(att.scoreTenths / 10) : 0;
+                  const isMock = att.mode === "MOCK";
+                  const isTerminated = att.status === "TERMINATED";
+                  const scoreColor =
+                    pct >= 70 ? "#15803d" : pct >= 50 ? "#b45309" : "#b91c1c";
+                  const scoreBg =
+                    pct >= 70 ? "#dcfce7" : pct >= 50 ? "#fef3c7" : "#fee2e2";
+
+                  return (
+                    <tr key={att.id} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                      <td style={{ padding: "0.75rem", color: "#475569", whiteSpace: "nowrap" }}>
+                        {new Date(att.startedAt).toLocaleDateString("en-NG", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                        <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                          {new Date(att.startedAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </td>
+                      <td style={{ padding: "0.75rem", fontWeight: 700, color: "#0A2540", textTransform: "capitalize" }}>
+                        {att.subjectCode}
+                        <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 600 }}>
+                          {att.examBody}
+                        </div>
+                      </td>
+                      <td style={{ padding: "0.75rem" }}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "0.2rem 0.6rem",
+                            borderRadius: "999px",
+                            fontSize: "0.74rem",
+                            fontWeight: 700,
+                            background: isMock ? "#eff6ff" : "#f0fdf4",
+                            color: isMock ? "#1d4ed8" : "#15803d",
+                            border: `1px solid ${isMock ? "#bfdbfe" : "#bbf7d0"}`,
+                          }}
+                        >
+                          {isMock ? "Strict Exam" : "Self-Paced"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "0.75rem", textAlign: "center", fontWeight: 600, color: "#334155" }}>
+                        {att.questionCount} Qs
+                      </td>
+                      <td style={{ padding: "0.75rem", textAlign: "center" }}>
+                        {isTerminated ? (
+                          <span style={{ color: "#dc2626", fontWeight: 700, fontSize: "0.78rem" }}>
+                            —
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "0.25rem 0.65rem",
+                              borderRadius: "999px",
+                              fontWeight: 800,
+                              fontSize: "0.82rem",
+                              background: scoreBg,
+                              color: scoreColor,
+                            }}
+                          >
+                            {pct}%
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "0.75rem", textAlign: "center" }}>
+                        <span
+                          style={{
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            color: isTerminated ? "#dc2626" : "#15803d",
+                          }}
+                        >
+                          {att.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: "0.75rem", textAlign: "right" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenReview(att.id)}
+                          disabled={reviewLoadingId === att.id}
+                          style={{
+                            background: "#0A2540",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "8px",
+                            padding: "0.42rem 0.8rem",
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.35rem",
+                          }}
+                        >
+                          <FiBookOpen size={13} />
+                          {reviewLoadingId === att.id ? "Loading..." : "Review & AI Tutor"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Interactive Past Attempt Review & AI Diagnostic Drawer */}
+        {selectedReview && selectedReview.summary && (
+          <div
+            style={{
+              marginTop: "1.75rem",
+              borderTop: "2px solid #e2e8f0",
+              paddingTop: "1.5rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                flexWrap: "wrap",
+                gap: "1rem",
+                background: "#f8fafc",
+                padding: "1.1rem 1.25rem",
+                borderRadius: "10px",
+                border: "1px solid #cbd5e1",
+                marginBottom: "1.25rem",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#16a34a", textTransform: "uppercase" }}>
+                  Completed Attempt Review · {selectedReview.summary.examBody}
+                </div>
+                <h3 style={{ margin: "0.2rem 0", color: "#0A2540", textTransform: "capitalize", fontSize: "1.2rem" }}>
+                  {selectedReview.summary.subjectCode} — Score: {selectedReview.summary.correctCount} /{" "}
+                  {selectedReview.summary.questionCount} ({selectedReview.summary.percentage}%)
+                </h3>
+                <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
+                  Mode:{" "}
+                  <strong>
+                    {selectedReview.summary.mode === "MOCK" ? "Strict Timed Exam" : "Self-Paced Practice"}
+                  </strong>{" "}
+                  · Time Spent:{" "}
+                  <strong>
+                    {Math.floor((selectedReview.summary.durationSpentSec || 60) / 60)}m{" "}
+                    {(selectedReview.summary.durationSpentSec || 0) % 60}s
+                  </strong>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => handleRunAiTutor(selectedReview.summary.attemptId)}
+                  disabled={aiLoading}
+                  style={{
+                    background: "linear-gradient(135deg, #16a34a, #15803d)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.5rem 0.95rem",
+                    fontSize: "0.82rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.4rem",
+                  }}
+                >
+                  <FiCpu size={15} />
+                  {aiLoading ? "Analyzing with AI Tutor..." : "Run AI Tutor Breakdown"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedReview(null);
+                    setAiAnalysis(null);
+                  }}
+                  style={{
+                    background: "#e2e8f0",
+                    color: "#334155",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.5rem 0.75rem",
+                    fontSize: "0.82rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.3rem",
+                  }}
+                >
+                  <FiX size={15} /> Close Review
+                </button>
+              </div>
+            </div>
+
+            {/* AI Tutor Diagnostic Card */}
+            {aiAnalysis && (
+              <div
+                style={{
+                  background: "#f0fdf4",
+                  border: "1px solid #86efac",
+                  borderRadius: "10px",
+                  padding: "1.25rem",
+                  marginBottom: "1.25rem",
+                }}
+              >
+                <h4 style={{ margin: "0 0 0.5rem 0", color: "#14532d", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <FiCpu /> Word of Faith AI Diagnostic Tutor
+                </h4>
+                <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.88rem", color: "#166534", lineHeight: 1.55 }}>
+                  {aiAnalysis.overallSummary}
+                </p>
+                {Array.isArray(aiAnalysis.ActionableStudyTips) && aiAnalysis.ActionableStudyTips.length > 0 && (
+                  <div style={{ fontSize: "0.84rem", color: "#14532d" }}>
+                    <strong>Study Recommendations:</strong>
+                    <ul style={{ margin: "0.35rem 0 0 0", paddingLeft: "1.2rem" }}>
+                      {aiAnalysis.ActionableStudyTips.map((tip: string, idx: number) => (
+                        <li key={idx} style={{ marginBottom: "0.25rem" }}>
+                          {tip}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Question-by-Question Review List */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem", maxHeight: "520px", overflowY: "auto", paddingRight: "0.25rem" }}>
+              {(selectedReview.reviewItems || []).map((item: any) => (
+                <div
+                  key={item.position}
+                  style={{
+                    border: `1px solid ${item.isCorrect ? "#bbf7d0" : "#fecaca"}`,
+                    background: item.isCorrect ? "#f0fdf4" : "#fef2f2",
+                    borderRadius: "10px",
+                    padding: "1rem 1.15rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.45rem" }}>
+                    <span style={{ fontWeight: 800, color: "#0A2540", fontSize: "0.88rem" }}>
+                      Question {item.position}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "0.75rem",
+                        fontWeight: 800,
+                        padding: "0.18rem 0.6rem",
+                        borderRadius: "999px",
+                        background: item.isCorrect ? "#16a34a" : "#dc2626",
+                        color: "white",
+                      }}
+                    >
+                      {item.isCorrect ? "CORRECT" : item.selectedKey ? "INCORRECT" : "UNANSWERED"}
+                    </span>
+                  </div>
+                  <div
+                    style={{ fontSize: "0.92rem", color: "#1e293b", fontWeight: 600, marginBottom: "0.65rem", lineHeight: 1.5 }}
+                    dangerouslySetInnerHTML={{ __html: item.stem }}
+                  />
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "0.45rem", fontSize: "0.83rem" }}>
+                    {(item.options || []).map((opt: any) => {
+                      const isCorrectOpt = opt.key.toLowerCase() === item.correctKey?.toLowerCase();
+                      const isSelectedOpt = opt.key.toLowerCase() === item.selectedKey?.toLowerCase();
+                      return (
+                        <div
+                          key={opt.key}
+                          style={{
+                            padding: "0.45rem 0.65rem",
+                            borderRadius: "6px",
+                            background: isCorrectOpt
+                              ? "#dcfce7"
+                              : isSelectedOpt
+                              ? "#fee2e2"
+                              : "rgba(255,255,255,0.75)",
+                            border: `1px solid ${
+                              isCorrectOpt ? "#22c55e" : isSelectedOpt ? "#ef4444" : "#cbd5e1"
+                            }`,
+                            fontWeight: isCorrectOpt || isSelectedOpt ? 700 : 500,
+                            color: "#0f172a",
+                          }}
+                        >
+                          <strong style={{ textTransform: "uppercase" }}>{opt.key}.</strong> {opt.text}{" "}
+                          {isCorrectOpt && <span style={{ color: "#15803d" }}>✓ (Answer)</span>}
+                          {!isCorrectOpt && isSelectedOpt && (
+                            <span style={{ color: "#dc2626" }}>✗ (Your Choice)</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {item.explanation && (
+                    <div
+                      style={{
+                        marginTop: "0.65rem",
+                        paddingTop: "0.55rem",
+                        borderTop: "1px dashed #cbd5e1",
+                        fontSize: "0.82rem",
+                        color: "#334155",
+                      }}
+                    >
+                      <strong>Explanation:</strong> {item.explanation}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Staff Supervisor Panel: Lift Day Locks & Inspect Integrity Signals */}

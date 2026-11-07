@@ -146,7 +146,7 @@ export async function getCbtStudentStatus() {
     const recentAttempts = await prisma.cbtAttempt.findMany({
       where: { studentId: student.StudentID },
       orderBy: { startedAt: "desc" },
-      take: 8,
+      take: 25,
     });
 
     return {
@@ -943,6 +943,92 @@ export async function submitAttempt(attemptId: string) {
 }
 
 /**
+ * Fetches full question-by-question review and explanation data for a completed CBT attempt.
+ * Strictly prohibits viewing ACTIVE attempts so answer keys remain isolated until submission.
+ */
+export async function getCompletedAttemptReview(attemptId: string) {
+  try {
+    const { student } = await resolveCurrentStudent();
+    const attempt = await prisma.cbtAttempt.findUnique({
+      where: { id: attemptId },
+      include: {
+        items: {
+          orderBy: { position: "asc" },
+          include: {
+            question: {
+              include: {
+                answerKey: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!attempt || attempt.studentId !== student.StudentID) {
+      return { success: false, error: "Attempt not found." };
+    }
+
+    if (attempt.status === "ACTIVE") {
+      return {
+        success: false,
+        error: "Cannot review answer keys while an attempt is still active.",
+      };
+    }
+
+    let correctCount = 0;
+    const reviewItems = attempt.items.map((item) => {
+      const correctKey = (item.question.answerKey?.correctKey || "a").toLowerCase().trim();
+      const isCorrect = Boolean(item.selectedKey && item.selectedKey.toLowerCase() === correctKey);
+      if (isCorrect) correctCount++;
+
+      const rawOptions = Array.isArray(item.question.optionsJson)
+        ? (item.question.optionsJson as { key: string; text: string }[])
+        : [];
+
+      return {
+        position: item.position,
+        stem: item.question.stem,
+        imageUrl: item.question.imageUrl,
+        options: rawOptions,
+        selectedKey: item.selectedKey,
+        correctKey,
+        isCorrect,
+        explanation: item.question.answerKey?.explanation || null,
+      };
+    });
+
+    const durationSpentSec = attempt.submittedAt
+      ? Math.max(1, Math.round((attempt.submittedAt.getTime() - attempt.startedAt.getTime()) / 1000))
+      : attempt.durationSec;
+
+    return {
+      success: true,
+      summary: {
+        attemptId: attempt.id,
+        subjectCode: attempt.subjectCode,
+        examBody: attempt.examBody,
+        mode: attempt.mode,
+        status: attempt.status,
+        correctCount,
+        questionCount: attempt.questionCount,
+        percentage:
+          attempt.questionCount > 0 ? Math.trunc((correctCount / attempt.questionCount) * 100) : 0,
+        hardStrikes: attempt.hardStrikes,
+        startedAt: attempt.startedAt.toISOString(),
+        submittedAt: attempt.submittedAt ? attempt.submittedAt.toISOString() : null,
+        durationSpentSec,
+        durationAllocatedSec: attempt.durationSec,
+      },
+      reviewItems,
+    };
+  } catch (error: any) {
+    console.error("getCompletedAttemptReview error:", error);
+    return { success: false, error: error.message || "Failed to load attempt review" };
+  }
+}
+
+/**
  * Generates an AI-powered diagnostic review of the student's completed CBT session,
  * breaking down performance into strengths, missed topics, and study recommendations.
  */
@@ -965,6 +1051,10 @@ export async function getAttemptAiAnalysis(attemptId: string) {
 
     if (!attempt || attempt.studentId !== student.StudentID) {
       return { success: false, error: "Attempt not found." };
+    }
+
+    if (attempt.status === "ACTIVE") {
+      return { success: false, error: "AI analysis is only available after exam submission." };
     }
 
     const wrongItems = attempt.items.filter((it) => !it.isCorrect);
