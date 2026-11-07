@@ -116,6 +116,11 @@
 }
 
 .startBtn:disabled {
-  opacity: 0.7;
+  background-color: #94a3b8;
+  color: #f1f5f9;
+  opacity: 0.6;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
+

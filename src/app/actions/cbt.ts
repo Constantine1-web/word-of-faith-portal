@@ -186,6 +186,7 @@ export async function startAttempt(params: {
   examBody?: string;
   mode?: "PRACTICE" | "MOCK";
   questionCount?: number;
+  secondsPerQuestion?: number;
 }) {
   try {
     const { actor, student } = await resolveCurrentStudent();
@@ -204,7 +205,25 @@ export async function startAttempt(params: {
     const mode: AttemptMode = params.mode === "MOCK" ? "MOCK" : "PRACTICE";
     const requestedCount = Math.min(Math.max(5, Number(params.questionCount || 10)), 50);
 
-    // Check if an ACTIVE attempt already exists for this student
+    // Determine time allocation per question: 60s (1 min) or 90s (1 min 30 sec)
+    const quantitativeSubjects = new Set([
+      "mathematics",
+      "physics",
+      "chemistry",
+      "accounting",
+      "commerce",
+      "economics",
+    ]);
+    const defaultSecPerQ = quantitativeSubjects.has(subjectCode) ? 90 : 60;
+    const secondsPerQuestion =
+      params.secondsPerQuestion === 90
+        ? 90
+        : params.secondsPerQuestion === 60
+        ? 60
+        : defaultSecPerQ;
+
+    // If an ACTIVE attempt already exists for this student, auto-submit it so the new session
+    // starts cleanly with the student's newly selected subject, mode, question count, and timer.
     const existingActive = await prisma.cbtAttempt.findFirst({
       where: {
         studentId: student.StudentID,
@@ -213,46 +232,41 @@ export async function startAttempt(params: {
     });
 
     if (existingActive) {
-      if (new Date() <= existingActive.expiresAt) {
-        return {
-          success: true,
-          attemptId: existingActive.id,
-          expiresAt: existingActive.expiresAt.toISOString(),
-          questionCount: existingActive.questionCount,
-          resumed: true,
-        };
-      } else {
-        // Auto-submit expired active attempt before starting a new one
-        await submitAttempt(existingActive.id);
-      }
+      await submitAttempt(existingActive.id);
     }
 
-    // Check daily cap
+    // Check daily cap (only enforce strict cap on MOCK exams; allow practice sessions freely up to 15/day)
     const todayAttemptCount = await prisma.cbtAttempt.count({
       where: {
         studentId: student.StudentID,
         dayKey,
+        ...(mode === "MOCK" ? { mode: "MOCK" } : {}),
       },
     });
 
-    if (todayAttemptCount >= DAILY_ATTEMPT_CAP && !actor.roles.has("PRINCIPAL") && !actor.roles.has("TEACHER")) {
+    const maxAllowedToday = mode === "MOCK" ? DAILY_ATTEMPT_CAP : 15;
+    if (todayAttemptCount >= maxAllowedToday && !actor.roles.has("PRINCIPAL") && !actor.roles.has("TEACHER")) {
       return {
         success: false,
-        error: `Daily attempt limit (${DAILY_ATTEMPT_CAP} attempts per day) reached for ${dayKey}. Please resume tomorrow.`,
+        error: `Daily attempt limit (${maxAllowedToday} attempts per day) reached for ${dayKey}. Please resume tomorrow.`,
       };
     }
 
-    // Backend buffer: serve from our own question pool first. The external provider (which
-    // costs API credits) is only called when the cached pool cannot fill this attempt.
+    // Backend buffer: serve from our own question pool first, then refill from provider/verified bank
+    // whenever cached questions are fewer than requestedCount.
     const poolRows = await prisma.cbtQuestion.findMany({
-      where: { subjectCode, examBody, isActive: true, answerKey: { isNot: null } },
+      where: { subjectCode, isActive: true, answerKey: { isNot: null } },
       select: { id: true },
     });
     const cachedIds = poolRows.map((q) => q.id);
 
     let rawFetched: Awaited<ReturnType<typeof fetchQuestions>> = [];
     if (cachedIds.length < requestedCount) {
-      rawFetched = await fetchQuestions(subjectCode, POOL_REFILL_SIZE, examBody);
+      rawFetched = await fetchQuestions(
+        subjectCode,
+        Math.max(POOL_REFILL_SIZE, requestedCount),
+        examBody
+      );
     }
     if (cachedIds.length === 0 && (!rawFetched || rawFetched.length === 0)) {
       return {
@@ -321,9 +335,11 @@ export async function startAttempt(params: {
     }
 
     const seed = crypto.randomBytes(8).toString("hex");
-    const poolIds = Array.from(new Set([...cachedIds, ...storedQuestionIds]));
+    const poolIds = Array.from(new Set([...storedQuestionIds, ...cachedIds]));
     const shuffledIds = seededShuffle(poolIds, seed).slice(0, requestedCount);
-    const durationSec = shuffledIds.length * 60; // 60 seconds per question
+
+    // Allocate time dynamically according to the number of questions picked (60s or 90s per question)
+    const durationSec = shuffledIds.length * secondsPerQuestion;
     const startedAt = new Date();
     const expiresAt = new Date(startedAt.getTime() + durationSec * 1000);
 
@@ -373,6 +389,8 @@ export async function startAttempt(params: {
         examBody,
         mode,
         questionCount: attempt.questionCount,
+        secondsPerQuestion,
+        durationSec,
         expiresAt: attempt.expiresAt,
       },
     });
@@ -382,6 +400,8 @@ export async function startAttempt(params: {
       attemptId: attempt.id,
       expiresAt: attempt.expiresAt.toISOString(),
       questionCount: attempt.questionCount,
+      durationSec,
+      secondsPerQuestion,
       resumed: false,
     };
   } catch (error: any) {
@@ -495,6 +515,7 @@ export async function getQuestion(attemptId: string, position: number) {
         examBody: attempt.examBody,
         mode: attempt.mode,
         questionCount: attempt.questionCount,
+        durationSec: attempt.durationSec,
         expiresAt: attempt.expiresAt.toISOString(),
         hardStrikes: attempt.hardStrikes,
         maxStrikes: CBT_HARD_STRIKES_BEFORE_LOCK,
@@ -619,6 +640,21 @@ export async function reportIntegrityEvent(params: {
 
     if (!attempt || attempt.studentId !== student.StudentID || attempt.status !== "ACTIVE") {
       return { success: false, status: attempt?.status || "INACTIVE" };
+    }
+
+    // Strict CBT 2-Strike policy applies ONLY to Supervised Exam Mode (MOCK).
+    // Self-paced Practice Mode (PRACTICE) never penalizes, warns, terminates, or day-locks students.
+    if (attempt.mode !== "MOCK") {
+      await prisma.cbtAttempt.update({
+        where: { id: attempt.id },
+        data: { lastHeartbeatAt: new Date() },
+      });
+      return {
+        success: true,
+        status: "ACTIVE",
+        hardStrikes: 0,
+        maxStrikes: CBT_HARD_STRIKES_BEFORE_LOCK,
+      };
     }
 
     // Ignore tab/blur durations shorter than 3 seconds per Section 7.3

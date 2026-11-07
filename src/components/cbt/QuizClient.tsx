@@ -231,8 +231,9 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
   }, [warningModal]);
 
   // Page Visibility, Window Blur, Fullscreen & Copy/Paste Integrity Listeners (Section 7.2 & 7.3)
+  // Strict CBT monitoring applies ONLY to Exam Mode (MOCK); Self-Paced Practice (PRACTICE) is exempt.
   useEffect(() => {
-    if (submittedResult || terminatedReason) return;
+    if (submittedResult || terminatedReason || attemptMeta?.mode !== "MOCK") return;
 
     const handleHardViolation = async (
       type: "TAB_HIDDEN" | "WINDOW_BLUR" | "FULLSCREEN_EXIT",
@@ -670,16 +671,39 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
           }}
         >
           <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-            <FiShield color="#16a34a" /> Integrity Status
+            <FiShield color={attemptMeta?.mode === "MOCK" ? "#dc2626" : "#16a34a"} />{" "}
+            {attemptMeta?.mode === "MOCK" ? "Strict Exam Integrity" : "Self-Paced Practice"}
           </div>
-          <div>
-            Strikes:{" "}
-            <strong style={{ color: (attemptMeta?.hardStrikes || 0) > 0 ? "#dc2626" : "#15803d" }}>
-              {attemptMeta?.hardStrikes || 0} / {attemptMeta?.maxStrikes || 2}
-            </strong>
+          {attemptMeta?.mode === "MOCK" ? (
+            <div>
+              Strikes:{" "}
+              <strong style={{ color: (attemptMeta?.hardStrikes || 0) > 0 ? "#dc2626" : "#15803d" }}>
+                {attemptMeta?.hardStrikes || 0} / {attemptMeta?.maxStrikes || 2}
+              </strong>
+            </div>
+          ) : (
+            <div style={{ color: "#15803d", fontWeight: 600 }}>
+              No Strike Penalties Active
+            </div>
+          )}
+          <div style={{ marginTop: "0.25rem" }}>
+            Mode: <strong>{attemptMeta?.mode === "MOCK" ? "Strict Exam" : "Self-Paced Study"}</strong>
           </div>
-          <div style={{ marginTop: "0.25rem" }}>Mode: {attemptMeta?.mode || "PRACTICE"}</div>
         </div>
+
+        <button
+          type="button"
+          className={styles.submitBtn}
+          style={{ marginTop: "1rem", width: "100%", justifyContent: "center" }}
+          onClick={() => {
+            if (confirm("Are you ready to submit your CBT attempt for server-side grading?")) {
+              handleFinalSubmit();
+            }
+          }}
+          disabled={loadingQuestion}
+        >
+          Submit Exam <FiCheckCircle />
+        </button>
       </div>
 
       {/* Main Quiz Area with Dynamic Tiled Student Watermark (Section 7.2) */}
