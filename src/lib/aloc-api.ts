@@ -111,18 +111,24 @@ export function normalizeExamTypeV2(examType?: string): string {
 }
 
 /**
- * Normalizes academic subject codes to match ALOC Station API v1 taxonomy.
+ * Normalizes academic subject codes to match ALOC Station API v1 taxonomy (`dev.aloc.com.ng/api/v1/questions`).
  */
 export function normalizeSubject(subject: string): string {
   const s = subject.toLowerCase().trim();
   const map: Record<string, string> = {
-    englishlit: "englishliterature",
-    "english literature": "englishliterature",
-    literature: "englishliterature",
-    crk: "crk",
+    english: "english-language",
+    "english language": "english-language",
+    englishlit: "literature-in-english",
+    englishliterature: "literature-in-english",
+    "english literature": "literature-in-english",
+    literature: "literature-in-english",
+    crk: "christian-religious-studies",
+    crs: "christian-religious-studies",
+    "christian religious studies": "christian-religious-studies",
     irk: "irk",
-    civiledu: "civileducation",
-    "civic education": "civileducation",
+    civiledu: "civic-education",
+    civileducation: "civic-education",
+    "civic education": "civic-education",
     currentaffairs: "currentaffairs",
   };
   return map[s] || s;
@@ -489,9 +495,9 @@ export async function fetchAlocBatchQuestions(
     cursor = res.nextCursor;
   }
 
-  // Fallback 1: If WAEC/WASSCE has no direct questions in ALOC Station v1 for this subject,
-  // query JAMB senior secondary questions on v1
-  if (collected.length === 0 && normalizeExamType(examType) === "waec") {
+  // Fallback 1: If the requested examType (e.g. WAEC/NECO) has no direct questions in ALOC Station v1 for this subject,
+  // query JAMB senior secondary questions on v1 so live ALOC questions are still served
+  if (collected.length === 0 && normalizeExamType(examType) !== "jamb") {
     const fallbackRes = await fetchAlocStationQuestions({
       subject,
       examType: "jamb",
