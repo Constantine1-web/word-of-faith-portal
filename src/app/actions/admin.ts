@@ -23,7 +23,7 @@ import {
   buildOtpAuthUri,
   generateRecoveryCodes,
 } from "@/server/security/totp";
-import { sendAdmissionDecisionNotification } from "@/lib/email";
+import { sendAdmissionDecisionNotification, sendTeacherOnboardingEmail } from "@/lib/email";
 import {
   encryptTotpSecret,
   decryptTotpSecret,
@@ -614,15 +614,41 @@ export async function addClassArm(className: string, level: string, formMasterId
 }
 
 export async function assignFormMaster(classId: number, teacherUserId: number | null) {
-  await requireAdmin();
+  const actor = await requireAdmin();
 
   try {
     const updated = await prisma.class.update({
       where: { ClassID: classId },
-      data: { FormMasterID: teacherUserId }
+      data: { FormMasterID: teacherUserId },
+    });
+
+    if (teacherUserId) {
+      await prisma.userRoleAssignment.upsert({
+        where: {
+          UserID_Role: {
+            UserID: teacherUserId,
+            Role: "FORM_MASTER",
+          },
+        },
+        update: {},
+        create: {
+          UserID: teacherUserId,
+          Role: "FORM_MASTER",
+        },
+      });
+    }
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "FORM_MASTER_ASSIGNED",
+      targetTable: "Class",
+      targetId: String(classId),
+      afterState: { className: updated.ClassName, formMasterId: teacherUserId },
     });
 
     revalidatePath("/portal/admin/classes");
+    revalidatePath("/portal/admin/teachers");
     return { success: true, class: updated };
   } catch (error: any) {
     console.error("assignFormMaster error:", error);
@@ -687,6 +713,229 @@ export async function removeSubjectTeacherMap(mapId: number) {
   } catch (error: any) {
     console.error("removeSubjectTeacherMap error:", error);
     return { success: false, error: error.message || "Failed to remove mapping" };
+  }
+}
+
+/**
+ * Unified One-Step Teacher Enrollment & Academic Allocation Action:
+ * Atomically provisions the teacher's User account, assigns their optional Form Master Class Arm,
+ * maps their Subject + Class Arm allocations for the active term, writes a hash-chained AuditLog,
+ * and dispatches an onboarding welcome email via SMTP.
+ */
+export async function enrollTeacherComplete(data: {
+  email: string;
+  password?: string;
+  staffTitle?: string;
+  formMasterClassId?: number | null;
+  allocations?: Array<{ subjectId: number; classId: number }>;
+  sendWelcomeEmail?: boolean;
+}) {
+  try {
+    const actor = await requireCapability("MANAGE_USERS");
+    await requireStepUpIfTotpEnabled(actor.UserID, "enrollTeacherComplete");
+
+    const emailClean = (data.email || "").trim().toLowerCase();
+    if (!emailClean || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailClean)) {
+      return { success: false, error: "Please provide a valid staff email address." };
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { Email: emailClean },
+    });
+    if (existingUser) {
+      return {
+        success: false,
+        error: `A portal account with email '${emailClean}' already exists. You can assign subjects or Form Master duties to them directly on their card below.`,
+      };
+    }
+
+    // Generate cryptographically secure 12-char password if blank
+    let plainPassword = (data.password || "").trim();
+    if (!plainPassword) {
+      const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+      let randPart = "";
+      for (let i = 0; i < 7; i++) {
+        randPart += alphabet[crypto.randomInt(0, alphabet.length)];
+      }
+      plainPassword = `Wof@${randPart}!`;
+    } else if (plainPassword.length < 8) {
+      return {
+        success: false,
+        error: "Initial password must be at least 8 characters long.",
+      };
+    }
+
+    const passwordHash = await bcrypt.hash(plainPassword, 12);
+
+    // Ensure Teacher Role exists
+    let teacherRole = await prisma.role.findFirst({
+      where: { RoleName: { in: ["Teacher", "TEACHER"] } },
+    });
+    if (!teacherRole) {
+      teacherRole = await prisma.role.create({
+        data: { RoleName: "Teacher", Permissions: "teacher" },
+      });
+    }
+
+    const activeTerm = await prisma.academic_Term.findFirst({
+      where: { IsActive: true },
+    });
+    const activeTermId = activeTerm?.TermID || 1;
+
+    // Deduplicate subject-class pairs
+    const rawAllocations = Array.isArray(data.allocations) ? data.allocations : [];
+    const uniquePairMap = new Map<string, { subjectId: number; classId: number }>();
+    for (const item of rawAllocations) {
+      const sId = Number(item.subjectId);
+      const cId = Number(item.classId);
+      if (Number.isInteger(sId) && sId > 0 && Number.isInteger(cId) && cId > 0) {
+        uniquePairMap.set(`${sId}:${cId}`, { subjectId: sId, classId: cId });
+      }
+    }
+    const cleanAllocations = Array.from(uniquePairMap.values());
+    const formMasterClassId =
+      data.formMasterClassId && Number(data.formMasterClassId) > 0
+        ? Number(data.formMasterClassId)
+        : null;
+
+    const provisioned = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          Email: emailClean,
+          PasswordHash: passwordHash,
+          RoleID: teacherRole.RoleID,
+          IsActive: true,
+        },
+        select: {
+          UserID: true,
+          Email: true,
+          RoleID: true,
+          IsActive: true,
+        },
+      });
+
+      // Assign Layer-2 RBAC Roles
+      await tx.userRoleAssignment.upsert({
+        where: {
+          UserID_Role: {
+            UserID: createdUser.UserID,
+            Role: "TEACHER",
+          },
+        },
+        update: {},
+        create: {
+          UserID: createdUser.UserID,
+          Role: "TEACHER",
+        },
+      });
+
+      let assignedFormMasterClass: { ClassID: number; ClassName: string; Level: string } | null = null;
+      if (formMasterClassId) {
+        await tx.userRoleAssignment.upsert({
+          where: {
+            UserID_Role: {
+              UserID: createdUser.UserID,
+              Role: "FORM_MASTER",
+            },
+          },
+          update: {},
+          create: {
+            UserID: createdUser.UserID,
+            Role: "FORM_MASTER",
+          },
+        });
+
+        assignedFormMasterClass = await tx.class.update({
+          where: { ClassID: formMasterClassId },
+          data: { FormMasterID: createdUser.UserID },
+          select: { ClassID: true, ClassName: true, Level: true },
+        });
+      }
+
+      const createdMappings: any[] = [];
+      for (const pair of cleanAllocations) {
+        const mapped = await tx.teacher_Subject_Map.upsert({
+          where: {
+            TeacherID_SubjectID_ClassID_TermID: {
+              TeacherID: createdUser.UserID,
+              SubjectID: pair.subjectId,
+              ClassID: pair.classId,
+              TermID: activeTermId,
+            },
+          },
+          update: {},
+          create: {
+            TeacherID: createdUser.UserID,
+            SubjectID: pair.subjectId,
+            ClassID: pair.classId,
+            TermID: activeTerm?.TermID || null,
+          },
+          include: {
+            Subject: true,
+            Class: true,
+            Term: true,
+          },
+        });
+        createdMappings.push(mapped);
+      }
+
+      return {
+        user: createdUser,
+        formMasterClass: assignedFormMasterClass,
+        mappings: createdMappings,
+      };
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "TEACHER_ENROLLED_COMPLETE",
+      targetTable: "User",
+      targetId: String(provisioned.user.UserID),
+      reason: data.staffTitle ? `Enrolled staff: ${data.staffTitle}` : "One-step teacher enrollment",
+      afterState: {
+        email: provisioned.user.Email,
+        formMasterClass: provisioned.formMasterClass?.ClassName || null,
+        subjectAllocationsCount: provisioned.mappings.length,
+      },
+    });
+
+    let emailSent = false;
+    if (data.sendWelcomeEmail !== false) {
+      const emailRes = await sendTeacherOnboardingEmail({
+        email: provisioned.user.Email,
+        password: plainPassword,
+        staffTitle: data.staffTitle,
+        formMasterClassName: provisioned.formMasterClass?.ClassName || null,
+        subjectAllocations: provisioned.mappings.map((m) => ({
+          subjectName: m.Subject?.SubjectName || `Subject #${m.SubjectID}`,
+          className: m.Class?.ClassName || `Class #${m.ClassID}`,
+        })),
+        termLabel: activeTerm ? `${activeTerm.SessionName} — ${activeTerm.TermName}` : undefined,
+      }).catch(() => ({ success: false }));
+      emailSent = Boolean(emailRes?.success);
+    }
+
+    revalidatePath("/portal/admin/teachers");
+    revalidatePath("/portal/admin/users");
+    revalidatePath("/portal/admin/classes");
+
+    return {
+      success: true,
+      teacher: {
+        ...provisioned.user,
+        FormMasterClasses: provisioned.formMasterClass ? [provisioned.formMasterClass] : [],
+        TeacherMaps: provisioned.mappings,
+      },
+      generatedPassword: plainPassword,
+      emailSent,
+    };
+  } catch (error: any) {
+    console.error("enrollTeacherComplete error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to enroll teacher account",
+    };
   }
 }
 

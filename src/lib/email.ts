@@ -509,3 +509,81 @@ export async function sendDirectStudentCommunication(params: {
   };
 }
 
+/**
+ * Dispatches an official Teacher & Form Master Onboarding Email with login credentials,
+ * assigned Form Master Class Arm, and mapped Subject + Class Arm allocations.
+ */
+export async function sendTeacherOnboardingEmail(params: {
+  email: string;
+  password: string;
+  staffTitle?: string;
+  formMasterClassName?: string | null;
+  subjectAllocations: Array<{ subjectName: string; className: string }>;
+  termLabel?: string;
+}) {
+  const cleanEmail = params.email.trim().toLowerCase();
+  const safeEmail = escapeHtml(cleanEmail);
+  const safePass = escapeHtml(params.password);
+  const safeTitle = escapeHtml(params.staffTitle?.trim() || "Academic Staff Member");
+  const safeFormMaster = params.formMasterClassName ? escapeHtml(params.formMasterClassName) : null;
+  const safeTerm = escapeHtml(params.termLabel || "Current Academic Term");
+  const portalUrl = `${(process.env.NEXTAUTH_URL || "https://wofs.vercel.app").replace(/\/$/, "")}/portal/login`;
+  const safePortalUrl = escapeHtml(portalUrl);
+
+  const allocationItemsHtml =
+    params.subjectAllocations.length > 0
+      ? params.subjectAllocations
+          .map(
+            (a) =>
+              `<li style="margin-bottom: 6px;"><strong>${escapeHtml(a.subjectName)}</strong> — <span style="color: #15803d; font-weight: 700;">${escapeHtml(a.className)}</span></li>`
+          )
+          .join("")
+      : `<li style="color: #64748b; font-style: italic;">Subject allocations can be added or updated at any time by the Principal.</li>`;
+
+  const html = `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #ffffff;">
+      <div style="background: linear-gradient(135deg, #0a2540 0%, #143424 100%); color: #ffffff; padding: 26px; text-align: center;">
+        <h2 style="margin: 0; font-size: 20px; letter-spacing: 0.4px;">Word of Faith Group of Schools</h2>
+        <p style="margin: 6px 0 0; font-size: 13px; color: #a7f3d0;">Official Academic Staff &amp; Form Master Portal Onboarding</p>
+      </div>
+      <div style="padding: 28px; color: #1f2937; line-height: 1.6;">
+        <p style="margin-top: 0;">Dear <strong>${safeTitle}</strong>,</p>
+        <p>Your official <strong>Teacher &amp; Academic Staff Portal Account</strong> has been provisioned for <strong>${safeTerm}</strong>.</p>
+
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #0a2540; border-radius: 8px; padding: 16px 18px; margin: 20px 0;">
+          <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: #475569; font-weight: 700; margin-bottom: 8px;">Portal Login Credentials</div>
+          <div style="font-size: 14px; margin-bottom: 6px;"><strong>Portal Login URL:</strong> <a href="${safePortalUrl}" style="color: #15803d; font-weight: 700;">${safePortalUrl}</a></div>
+          <div style="font-size: 14px; margin-bottom: 6px;"><strong>Staff Email:</strong> <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${safeEmail}</code></div>
+          <div style="font-size: 14px;"><strong>Temporary Password:</strong> <code style="background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 4px; font-weight: 700;">${safePass}</code></div>
+        </div>
+
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px 18px; margin: 20px 0;">
+          <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: #166534; font-weight: 700; margin-bottom: 8px;">Academic &amp; Class Allocations</div>
+          <div style="font-size: 14px; margin-bottom: 10px;">
+            <strong>Form Master Designation:</strong>
+            ${
+              safeFormMaster
+                ? `<span style="background: #15803d; color: #ffffff; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; margin-left: 6px;">Form Master — ${safeFormMaster}</span>`
+                : `<span style="color: #64748b; margin-left: 6px;">Subject Teacher (Not assigned as Form Master)</span>`
+            }
+          </div>
+          <div style="font-size: 14px; font-weight: 700; color: #0a2540; margin-bottom: 6px;">Assigned Subject Arms:</div>
+          <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #1f2937;">
+            ${allocationItemsHtml}
+          </ul>
+        </div>
+
+        <p style="font-size: 13px; color: #475569;">Once signed in at <a href="${safePortalUrl}" style="color: #0a2540; font-weight: 600;">/portal/teacher</a>, you can record CA (40) &amp; Exam (60) scores, manage your Form Master class broadsheet and behavioral assessments, and take Daily Class Attendance Roll Call.</p>
+        <p style="margin-bottom: 0;">Warm regards,<br/><strong>Office of the Principal</strong><br/>Word of Faith Group of Schools</p>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({
+    to: cleanEmail,
+    subject: "Welcome to Word of Faith Schools Portal — Staff Login & Academic Allocations",
+    html,
+  });
+}
+
+

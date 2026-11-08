@@ -22,24 +22,32 @@ export default async function AdminTeachersPage() {
     where: { IsActive: true },
   });
 
-  const teacherRole = await prisma.role.findUnique({ where: { RoleName: "Teacher" } });
-
-  let teachers: any[] = [];
-  if (teacherRole) {
-    const rawTeachers = await prisma.user.findMany({
-      where: { RoleID: teacherRole.RoleID },
-      orderBy: { UserID: "desc" },
-      include: {
-        FormMasterClasses: true,
-        TeacherMaps: {
-          include: { Subject: true, Class: true, Term: true },
-        },
+  const rawTeachers = await prisma.user.findMany({
+    where: {
+      OR: [
+        { Role: { RoleName: { in: ["Teacher", "TEACHER", "FORM_MASTER"] } } },
+        { RoleAssignments: { some: { Role: { in: ["TEACHER", "FORM_MASTER"] } } } },
+      ],
+    },
+    orderBy: { UserID: "desc" },
+    include: {
+      Role: true,
+      RoleAssignments: true,
+      FormMasterClasses: true,
+      TeacherMaps: {
+        include: { Subject: true, Class: true, Term: true },
       },
-    });
-    teachers = rawTeachers.map(({ PasswordHash, TotpSecret, TotpBackupCodes, ...safe }) => safe);
-  }
+    },
+  });
+
+  const teachers = rawTeachers.map(({ PasswordHash, TotpSecret, TotpBackupCodes, ...safe }) => safe);
 
   const classes = await prisma.class.findMany({
+    include: {
+      FormMaster: {
+        select: { UserID: true, Email: true },
+      },
+    },
     orderBy: { ClassName: "asc" },
   });
 
@@ -54,7 +62,7 @@ export default async function AdminTeachersPage() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: "2rem",
+          marginBottom: "1.5rem",
           borderBottom: "2px solid var(--color-gray-200)",
           paddingBottom: "1rem",
           flexWrap: "wrap",
@@ -63,10 +71,10 @@ export default async function AdminTeachersPage() {
       >
         <div>
           <h1 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.75rem" }}>
-            Subject Teacher Allocations
+            Teacher Enrollment &amp; Subject Allocation Hub
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            Assign subject teachers to multiple class arms (1-to-Many). Active Period:{" "}
+            Enroll new academic staff, designate Form Masters, and allocate Subject + Class Arms in one unified workspace. Active Period:{" "}
             <strong>{activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "No active term"}</strong>
           </p>
         </div>
