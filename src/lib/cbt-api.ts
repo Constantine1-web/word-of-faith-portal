@@ -768,75 +768,45 @@ async function fetchFromSdash(subject: string, amount: number, examtype?: string
  * unique, curriculum-verified questions so a student who selects 10, 20, 30, 40, or 50 questions
  * is never truncated to a 3-question or 5-question session.
  */
+function normalizeStemKey(stem: string): string {
+  return (stem || "")
+    .replace(/^\[.*?\]\s*/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function ensureFullSubjectPool(
   subject: string,
   baseQuestions: CBTQuestion[],
   targetAmount: number,
-  examtype: string = "WASSCE"
+  _examtype: string = "WASSCE"
 ): CBTQuestion[] {
   const seenIds = new Set<number>();
   const seenStems = new Set<string>();
   const result: CBTQuestion[] = [];
 
   for (const q of baseQuestions) {
-    if (!seenIds.has(q.id) && !seenStems.has(q.question)) {
+    const stemKey = normalizeStemKey(q.question);
+    if (stemKey && !seenIds.has(q.id) && !seenStems.has(stemKey)) {
       seenIds.add(q.id);
-      seenStems.add(q.question);
+      seenStems.add(stemKey);
       result.push(q);
     }
     if (result.length >= targetAmount) return result.slice(0, targetAmount);
   }
 
-  // Pull from the subject's verified offline bank first
+  // Pull from the subject's verified offline bank if additional unique questions are needed
   const subLower = subject.toLowerCase().trim();
-  const subjectBank = FALLBACK_QUESTION_BANK[subLower] || FALLBACK_QUESTION_BANK["english"] || [];
+  const subjectBank = FALLBACK_QUESTION_BANK[subLower] || [];
   for (const q of subjectBank) {
-    if (!seenIds.has(q.id) && !seenStems.has(q.question)) {
+    const stemKey = normalizeStemKey(q.question);
+    if (stemKey && !seenIds.has(q.id) && !seenStems.has(stemKey)) {
       seenIds.add(q.id);
-      seenStems.add(q.question);
+      seenStems.add(stemKey);
       result.push(q);
     }
     if (result.length >= targetAmount) return result.slice(0, targetAmount);
-  }
-
-  // Supplement with curriculum-aligned progressive exercises derived from the subject bank
-  // so every requested slot (up to 50) has a unique, valid question & verified solution.
-  const seedPool = subjectBank.length > 0 ? subjectBank : FALLBACK_QUESTION_BANK["english"];
-  const years = ["2014", "2015", "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"];
-  const seriesLabels = [
-    "Paper 1 (Objective Series A)",
-    "Paper 1 (Objective Series B)",
-    "Mock Revision Set I",
-    "Mock Revision Set II",
-    "Senior Secondary Core Assessment",
-    "Unified Tertiary Practice Drill",
-    "Terminal Mastery Check",
-    "Past Question Variant",
-    "Standard Curriculum Drill",
-    "Advanced Objective Check",
-  ];
-
-  let variantIdx = 1;
-  while (result.length < targetAmount && seedPool.length > 0 && variantIdx <= 200) {
-    const template = seedPool[(variantIdx - 1) % seedPool.length];
-    const seriesIndex = Math.floor((variantIdx - 1) / seedPool.length);
-    const year = years[(variantIdx + seriesIndex) % years.length];
-    const label = seriesLabels[seriesIndex % seriesLabels.length];
-    const syntheticId = 50000 + subLower.charCodeAt(0) * 200 + variantIdx;
-    const stemVariant = `[${examtype.toUpperCase()} ${year} · ${label}] ${template.question}`;
-
-    if (!seenIds.has(syntheticId) && !seenStems.has(stemVariant)) {
-      seenIds.add(syntheticId);
-      seenStems.add(stemVariant);
-      result.push({
-        ...template,
-        id: syntheticId,
-        question: stemVariant,
-        examtype: examtype.toUpperCase(),
-        examyear: year,
-      });
-    }
-    variantIdx++;
   }
 
   return result.slice(0, targetAmount);

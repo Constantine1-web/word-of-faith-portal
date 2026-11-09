@@ -264,10 +264,18 @@ function mapAlocItemsToCBTQuestions(items: AlocStationQuestion[], fallbackExam: 
       const answerRaw = item.correctAnswer || item.correct_answer || item.answer || "a";
       const answer = String(answerRaw).toLowerCase().trim() || "a";
 
-      const numericId =
-        typeof item.id === "number"
-          ? item.id
-          : Number.parseInt(String(item.id || "").replace(/\D/g, ""), 10) || Date.now() + idx;
+      let numericId: number;
+      if (typeof item.id === "number" && Number.isSafeInteger(item.id)) {
+        numericId = item.id;
+      } else {
+        const seedStr = `${item.id || ""}:${rawStem}`;
+        let h = 2166136261;
+        for (let i = 0; i < seedStr.length; i++) {
+          h ^= seedStr.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        numericId = (h >>> 0) || Date.now() + idx;
+      }
 
       return {
         id: numericId,
@@ -466,56 +474,72 @@ export async function fetchAlocBatchQuestions(
 ): Promise<CBTQuestion[]> {
   const targetCount = Math.max(1, amount);
   const collected: CBTQuestion[] = [];
-  let cursor: string | undefined = undefined;
+  const seenIds = new Set<number>();
+  const seenStems = new Set<string>();
 
-  const maxPages = Math.min(4, Math.ceil(targetCount / 15));
+  const pushUnique = (items: CBTQuestion[]) => {
+    let added = 0;
+    for (const q of items) {
+      const cleanStem = q.question.replace(/\s+/g, " ").trim().toLowerCase();
+      if (!seenIds.has(q.id) && !seenStems.has(cleanStem)) {
+        seenIds.add(q.id);
+        seenStems.add(cleanStem);
+        collected.push(q);
+        added++;
+      }
+    }
+    return added;
+  };
 
-  for (let page = 0; page < maxPages; page++) {
-    const remainingToFetch = targetCount - collected.length;
-    if (remainingToFetch <= 0) break;
+  const maxRounds = Math.min(6, Math.ceil(targetCount / 10) + 1);
 
-    const pageLimit = Math.min(remainingToFetch, 15);
+  for (let round = 0; round < maxRounds; round++) {
+    if (collected.length >= targetCount) break;
+
     const res = await fetchAlocStationQuestions({
       subject,
       examType,
-      limit: pageLimit,
-      random: page === 0 && targetCount <= 10,
-      cursor,
+      limit: 15,
+      random: true,
     });
 
     if (res.questions.length === 0) {
       break;
     }
 
-    collected.push(...res.questions);
-
-    if (!res.hasMore || !res.nextCursor) {
+    const newlyAdded = pushUnique(res.questions);
+    if (newlyAdded === 0) {
       break;
     }
-    cursor = res.nextCursor;
   }
 
-  // Fallback 1: If the requested examType (e.g. WAEC/NECO) has no direct questions in ALOC Station v1 for this subject,
-  // query JAMB senior secondary questions on v1 so live ALOC questions are still served
-  if (collected.length === 0 && normalizeExamType(examType) !== "jamb") {
-    const fallbackRes = await fetchAlocStationQuestions({
-      subject,
-      examType: "jamb",
-      limit: Math.min(targetCount, 15),
-      random: true,
-    });
-    if (fallbackRes.questions.length > 0) {
-      collected.push(...fallbackRes.questions);
+  // Fallback 1: If the requested examType (e.g. WAEC/NECO) has fewer unique questions than targetCount,
+  // supplement with unique JAMB senior secondary questions on ALOC Station v1
+  if (collected.length < targetCount && normalizeExamType(examType) !== "jamb") {
+    for (let round = 0; round < maxRounds; round++) {
+      if (collected.length >= targetCount) break;
+
+      const fallbackRes = await fetchAlocStationQuestions({
+        subject,
+        examType: "jamb",
+        limit: 15,
+        random: true,
+      });
+
+      if (fallbackRes.questions.length === 0) break;
+      const newlyAdded = pushUnique(fallbackRes.questions);
+      if (newlyAdded === 0) break;
     }
   }
 
-  // Fallback 2: Query ALOC v2 (`questions.aloc.com.ng/api/v2/m`) if v1 returned empty
-  if (collected.length === 0) {
-    const v2Questions = await fetchAlocV2Questions(subject, targetCount, examType);
+  // Fallback 2: Query ALOC v2 (`questions.aloc.com.ng/api/v2/m`) if v1 still needs more questions
+  if (collected.length < targetCount) {
+    const v2Questions = await fetchAlocV2Questions(subject, targetCount - collected.length, examType);
     if (v2Questions.length > 0) {
-      return v2Questions;
+      pushUnique(v2Questions);
     }
   }
 
-  return collected;
+  return collected.slice(0, targetCount);
 }
+

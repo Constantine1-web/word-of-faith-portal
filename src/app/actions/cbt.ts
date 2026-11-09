@@ -252,33 +252,86 @@ export async function startAttempt(params: {
       };
     }
 
-    // Backend buffer: serve from our own question pool first, then refill from provider/verified bank
-    // whenever cached questions are fewer than requestedCount.
-    const poolRows = await prisma.cbtQuestion.findMany({
-      where: { subjectCode, isActive: true, answerKey: { isNot: null } },
-      select: { id: true },
-    });
-    const cachedIds = poolRows.map((q) => q.id);
+    // Deactivate any legacy synthetic prefix clones (e.g. "[WASSCE 2015 · ...]") from earlier cache runs
+    await prisma.cbtQuestion
+      .updateMany({
+        where: {
+          subjectCode,
+          isActive: true,
+          stem: { startsWith: "[" },
+        },
+        data: { isActive: false },
+      })
+      .catch(() => {});
 
+    const normalizeStem = (s: string) =>
+      (s || "")
+        .replace(/^\[.*?\]\s*/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+
+    // Load active cached questions and deduplicate strictly by normalized question stem
+    const poolRows = await prisma.cbtQuestion.findMany({
+      where: {
+        subjectCode,
+        isActive: true,
+        NOT: { stem: { startsWith: "[" } },
+        answerKey: { isNot: null },
+      },
+      select: { id: true, stem: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Identify questions this student has already seen in recent attempts
+    const recentAttemptItems = await prisma.cbtAttemptQuestion.findMany({
+      where: {
+        attempt: {
+          studentId: student.StudentID,
+          subjectCode,
+        },
+      },
+      select: { questionId: true },
+      take: 200,
+      orderBy: { id: "desc" },
+    });
+    const recentlySeenSet = new Set(recentAttemptItems.map((i) => i.questionId));
+
+    const stemToIdMap = new Map<string, string>();
+    for (const row of poolRows) {
+      const key = normalizeStem(row.stem);
+      if (key && !stemToIdMap.has(key)) {
+        stemToIdMap.set(key, row.id);
+      }
+    }
+
+    const unseenCachedIds = Array.from(stemToIdMap.values()).filter(
+      (id) => !recentlySeenSet.has(id)
+    );
+
+    // Refill from live ALOC Station v1 / Sdash / Verified Bank whenever unseen unique questions are fewer than requestedCount
     let rawFetched: Awaited<ReturnType<typeof fetchQuestions>> = [];
-    if (cachedIds.length < requestedCount) {
+    if (unseenCachedIds.length < requestedCount) {
       rawFetched = await fetchQuestions(
         subjectCode,
         Math.max(POOL_REFILL_SIZE, requestedCount),
         examBody
       );
     }
-    if (cachedIds.length === 0 && (!rawFetched || rawFetched.length === 0)) {
+
+    if (stemToIdMap.size === 0 && (!rawFetched || rawFetched.length === 0)) {
       return {
         success: false,
         error: `No verified CBT questions available for ${subjectCode.toUpperCase()} (${examBody}). The question provider could not be reached or has no questions for this subject yet; please tell the administrator.`,
       };
     }
 
-    // Persist questions into CbtQuestion and isolate answers in CbtAnswerKey
-    const storedQuestionIds: string[] = [];
+    // Persist newly fetched unique questions into CbtQuestion and isolate answers in CbtAnswerKey
     for (const item of rawFetched) {
-      const externalId = String(item.id || crypto.createHash("md5").update(item.question).digest("hex"));
+      const cleanStemKey = normalizeStem(item.question);
+      if (!cleanStemKey || item.question.trim().startsWith("[")) continue;
+
+      const externalId = String(item.id || crypto.createHash("md5").update(cleanStemKey).digest("hex"));
       const optionsArr = Object.entries(item.option || {})
         .filter(([, val]) => Boolean(val))
         .map(([key, text]) => ({
@@ -288,7 +341,7 @@ export async function startAttempt(params: {
 
       const contentHash = crypto
         .createHash("sha256")
-        .update(`${subjectCode}:${item.question}:${JSON.stringify(optionsArr)}`)
+        .update(`${subjectCode}:${cleanStemKey}:${JSON.stringify(optionsArr)}`)
         .digest("hex");
 
       const upsertedQ = await prisma.cbtQuestion.upsert({
@@ -302,6 +355,7 @@ export async function startAttempt(params: {
           stem: item.question,
           optionsJson: optionsArr,
           imageUrl: item.image || null,
+          isActive: true,
         },
         create: {
           provider: "SDASH_ALOC",
@@ -331,12 +385,22 @@ export async function startAttempt(params: {
         },
       });
 
-      storedQuestionIds.push(upsertedQ.id);
+      if (!stemToIdMap.has(cleanStemKey)) {
+        stemToIdMap.set(cleanStemKey, upsertedQ.id);
+      }
     }
 
     const seed = crypto.randomBytes(8).toString("hex");
-    const poolIds = Array.from(new Set([...storedQuestionIds, ...cachedIds]));
-    const shuffledIds = seededShuffle(poolIds, seed).slice(0, requestedCount);
+    const allUniqueIds = Array.from(stemToIdMap.values());
+    const freshUnseenIds = allUniqueIds.filter((id) => !recentlySeenSet.has(id));
+    const previouslySeenIds = allUniqueIds.filter((id) => recentlySeenSet.has(id));
+
+    // Prioritize unseen unique questions first, then top up with shuffled previously seen unique questions if needed
+    const orderedCandidateIds = [
+      ...seededShuffle(freshUnseenIds, `${seed}:unseen`),
+      ...seededShuffle(previouslySeenIds, `${seed}:seen`),
+    ];
+    const shuffledIds = orderedCandidateIds.slice(0, requestedCount);
 
     // Allocate time dynamically according to the number of questions picked (60s or 90s per question)
     const durationSec = shuffledIds.length * secondsPerQuestion;
