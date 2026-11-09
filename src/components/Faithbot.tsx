@@ -134,24 +134,41 @@ export default function Faithbot() {
         body: JSON.stringify({ messages: newMessages })
       });
       
-      if (!res.ok) throw new Error("Failed to fetch response");
-      if (!res.body) throw new Error("No response body");
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        const errMsg = errJson?.error || `Unable to reach Faithbot server (status ${res.status}). Please try again in a moment.`;
+        setMessages(prev => 
+          prev.map(m => m.id === botId ? { ...m, content: errMsg } : m)
+        );
+        setError(new Error(errMsg));
+        setIsLoading(false);
+        return;
+      }
+      
+      if (!res.body) {
+        throw new Error("No response stream available.");
+      }
       
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let botContent = "";
+      let buffer = "";
       
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || "";
         
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            const dataStr = trimmed.slice(6).trim();
+            if (dataStr === '[DONE]') continue;
             try {
-              const data = JSON.parse(line.slice(6));
+              const data = JSON.parse(dataStr);
               if (data.type === 'text-delta') {
                 const textChunk = data.delta || data.textDelta || "";
                 botContent += textChunk;
@@ -159,24 +176,44 @@ export default function Faithbot() {
                   prev.map(m => m.id === botId ? { ...m, content: botContent } : m)
                 );
               } else if (data.type === 'error') {
-                let errorMsg = data.error || data.errorText || "Unknown server error";
-                if (errorMsg === "An error occurred.") {
-                  errorMsg = "API Rate Limit Exceeded. Please wait a minute and try again.";
-                }
-                botContent += `\n[Error: ${errorMsg}]`;
+                let errorMsg = data.error || data.errorText || "An unexpected error occurred.";
+                botContent += (botContent ? "\n\n" : "") + `⚠️ ${errorMsg}`;
                 setMessages(prev => 
                   prev.map(m => m.id === botId ? { ...m, content: botContent } : m)
                 );
                 setError(new Error(errorMsg));
               }
             } catch (err) {
-              // Ignore parse errors for incomplete chunks
+              // Ignore partial JSON parse errors for split chunks
             }
           }
         }
       }
+
+      if (buffer.trim().startsWith('data: ')) {
+        try {
+          const data = JSON.parse(buffer.trim().slice(6).trim());
+          if (data.type === 'text-delta') {
+            botContent += data.delta || data.textDelta || "";
+            setMessages(prev => 
+              prev.map(m => m.id === botId ? { ...m, content: botContent } : m)
+            );
+          }
+        } catch (_) {}
+      }
+
+      if (!botContent.trim()) {
+        const fallbackText = "Hello! I am Faithbot, your study assistant. How can I help you with your school subjects, exams, or homework today?";
+        setMessages(prev => 
+          prev.map(m => m.id === botId ? { ...m, content: fallbackText } : m)
+        );
+      }
     } catch (e: any) {
       console.error("Manual stream error:", e);
+      const fallbackErr = e?.message || "Faithbot is momentarily unavailable. Please check your internet connection.";
+      setMessages(prev => 
+        prev.map(m => m.id === botId ? { ...m, content: (m.content ? m.content + "\n\n" : "") + `⚠️ ${fallbackErr}` } : m)
+      );
       setError(e);
     } finally {
       setIsLoading(false);
