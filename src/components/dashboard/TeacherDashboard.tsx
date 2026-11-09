@@ -15,6 +15,15 @@ import {
   commitScoreSheetImportBatch,
 } from "@/app/actions/results";
 import { getAttendanceForClass, markClassAttendanceBatch } from "@/app/actions/attendance";
+import {
+  createCustomCbtQuestion,
+  getTeacherCustomCbtQuestions,
+  deleteCustomCbtQuestion,
+  publishCourseMaterial,
+  getCourseMaterials,
+  deleteCourseMaterial,
+} from "@/app/actions/elearning";
+import { SUBJECTS, EXAM_TYPES } from "@/lib/cbt-constants";
 import { calculateGrade } from "@/lib/grading";
 import Link from "next/link";
 import ClassListSyncModal from "@/components/portal/ClassListSyncModal";
@@ -33,6 +42,10 @@ import {
   FiDownload,
   FiUploadCloud,
   FiCalendar,
+  FiCpu,
+  FiPlus,
+  FiTrash2,
+  FiFileText,
 } from "react-icons/fi";
 
 export default function TeacherDashboard({ teacherId, initialAssignments }: { teacherId?: string; initialAssignments?: any[] }) {
@@ -41,8 +54,8 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Tab State: "subject-scores" vs "form-master-hub" vs "attendance-hub"
-  const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub" | "attendance-hub">("subject-scores");
+  // Tab State: "subject-scores" vs "form-master-hub" vs "attendance-hub" vs "elearning-studio"
+  const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub" | "attendance-hub" | "elearning-studio">("subject-scores");
 
   // Class List PDF Sync Modal
   const [showSyncModal, setShowSyncModal] = useState(false);
@@ -85,6 +98,39 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [savingAttendance, setSavingAttendance] = useState(false);
 
+  // Track A & B: Custom CBT Questions & Course Materials Studio State
+  const [customQuestions, setCustomQuestions] = useState<any[]>([]);
+  const [courseMaterials, setCourseMaterials] = useState<any[]>([]);
+  const [qSubject, setQSubject] = useState<string>(SUBJECTS[0]);
+  const [qExamBody, setQExamBody] = useState<string>(EXAM_TYPES[0]);
+  const [qTopic, setQTopic] = useState<string>("");
+  const [qStem, setQStem] = useState<string>("");
+  const [qOptA, setQOptA] = useState<string>("");
+  const [qOptB, setQOptB] = useState<string>("");
+  const [qOptC, setQOptC] = useState<string>("");
+  const [qOptD, setQOptD] = useState<string>("");
+  const [qCorrectKey, setQCorrectKey] = useState<"A" | "B" | "C" | "D">("A");
+  const [qExplanation, setQExplanation] = useState<string>("");
+  const [savingQuestion, setSavingQuestion] = useState(false);
+
+  const [mCategory, setMCategory] = useState<"Lesson Note" | "Homework Assignment" | "Revision Summary">("Lesson Note");
+  const [mSubjectName, setMSubjectName] = useState<string>("Mathematics");
+  const [mClassName, setMClassName] = useState<string>("All Assigned Classes");
+  const [mWeekLabel, setMWeekLabel] = useState<string>("Week 4");
+  const [mDueDate, setMDueDate] = useState<string>("");
+  const [mTitle, setMTitle] = useState<string>("");
+  const [mContent, setMContent] = useState<string>("");
+  const [savingMaterial, setSavingMaterial] = useState(false);
+
+  const loadElearningStudio = async () => {
+    const [qRes, mRes] = await Promise.all([
+      getTeacherCustomCbtQuestions(),
+      getCourseMaterials(),
+    ]);
+    if (qRes.success) setCustomQuestions(qRes.questions || []);
+    if (mRes.success) setCourseMaterials(mRes.materials || []);
+  };
+
   const loadData = async () => {
     setLoading(true);
     const res = await getTeacherDashboardData();
@@ -92,16 +138,93 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
       setDashboardData(res);
       if (res.subjectAllocations.length > 0 && !selectedAllocationId) {
         setSelectedAllocationId(res.subjectAllocations[0].id.toString());
+        const firstSub = res.subjectAllocations[0]?.Subject?.SubjectName;
+        const firstCls = res.subjectAllocations[0]?.Class?.ClassName;
+        if (firstSub) setMSubjectName(firstSub);
+        if (firstCls) setMClassName(firstCls);
       }
     } else {
       setError(res.error || "Failed to load dashboard data");
     }
     setLoading(false);
+    loadElearningStudio();
   };
 
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleCreateCustomQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingQuestion(true);
+    setError("");
+    setSuccess("");
+    const res = await createCustomCbtQuestion({
+      subjectCode: qSubject,
+      examBody: qExamBody,
+      topic: qTopic,
+      stem: qStem,
+      optionA: qOptA,
+      optionB: qOptB,
+      optionC: qOptC,
+      optionD: qOptD,
+      correctKey: qCorrectKey,
+      explanation: qExplanation,
+    });
+    if (res.success) {
+      setSuccess("✅ Custom CBT Question published to the school question bank!");
+      setQStem("");
+      setQOptA("");
+      setQOptB("");
+      setQOptC("");
+      setQOptD("");
+      setQExplanation("");
+      await loadElearningStudio();
+    } else {
+      setError(res.error || "Failed to publish custom CBT question.");
+    }
+    setSavingQuestion(false);
+  };
+
+  const handleDeleteCustomQuestion = async (questionId: string) => {
+    const res = await deleteCustomCbtQuestion(questionId);
+    if (res.success) {
+      await loadElearningStudio();
+    }
+  };
+
+  const handlePublishMaterial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingMaterial(true);
+    setError("");
+    setSuccess("");
+    const res = await publishCourseMaterial({
+      subjectName: mSubjectName,
+      className: mClassName,
+      category: mCategory,
+      weekLabel: mWeekLabel,
+      dueDate: mDueDate || undefined,
+      title: mTitle,
+      content: mContent,
+    });
+    if (res.success) {
+      setSuccess(`✅ ${mCategory} published to the Student Courses Hub!`);
+      setMTitle("");
+      setMContent("");
+      await loadElearningStudio();
+    } else {
+      setError(res.error || "Failed to publish material.");
+    }
+    setSavingMaterial(false);
+  };
+
+  const handleDeleteMaterial = async (materialId: string) => {
+    if (String(materialId).startsWith("starter-")) return;
+    const res = await deleteCourseMaterial(materialId);
+    if (res.success) {
+      await loadElearningStudio();
+    }
+  };
 
   // Fetch students & current scores when subject allocation changes
   useEffect(() => {
@@ -588,6 +711,25 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
           }}
         >
           <FiCalendar /> Daily Class Attendance Roll Call
+        </button>
+
+        <button
+          onClick={() => setActiveTab("elearning-studio")}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0.75rem 1rem",
+            fontSize: "1.02rem",
+            fontWeight: "bold",
+            color: activeTab === "elearning-studio" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
+            borderBottom: activeTab === "elearning-studio" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem"
+          }}
+        >
+          <FiCpu /> CBT Quiz &amp; Lesson Notes Studio
         </button>
       </div>
 
@@ -1270,6 +1412,360 @@ export default function TeacherDashboard({ teacherId, initialAssignments }: { te
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODE 4: CBT QUIZ & LESSON NOTES STUDIO (TRACKS A & B)                     */}
+      {/* ========================================================================= */}
+      {activeTab === "elearning-studio" && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))",
+            gap: "1.5rem",
+          }}
+        >
+          {/* Left Column: Track A — Author Custom CBT Objective Questions */}
+          <div
+            style={{
+              background: "var(--color-white)",
+              borderRadius: "var(--radius-lg)",
+              padding: "1.5rem",
+              border: "1px solid var(--color-gray-200)",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <h3 style={{ color: "var(--color-navy-blue)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <FiCpu color="var(--color-primary-green)" /> Custom CBT Question Authoring
+              </h3>
+              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "#dcfce7", color: "#15803d", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
+                {customQuestions.length} School Questions
+              </span>
+            </div>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
+              Questions published here are stored in the internal Word of Faith CBT bank and automatically served to students taking practice or mock CBT sessions.
+            </p>
+
+            <form onSubmit={handleCreateCustomQuestion} style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Subject</label>
+                  <select className="form-input" value={qSubject} onChange={(e) => setQSubject(e.target.value)}>
+                    {SUBJECTS.map((s) => (
+                      <option key={s} value={s}>{s.toUpperCase()}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Exam Standard</label>
+                  <select className="form-input" value={qExamBody} onChange={(e) => setQExamBody(e.target.value)}>
+                    {EXAM_TYPES.map((ex) => (
+                      <option key={ex} value={ex}>{ex.toUpperCase()}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: "0.8rem" }}>Curriculum Topic (Optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Quadratic Equations / Concord & Agreement"
+                  value={qTopic}
+                  onChange={(e) => setQTopic(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: "0.8rem" }}>Question Stem *</label>
+                <textarea
+                  className="form-input"
+                  rows={3}
+                  placeholder="Type the full objective question stem clearly..."
+                  value={qStem}
+                  onChange={(e) => setQStem(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.65rem" }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.78rem" }}>Option A *</label>
+                  <input type="text" className="form-input" value={qOptA} onChange={(e) => setQOptA(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.78rem" }}>Option B *</label>
+                  <input type="text" className="form-input" value={qOptB} onChange={(e) => setQOptB(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.78rem" }}>Option C *</label>
+                  <input type="text" className="form-input" value={qOptC} onChange={(e) => setQOptC(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.78rem" }}>Option D *</label>
+                  <input type="text" className="form-input" value={qOptD} onChange={(e) => setQOptD(e.target.value)} required />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Correct Key *</label>
+                  <select className="form-input" value={qCorrectKey} onChange={(e) => setQCorrectKey(e.target.value as any)}>
+                    <option value="A">Option A</option>
+                    <option value="B">Option B</option>
+                    <option value="C">Option C</option>
+                    <option value="D">Option D</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Step-by-Step Solution / Explanation</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Shown to students during post-exam review..."
+                    value={qExplanation}
+                    onChange={(e) => setQExplanation(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingQuestion}
+                className="btn btn-primary"
+                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
+              >
+                <FiPlus /> {savingQuestion ? "Publishing Question..." : "Publish Question to School CBT Bank"}
+              </button>
+            </form>
+
+            {/* Recent Custom Questions List */}
+            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e2e8f0", paddingTop: "1rem" }}>
+              <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "var(--color-navy-blue)" }}>
+                Published Internal CBT Questions ({customQuestions.length})
+              </h4>
+              {customQuestions.length === 0 ? (
+                <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>
+                  No custom questions authored yet. Create your first class quiz question above!
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", maxHeight: "280px", overflowY: "auto" }}>
+                  {customQuestions.map((q: any) => (
+                    <div
+                      key={q.id}
+                      style={{
+                        padding: "0.75rem",
+                        borderRadius: "8px",
+                        background: "#f8fafc",
+                        border: "1px solid #e2e8f0",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#15803d", textTransform: "uppercase" }}>
+                          {q.subjectCode} · {q.examBody} {q.topic ? `· ${q.topic}` : ""} (Ans: {q.correctKey})
+                        </div>
+                        <div style={{ fontSize: "0.84rem", color: "#0A2540", fontWeight: 600, marginTop: "0.2rem" }}>
+                          {q.stem}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCustomQuestion(q.id)}
+                        style={{
+                          background: "#fee2e2",
+                          color: "#b91c1c",
+                          border: "none",
+                          borderRadius: "6px",
+                          padding: "0.35rem 0.5rem",
+                          cursor: "pointer",
+                        }}
+                        title="Deactivate Question"
+                      >
+                        <FiTrash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Track B — Digital Lesson Notes, Study Materials & Homework Hub */}
+          <div
+            style={{
+              background: "var(--color-white)",
+              borderRadius: "var(--radius-lg)",
+              padding: "1.5rem",
+              border: "1px solid var(--color-gray-200)",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <h3 style={{ color: "var(--color-navy-blue)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <FiFileText color="var(--color-primary-green)" /> Lesson Notes &amp; Homework Publisher
+              </h3>
+              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
+                {courseMaterials.length} Active Resources
+              </span>
+            </div>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
+              Publish weekly study notes, revision summaries, and take-home assignments directly to the Student Courses &amp; Assignments Hub.
+            </p>
+
+            <form onSubmit={handlePublishMaterial} style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Material Type</label>
+                  <select className="form-input" value={mCategory} onChange={(e) => setMCategory(e.target.value as any)}>
+                    <option value="Lesson Note">Lesson Note</option>
+                    <option value="Homework Assignment">Homework Assignment</option>
+                    <option value="Revision Summary">Revision Summary</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Week / Module Label</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Week 4 · First Term"
+                    value={mWeekLabel}
+                    onChange={(e) => setMWeekLabel(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Subject Name</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={mSubjectName}
+                    onChange={(e) => setMSubjectName(e.target.value)}
+                    placeholder="e.g. Mathematics"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Target Class Arm</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={mClassName}
+                    onChange={(e) => setMClassName(e.target.value)}
+                    placeholder="e.g. SS2 Gold / All Arms"
+                    required
+                  />
+                </div>
+              </div>
+
+              {mCategory === "Homework Assignment" && (
+                <div>
+                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Submission Due Date</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={mDueDate}
+                    onChange={(e) => setMDueDate(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="form-label" style={{ fontSize: "0.8rem" }}>Topic / Assignment Title *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Week 4 Lesson Note: Laws of Indices & Logarithms"
+                  value={mTitle}
+                  onChange={(e) => setMTitle(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: "0.8rem" }}>Full Study Note / Assignment Content *</label>
+                <textarea
+                  className="form-input"
+                  rows={5}
+                  placeholder="Write detailed study notes, worked examples, formulas, or homework questions..."
+                  value={mContent}
+                  onChange={(e) => setMContent(e.target.value)}
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingMaterial}
+                className="btn btn-primary"
+                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
+              >
+                <FiPlus /> {savingMaterial ? "Publishing..." : `Publish ${mCategory} to Student Portal`}
+              </button>
+            </form>
+
+            {/* Published Course Materials List */}
+            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e2e8f0", paddingTop: "1rem" }}>
+              <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "var(--color-navy-blue)" }}>
+                Published Lesson Notes &amp; Assignments ({courseMaterials.length})
+              </h4>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", maxHeight: "280px", overflowY: "auto" }}>
+                {courseMaterials.map((mat: any) => (
+                  <div
+                    key={mat.id}
+                    style={{
+                      padding: "0.75rem",
+                      borderRadius: "8px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: "0.5rem",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#1d4ed8", textTransform: "uppercase" }}>
+                        {mat.category} · {mat.subjectName} · {mat.weekLabel}
+                      </div>
+                      <div style={{ fontSize: "0.86rem", color: "#0A2540", fontWeight: 700, marginTop: "0.15rem" }}>
+                        {mat.title}
+                      </div>
+                      <div style={{ fontSize: "0.76rem", color: "#64748b", marginTop: "0.15rem" }}>
+                        Target: {mat.className} {mat.dueDate ? `· Due: ${mat.dueDate}` : ""}
+                      </div>
+                    </div>
+                    {!String(mat.id).startsWith("starter-") && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMaterial(mat.id)}
+                        style={{
+                          background: "#fee2e2",
+                          color: "#b91c1c",
+                          border: "none",
+                          borderRadius: "6px",
+                          padding: "0.35rem 0.5rem",
+                          cursor: "pointer",
+                        }}
+                        title="Remove Material"
+                      >
+                        <FiTrash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

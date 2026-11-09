@@ -12,6 +12,7 @@ import {
   getCompletedAttemptReview,
   getAttemptAiAnalysis,
 } from "@/app/actions/cbt";
+import { getCbtAnalyticsAndLeaderboard } from "@/app/actions/elearning";
 import {
   FiShield,
   FiLock,
@@ -25,6 +26,7 @@ import {
   FiX,
   FiCpu,
   FiAward,
+  FiTrendingUp,
 } from "react-icons/fi";
 
 const QUANTITATIVE_SUBJECTS = new Set([
@@ -61,6 +63,7 @@ export default function CBTLandingPage() {
   const [studentStatus, setStudentStatus] = useState<any>(null);
   const [integrityData, setIntegrityData] = useState<any>(null);
   const [liftingId, setLiftingId] = useState<string | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
 
   // Past Attempt Review & AI Tutor state
   const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
@@ -70,7 +73,13 @@ export default function CBTLandingPage() {
 
   const loadStatus = async () => {
     setStatusLoading(true);
-    const res = await getCbtStudentStatus();
+    const [res, analyticsRes] = await Promise.all([
+      getCbtStudentStatus(),
+      getCbtAnalyticsAndLeaderboard(),
+    ]);
+    if (analyticsRes.success) {
+      setAnalyticsData(analyticsRes);
+    }
     if (res.success) {
       setStudentStatus(res);
       if (res.isStaffSupervisor) {
@@ -570,6 +579,184 @@ export default function CBTLandingPage() {
             </div>
           </div>
         </div>
+
+        {/* Track C: Subject Mastery Breakdown, Achievement Badges & Class Leaderboard */}
+        {analyticsData && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginBottom: "1.75rem" }}>
+            {/* Earned Achievement Badges */}
+            {Array.isArray(analyticsData.badges) && analyticsData.badges.length > 0 && (
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "12px",
+                  padding: "1.1rem 1.25rem",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.85rem" }}>
+                  <h3 style={{ margin: 0, fontSize: "0.96rem", color: "#0A2540", display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                    <FiAward color="#d97706" /> CBT Achievement Badges &amp; Milestones
+                  </h3>
+                  <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
+                    {analyticsData.badges.filter((b: any) => b.earned).length} / {analyticsData.badges.length} Unlocked
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "0.75rem" }}>
+                  {analyticsData.badges.map((badge: any) => (
+                    <div
+                      key={badge.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.75rem",
+                        padding: "0.7rem 0.85rem",
+                        borderRadius: "10px",
+                        background: badge.earned ? "white" : "#f1f5f9",
+                        border: `1px solid ${badge.earned ? "#86efac" : "#e2e8f0"}`,
+                        opacity: badge.earned ? 1 : 0.65,
+                      }}
+                    >
+                      <div style={{ fontSize: "1.5rem" }}>{badge.icon}</div>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: "0.84rem", color: badge.earned ? "#0A2540" : "#64748b" }}>
+                          {badge.title} {badge.earned && "✓"}
+                        </div>
+                        <div style={{ fontSize: "0.74rem", color: "#64748b", lineHeight: 1.35 }}>
+                          {badge.description}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Subject Mastery Breakdown & Top Performers Leaderboard Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: "1.25rem" }}>
+              {/* Subject Mastery Breakdown */}
+              <div
+                style={{
+                  background: "white",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "12px",
+                  padding: "1.1rem 1.25rem",
+                }}
+              >
+                <h3 style={{ margin: "0 0 0.85rem 0", fontSize: "0.96rem", color: "#0A2540", display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                  <FiTrendingUp color="#16a34a" /> Subject Mastery &amp; Speed Breakdown
+                </h3>
+                {!analyticsData.subjectBreakdown || analyticsData.subjectBreakdown.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: "0.84rem", color: "#64748b" }}>
+                    Complete at least one CBT session to unlock your per-subject mastery and response speed metrics.
+                  </p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    {analyticsData.subjectBreakdown.map((sub: any) => (
+                      <div key={sub.subject} style={{ background: "#f8fafc", padding: "0.7rem 0.9rem", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+                          <span style={{ fontWeight: 800, color: "#0A2540", textTransform: "capitalize", fontSize: "0.88rem" }}>
+                            {sub.subject}
+                          </span>
+                          <span style={{ fontSize: "0.78rem", fontWeight: 700, color: sub.avgScore >= 70 ? "#15803d" : sub.avgScore >= 50 ? "#b45309" : "#b91c1c" }}>
+                            Avg: {sub.avgScore}% · Best: {sub.bestScore}%
+                          </span>
+                        </div>
+                        <div style={{ height: "7px", background: "#e2e8f0", borderRadius: "999px", overflow: "hidden", marginBottom: "0.35rem" }}>
+                          <div
+                            style={{
+                              width: `${Math.min(100, Math.max(5, sub.avgScore))}%`,
+                              height: "100%",
+                              background: sub.avgScore >= 70 ? "#16a34a" : sub.avgScore >= 50 ? "#f59e0b" : "#ef4444",
+                            }}
+                          />
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.74rem", color: "#64748b" }}>
+                          <span>{sub.attemptsCount} Sessions ({sub.totalQuestions} Qs)</span>
+                          <span>⚡ Avg Pace: {sub.avgSecsPerQuestion}s / question</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Top Performers Leaderboard */}
+              <div
+                style={{
+                  background: "white",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "12px",
+                  padding: "1.1rem 1.25rem",
+                }}
+              >
+                <h3 style={{ margin: "0 0 0.85rem 0", fontSize: "0.96rem", color: "#0A2540", display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                  🏆 School CBT Honour Roll (Top Performers)
+                </h3>
+                {!analyticsData.leaderboard || analyticsData.leaderboard.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: "0.84rem", color: "#64748b" }}>
+                    No leaderboard rankings recorded yet. Be the first to post a top score!
+                  </p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                    {analyticsData.leaderboard.slice(0, 6).map((row: any) => (
+                      <div
+                        key={row.rank}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "0.55rem 0.8rem",
+                          borderRadius: "8px",
+                          background: row.isCurrentUser ? "#f0fdf4" : "#f8fafc",
+                          border: `1px solid ${row.isCurrentUser ? "#86efac" : "#e2e8f0"}`,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
+                          <span
+                            style={{
+                              width: "24px",
+                              height: "24px",
+                              borderRadius: "999px",
+                              background: row.rank === 1 ? "#fef08a" : row.rank === 2 ? "#e2e8f0" : row.rank === 3 ? "#fed7aa" : "#f1f5f9",
+                              color: "#0A2540",
+                              fontWeight: 800,
+                              fontSize: "0.78rem",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {row.rank}
+                          </span>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: "0.84rem", color: "#0A2540" }}>
+                              {row.displayName} {row.isCurrentUser && <span style={{ color: "#15803d", fontWeight: 800 }}>(You)</span>}
+                            </div>
+                            <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                              {row.attempts} Sessions · Best: {row.bestPct}%
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontWeight: 800,
+                            fontSize: "0.84rem",
+                            color: "#15803d",
+                            background: "#dcfce7",
+                            padding: "0.2rem 0.55rem",
+                            borderRadius: "999px",
+                          }}
+                        >
+                          {row.avgPct}% Avg
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {statusLoading ? (
           <div style={{ padding: "1.5rem", textAlign: "center", color: "#64748b", fontSize: "0.9rem" }}>

@@ -280,7 +280,7 @@ export async function startAttempt(params: {
         answerKey: { isNot: null },
       },
       select: { id: true, stem: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: { fetchedAt: "desc" },
     });
 
     // Identify questions this student has already seen in recent attempts

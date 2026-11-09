@@ -2,9 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { getAdminDashboardStats } from "@/app/actions/admin";
+import {
+  getSchoolNotices,
+  publishSchoolNotice,
+  deleteSchoolNotice,
+} from "@/app/actions/elearning";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import Link from "next/link";
-import { FiCalendar, FiUsers, FiCreditCard, FiDollarSign, FiLayers, FiAward, FiUserPlus, FiArrowRight, FiShield } from "react-icons/fi";
+import {
+  FiCalendar,
+  FiUsers,
+  FiCreditCard,
+  FiDollarSign,
+  FiLayers,
+  FiAward,
+  FiUserPlus,
+  FiArrowRight,
+  FiShield,
+  FiBell,
+  FiPlus,
+  FiTrash2,
+} from "react-icons/fi";
 
 const COLORS = ['#0A2540', '#14532D', '#22C55E', '#3B82F6', '#F59E0B'];
 
@@ -13,11 +31,27 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // School Noticeboard & Exam Timetable State (Track D)
+  const [notices, setNotices] = useState<any[]>([]);
+  const [noticeType, setNoticeType] = useState<"Upcoming Event" | "Deadline" | "Academics" | "Exam Timetable">("Academics");
+  const [noticeTitle, setNoticeTitle] = useState("");
+  const [noticeDetails, setNoticeDetails] = useState("");
+  const [noticeEventDate, setNoticeEventDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [noticeAudience, setNoticeAudience] = useState("All Students & Parents");
+  const [publishingNotice, setPublishingNotice] = useState(false);
+  const [noticeMsg, setNoticeMsg] = useState("");
+
   const fetchStats = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await getAdminDashboardStats();
+      const [res, noticeRes] = await Promise.all([
+        getAdminDashboardStats(),
+        getSchoolNotices(),
+      ]);
+      if (noticeRes.success) {
+        setNotices(noticeRes.notices || []);
+      }
       if (res && res.stats) {
         setData(res);
         if (!res.success && res.error) {
@@ -36,6 +70,41 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchStats();
   }, []);
+
+  const handlePublishNotice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNoticeMsg("");
+    setPublishingNotice(true);
+    const res = await publishSchoolNotice({
+      type: noticeType,
+      title: noticeTitle,
+      details: noticeDetails,
+      eventDate: noticeEventDate,
+      targetAudience: noticeAudience,
+    });
+    if (res.success) {
+      setNoticeTitle("");
+      setNoticeDetails("");
+      setNoticeMsg("✅ Broadcast published to all Student, Parent & Teacher dashboards!");
+      const refreshed = await getSchoolNotices();
+      if (refreshed.success) setNotices(refreshed.notices || []);
+    } else {
+      setNoticeMsg(`❌ ${res.error || "Failed to publish notice."}`);
+    }
+    setPublishingNotice(false);
+  };
+
+  const handleDeleteNotice = async (id: string) => {
+    if (String(id).startsWith("default-")) {
+      setNoticeMsg("ℹ️ Default starter notices automatically hide once you publish custom school notices.");
+      return;
+    }
+    const res = await deleteSchoolNotice(id);
+    if (res.success) {
+      const refreshed = await getSchoolNotices();
+      if (refreshed.success) setNotices(refreshed.notices || []);
+    }
+  };
 
   if (loading) {
     return (
@@ -185,6 +254,213 @@ export default function AdminDashboard() {
         </Link>
       </div>
 
+      {/* School-Wide Live Noticeboard, Academic Calendar & Exam Timetable Publisher (Track D) */}
+      <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <FiBell color="var(--color-primary-green)" /> School Noticeboard, Academic Calendar &amp; Exam Timetable Publisher
+      </h3>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
+          gap: "1.5rem",
+          marginBottom: "2.5rem",
+        }}
+      >
+        <div
+          style={{
+            background: "var(--color-white)",
+            padding: "1.5rem",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-gray-200)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <h4 style={{ margin: "0 0 0.75rem 0", color: "var(--color-navy-blue)" }}>
+            Broadcast New Notice / Timetable Event
+          </h4>
+          {noticeMsg && (
+            <div
+              style={{
+                padding: "0.65rem 0.9rem",
+                borderRadius: "8px",
+                background: noticeMsg.startsWith("❌") ? "#fee2e2" : "#dcfce7",
+                color: noticeMsg.startsWith("❌") ? "#991b1b" : "#166534",
+                fontSize: "0.84rem",
+                fontWeight: 600,
+                marginBottom: "0.85rem",
+              }}
+            >
+              {noticeMsg}
+            </div>
+          )}
+          <form onSubmit={handlePublishNotice} style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+                  Category
+                </label>
+                <select
+                  className="form-input"
+                  value={noticeType}
+                  onChange={(e) => setNoticeType(e.target.value as any)}
+                >
+                  <option value="Academics">Academics</option>
+                  <option value="Exam Timetable">Exam Timetable</option>
+                  <option value="Deadline">Deadline</option>
+                  <option value="Upcoming Event">Upcoming Event</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+                  Event / Effective Date
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={noticeEventDate}
+                  onChange={(e) => setNoticeEventDate(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+                Target Audience
+              </label>
+              <select
+                className="form-input"
+                value={noticeAudience}
+                onChange={(e) => setNoticeAudience(e.target.value)}
+              >
+                <option value="All Students & Parents">All Students &amp; Parents</option>
+                <option value="All Students, Parents & Staff">All Students, Parents &amp; Staff</option>
+                <option value="Senior Secondary (SS1–SS3)">Senior Secondary (SS1–SS3)</option>
+                <option value="Junior Secondary (JSS1–JSS3)">Junior Secondary (JSS1–JSS3)</option>
+                <option value="Parents & Guardians">Parents &amp; Guardians</option>
+                <option value="Teaching & Academic Staff">Teaching &amp; Academic Staff</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+                Headline / Title
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. First Term Examination Timetable Released"
+                value={noticeTitle}
+                onChange={(e) => setNoticeTitle(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+                Details / Schedule Instructions
+              </label>
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="e.g. Morning papers commence at 8:30 AM prompt. Students must bring their CBT examination slip."
+                value={noticeDetails}
+                onChange={(e) => setNoticeDetails(e.target.value)}
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={publishingNotice}
+              className="btn btn-primary"
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
+            >
+              <FiPlus /> {publishingNotice ? "Broadcasting..." : "Publish to Live School Noticeboard"}
+            </button>
+          </form>
+        </div>
+
+        <div
+          style={{
+            background: "var(--color-white)",
+            padding: "1.5rem",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-gray-200)",
+            boxShadow: "var(--shadow-sm)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.75rem",
+          }}
+        >
+          <h4 style={{ margin: "0 0 0.25rem 0", color: "var(--color-navy-blue)" }}>
+            Active Broadcasts ({notices.length})
+          </h4>
+          <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.82rem", color: "#64748b" }}>
+            These announcements appear immediately on the Student, Parent, and Teacher portals.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "340px", overflowY: "auto" }}>
+            {notices.map((n: any) => (
+              <div
+                key={n.id}
+                style={{
+                  padding: "0.85rem 1rem",
+                  borderRadius: "10px",
+                  border: "1px solid #e2e8f0",
+                  background: "#f8fafc",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: "0.75rem",
+                }}
+              >
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: 800,
+                        textTransform: "uppercase",
+                        color: n.color || "var(--color-primary-green)",
+                      }}
+                    >
+                      {n.type}
+                    </span>
+                    {n.eventDate && (
+                      <span style={{ fontSize: "0.72rem", color: "#475569", fontWeight: 700 }}>
+                        · 📅 {n.eventDate}
+                      </span>
+                    )}
+                    {n.targetAudience && (
+                      <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                        · {n.targetAudience}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontWeight: 800, color: "#0A2540", fontSize: "0.92rem" }}>{n.title}</div>
+                  <div style={{ fontSize: "0.82rem", color: "#475569", marginTop: "0.2rem", lineHeight: 1.45 }}>
+                    {n.details}
+                  </div>
+                </div>
+                {!String(n.id).startsWith("default-") && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteNotice(n.id)}
+                    title="Remove Notice"
+                    style={{
+                      background: "#fee2e2",
+                      color: "#b91c1c",
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "0.35rem 0.5rem",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <FiTrash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Analytics Charts */}
       <div className="responsive-grid-large" style={{ marginBottom: "2rem" }}>
         <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)" }}>
@@ -284,3 +560,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
