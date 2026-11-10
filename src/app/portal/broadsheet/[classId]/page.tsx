@@ -1,17 +1,20 @@
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { requireClassTeacherOrAdmin } from "@/lib/authz";
 import PrintButton from "@/components/PrintButton";
 
 export default async function BroadsheetPage({ params }: { params: Promise<{ classId: string }> }) {
-  const session = await getServerSession(authOptions);
-  if (!session || (session.user.role?.toLowerCase() !== "admin" && session.user.role?.toLowerCase() !== "teacher")) {
+  const { classId } = await params;
+  const cId = parseInt(classId, 10);
+  if (!Number.isInteger(cId) || cId <= 0) {
     redirect("/portal/dashboard");
   }
 
-  const { classId } = await params;
-  const cId = parseInt(classId);
+  try {
+    await requireClassTeacherOrAdmin(cId);
+  } catch {
+    redirect("/portal/dashboard");
+  }
 
   const activeTerm = await prisma.academic_Term.findFirst({
     where: { IsActive: true }

@@ -48,14 +48,39 @@ import {
   FiFileText,
 } from "react-icons/fi";
 
-export default function TeacherDashboard({ teacherId, initialAssignments }: { teacherId?: string; initialAssignments?: any[] }) {
+const VALID_TEACHER_TABS = new Set(["subject-scores", "form-master-hub", "attendance-hub", "elearning-studio"]);
+
+export default function TeacherDashboard({
+  teacherId,
+  initialAssignments,
+  initialTab,
+}: {
+  teacherId?: string;
+  initialAssignments?: any[];
+  initialTab?: string;
+}) {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   // Tab State: "subject-scores" vs "form-master-hub" vs "attendance-hub" vs "elearning-studio"
-  const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub" | "attendance-hub" | "elearning-studio">("subject-scores");
+  const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub" | "attendance-hub" | "elearning-studio">(
+    initialTab && VALID_TEACHER_TABS.has(initialTab)
+      ? (initialTab as "subject-scores" | "form-master-hub" | "attendance-hub" | "elearning-studio")
+      : "subject-scores"
+  );
+
+  useEffect(() => {
+    if (initialTab && VALID_TEACHER_TABS.has(initialTab)) {
+      setActiveTab(initialTab as any);
+    } else if (typeof window !== "undefined") {
+      const urlTab = new URLSearchParams(window.location.search).get("tab");
+      if (urlTab && VALID_TEACHER_TABS.has(urlTab)) {
+        setActiveTab(urlTab as any);
+      }
+    }
+  }, [initialTab]);
 
   // Class List PDF Sync Modal
   const [showSyncModal, setShowSyncModal] = useState(false);

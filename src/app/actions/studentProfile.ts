@@ -38,7 +38,7 @@ export async function getStudentProfile(userId: number) {
       return cachedProfile;
     }
 
-    const student = await prisma.student.findUnique({
+    let student = await prisma.student.findUnique({
       where: { UserID: Number(userId) },
       include: {
         User: { select: SAFE_USER_SELECT },
@@ -59,7 +59,87 @@ export async function getStudentProfile(userId: number) {
       },
     });
 
+    if (!student && actor.UserID === Number(userId)) {
+      const parent = await prisma.parent.findUnique({
+        where: { UserID: actor.UserID },
+        include: {
+          Children: {
+            include: {
+              Student: {
+                include: {
+                  User: { select: SAFE_USER_SELECT },
+                  Class: {
+                    include: {
+                      TeacherMaps: {
+                        include: {
+                          Subject: true,
+                          Teacher: { select: SAFE_USER_SELECT },
+                        },
+                      },
+                    },
+                  },
+                  PaymentRecords: {
+                    include: { Term: true },
+                    orderBy: { PaymentDate: "desc" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      if (parent && parent.Children.length > 0) {
+        student = parent.Children[0].Student as any;
+      } else if (actor.Email) {
+        student = await prisma.student.findFirst({
+          where: {
+            ParentEmail: {
+              equals: actor.Email.trim(),
+              mode: "insensitive",
+            },
+          },
+          include: {
+            User: { select: SAFE_USER_SELECT },
+            Class: {
+              include: {
+                TeacherMaps: {
+                  include: {
+                    Subject: true,
+                    Teacher: { select: SAFE_USER_SELECT },
+                  },
+                },
+              },
+            },
+            PaymentRecords: {
+              include: { Term: true },
+              orderBy: { PaymentDate: "desc" },
+            },
+          },
+        });
+      }
+    }
+
     if (!student) {
+      if (actor.UserID === Number(userId)) {
+        const parentRow = await prisma.parent.findUnique({ where: { UserID: actor.UserID } });
+        return {
+          success: true,
+          student: {
+            id: actor.UserID,
+            admissionNo: `STAFF-${String(actor.UserID).padStart(4, "0")}`,
+            fullName: actor.Email.split("@")[0],
+            className: Array.from(actor.roles).join(" · "),
+            level: "Staff",
+            email: actor.Email,
+            preferredName: actor.Email.split("@")[0],
+            dob: null,
+            parentContact: parentRow?.Phone || "",
+            avatarUrl: null,
+          },
+          academics: [],
+          payments: [],
+        };
+      }
       return { success: false, error: "Student profile not found" };
     }
 
@@ -86,10 +166,11 @@ export async function getStudentProfile(userId: number) {
         fullName,
         className: student.Class.ClassName,
         level: student.Class.Level,
-        email: student.User?.Email,
+        email: student.User?.Email || actor.Email,
         preferredName: student.PreferredName,
         dob: student.DateOfBirth,
         parentContact: student.ParentContact,
+        avatarUrl: student.AvatarUrl || null,
       },
       academics: safeAcademics,
       payments: payments.map((p) => ({

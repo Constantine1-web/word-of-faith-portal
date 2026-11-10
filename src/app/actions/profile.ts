@@ -1,14 +1,16 @@
 "use server";
 
 import prisma from "@/lib/db";
-import { requireRole } from "@/lib/authz";
+import { requireActiveUser } from "@/lib/authz";
+import { invalidateCache } from "@/lib/cache";
+import { revalidatePath } from "next/cache";
 
 const ALLOWED_AVATAR_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024; // 2 MB
 
 export async function updateProfile(formData: FormData) {
   try {
-    const actor = await requireRole(["STUDENT", "Student"]);
+    const actor = await requireActiveUser();
     const userId = actor.UserID;
     const rawContact = ((formData.get("parentContact") as string) || "").trim();
 
@@ -26,18 +28,51 @@ export async function updateProfile(formData: FormData) {
       if (!ALLOWED_AVATAR_MIME.has(avatarFile.type)) {
         return { success: false, error: "Only JPG, PNG, and WebP avatar images are allowed." };
       }
-      const safeBaseName = avatarFile.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-64);
-      avatarUrl = `/uploads/${userId}_${safeBaseName}`;
+      const bytes = await avatarFile.arrayBuffer();
+      const base64 = Buffer.from(bytes).toString("base64");
+      avatarUrl = `data:${avatarFile.type};base64,${base64}`;
     }
 
     const updateData: { ParentContact?: string; AvatarUrl?: string } = {};
     if (rawContact) updateData.ParentContact = rawContact;
     if (avatarUrl) updateData.AvatarUrl = avatarUrl;
 
-    await prisma.student.update({
+    const student = await prisma.student.findUnique({
       where: { UserID: userId },
-      data: updateData,
     });
+
+    if (student) {
+      if (Object.keys(updateData).length > 0) {
+        await prisma.student.update({
+          where: { StudentID: student.StudentID },
+          data: updateData,
+        });
+      }
+    } else {
+      const parent = await prisma.parent.findUnique({
+        where: { UserID: userId },
+        include: { Children: true },
+      });
+
+      if (parent) {
+        if (rawContact) {
+          await prisma.parent.update({
+            where: { id: parent.id },
+            data: { Phone: rawContact },
+          });
+        }
+        if (parent.Children.length > 0 && Object.keys(updateData).length > 0) {
+          await prisma.student.update({
+            where: { StudentID: parent.Children[0].StudentID },
+            data: updateData,
+          });
+        }
+      }
+    }
+
+    await invalidateCache(`profile:${userId}`);
+    revalidatePath("/portal/profile");
+    revalidatePath("/portal/dashboard");
 
     return { success: true, message: "Profile updated successfully." };
   } catch (error: any) {

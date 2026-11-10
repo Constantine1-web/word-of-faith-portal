@@ -5,7 +5,11 @@ import { getTeacherSubjects } from "@/app/actions/results";
 
 export const dynamic = "force-dynamic";
 
-export default async function TeacherWorkspacePage() {
+export default async function TeacherWorkspacePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ tab?: string }>;
+}) {
   let actor;
   try {
     actor = await requireActiveUser();
@@ -13,6 +17,7 @@ export default async function TeacherWorkspacePage() {
     redirect("/portal/login?callbackUrl=/portal/teacher");
   }
 
+  const resolvedParams = searchParams ? await searchParams : {};
   const teacherAssignments = await getTeacherSubjects(actor.UserID);
 
   return (
@@ -20,6 +25,7 @@ export default async function TeacherWorkspacePage() {
       <TeacherDashboard
         teacherId={String(actor.UserID)}
         initialAssignments={teacherAssignments}
+        initialTab={resolvedParams?.tab}
       />
     </div>
   );

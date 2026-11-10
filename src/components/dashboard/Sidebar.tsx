@@ -102,6 +102,7 @@ export default function Sidebar() {
             { name: "Audit Hash Explorer", href: "/portal/admin/audit" },
           ]
         },
+        { name: "Messages", href: "/portal/messages", icon: <FiFileText /> },
       ];
     }
 
@@ -170,6 +171,7 @@ export default function Sidebar() {
           { name: "Payment History", href: "/portal/fees/history" },
         ]
       },
+      { name: "Messages", href: "/portal/messages", icon: <FiFileText /> },
       { name: "My Profile", href: "/portal/profile", icon: <FiUser /> },
     ];
   };

@@ -52,11 +52,36 @@ export async function sendMessage(receiverId: number, content: string) {
   if (!cleanContent) return { success: false, error: "Message content cannot be empty" };
 
   const targetReceiverId = Number(receiverId);
-  if (!Number.isInteger(targetReceiverId) || targetReceiverId <= 0) {
+  if (!Number.isInteger(targetReceiverId) || targetReceiverId <= 0 || targetReceiverId === senderId) {
     return { success: false, error: "Invalid recipient." };
   }
 
+  const isStaff = STAFF_MESSAGING_ROLES.some((r) => actor.roles.has(r));
+
   try {
+    const recipient = await prisma.user.findUnique({
+      where: { UserID: targetReceiverId },
+      include: { Role: true, RoleAssignments: true },
+    });
+
+    if (!recipient || !recipient.IsActive) {
+      return { success: false, error: "Recipient account not found or inactive." };
+    }
+
+    if (!isStaff) {
+      const recipientRoles = new Set<string>([
+        recipient.Role?.RoleName || "",
+        ...(recipient.RoleAssignments?.map((ra) => ra.Role) || []),
+      ]);
+      const isRecipientStaff = STAFF_MESSAGING_ROLES.some((r) => recipientRoles.has(r));
+      if (!isRecipientStaff) {
+        return {
+          success: false,
+          error: "Students and parents can only message authorized school teachers and administrators.",
+        };
+      }
+    }
+
     const message = await prisma.message.create({
       data: {
         SenderID: senderId,

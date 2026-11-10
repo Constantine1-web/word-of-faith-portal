@@ -191,6 +191,54 @@ export async function generateOrderTrackingId(termName?: string, sessionName?: s
   return `WOF-PAY-${cleanYear}${termCode}-${randomHex}`;
 }
 
+async function resolveActorTargetStudent(actor: { UserID: number; Email: string }) {
+  const direct = await prisma.student.findFirst({
+    where: { UserID: actor.UserID },
+    include: {
+      Class: true,
+      User: { select: SAFE_USER_SELECT },
+    },
+  });
+  if (direct) return direct;
+
+  const parent = await prisma.parent.findUnique({
+    where: { UserID: actor.UserID },
+    include: {
+      Children: {
+        include: {
+          Student: {
+            include: {
+              Class: true,
+              User: { select: SAFE_USER_SELECT },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (parent && parent.Children.length > 0) {
+    return parent.Children[0].Student;
+  }
+
+  if (actor.Email) {
+    const byParentEmail = await prisma.student.findFirst({
+      where: {
+        ParentEmail: {
+          equals: actor.Email.trim(),
+          mode: "insensitive",
+        },
+      },
+      include: {
+        Class: true,
+        User: { select: SAFE_USER_SELECT },
+      },
+    });
+    if (byParentEmail) return byParentEmail;
+  }
+
+  return null;
+}
+
 export async function getOrCreateStudentFeeOrder() {
   let actor;
   try {
@@ -200,13 +248,7 @@ export async function getOrCreateStudentFeeOrder() {
   }
 
   try {
-    const student = await prisma.student.findFirst({
-      where: { UserID: actor.UserID },
-      include: {
-        Class: true,
-        User: { select: SAFE_USER_SELECT },
-      },
-    });
+    const student = await resolveActorTargetStudent(actor);
 
     if (!student) {
       return { success: false, error: "Student profile not found" };
@@ -322,10 +364,7 @@ export async function uploadBankTellerReceipt(formData: FormData) {
   }
 
   try {
-    const student = await prisma.student.findFirst({
-      where: { UserID: actor.UserID },
-      include: { User: true },
-    });
+    const student = await resolveActorTargetStudent(actor);
 
     if (!student) {
       return { success: false, error: "Student profile not found" };
@@ -377,16 +416,20 @@ export async function uploadBankTellerReceipt(formData: FormData) {
       };
     }
 
-    // Ensure storage directory exists
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "receipts");
-    await fs.mkdir(uploadDir, { recursive: true });
+    // Attempt local disk write; fall back to Data URI on read-only serverless filesystems (e.g. Vercel)
+    let publicUrl: string;
+    try {
+      const uploadDir = path.join(process.cwd(), "public", "uploads", "receipts");
+      await fs.mkdir(uploadDir, { recursive: true });
+      const ext = path.extname(receiptFile.name) || (receiptFile.type === "application/pdf" ? ".pdf" : ".jpg");
+      const fileName = `receipt_${student.StudentID}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
+      const filePath = path.join(uploadDir, fileName);
+      await fs.writeFile(filePath, buffer);
+      publicUrl = `/uploads/receipts/${fileName}`;
+    } catch {
+      publicUrl = `data:${receiptFile.type};base64,${buffer.toString("base64")}`;
+    }
 
-    const ext = path.extname(receiptFile.name) || (receiptFile.type === "application/pdf" ? ".pdf" : ".jpg");
-    const fileName = `receipt_${student.StudentID}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
-    const filePath = path.join(uploadDir, fileName);
-    await fs.writeFile(filePath, buffer);
-
-    const publicUrl = `/uploads/receipts/${fileName}`;
     const amount = parseFloat(amountStr || "65000") || 65000;
     const amountInKobo = Math.round(amount * 100);
     const paymentDate = paymentDateStr ? new Date(paymentDateStr) : new Date();
@@ -457,10 +500,7 @@ export async function initializePayment(data: { amount: number; description: str
     return { error: "Unauthorized" };
   }
 
-  const student = await prisma.student.findFirst({
-    where: { UserID: actor.UserID },
-    include: { User: { select: SAFE_USER_SELECT } },
-  });
+  const student = await resolveActorTargetStudent(actor);
 
   if (!student) {
     return { error: "Student profile not found" };

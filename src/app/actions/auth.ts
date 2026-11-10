@@ -111,9 +111,9 @@ export async function initiateRegistration(admissionNo: string, email: string, c
       return { success: false, error: "This Email Address is already registered to another portal account." };
     }
 
-    // 3. Generate CSPRNG 6-digit OTP and store SHA-256 hash at rest
+    // 3. Generate CSPRNG 6-digit OTP and store SHA-256 hash bound to student.AdmissionNo + OTP
     const otp = generateSecureOtp6();
-    const otpHash = hashTokenSha256(otp);
+    const otpHash = hashTokenSha256(`${student.AdmissionNo.toUpperCase()}:${otp}`);
     const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
     // Upsert token & reset attempt counter
@@ -201,6 +201,28 @@ export async function verifyRegistration(
       };
     }
 
+    // Look up student record first so we can verify the admission-bound OTP hash
+    const student = await prisma.student.findFirst({
+      where: {
+        AdmissionNo: {
+          equals: cleanAdmissionNo,
+          mode: "insensitive",
+        },
+      },
+      include: { User: true, Class: true },
+    });
+
+    if (!student) {
+      return { success: false, error: "Invalid Registration Number." };
+    }
+
+    if (student.UserID && student.User && student.User.IsActive) {
+      return {
+        success: false,
+        error: "This Registration Number already has an active portal account.",
+      };
+    }
+
     // Look up active verification token for this email
     const tokenRecord = await prisma.verificationToken.findFirst({
       where: {
@@ -222,10 +244,13 @@ export async function verifyRegistration(
       return { success: false, error: "Verification code has expired. Please request a new one." };
     }
 
-    const expectedHash = hashTokenSha256(cleanOtp);
+    const boundExpectedHash = hashTokenSha256(`${student.AdmissionNo.toUpperCase()}:${cleanOtp}`);
+    const legacyExpectedHash = hashTokenSha256(cleanOtp);
     const otpValid =
-      timingSafeCompare(tokenRecord.token, expectedHash) ||
-      timingSafeCompare(tokenRecord.token, cleanOtp);
+      timingSafeCompare(tokenRecord.token, boundExpectedHash) ||
+      (!student.ClaimCodeHash &&
+        (timingSafeCompare(tokenRecord.token, legacyExpectedHash) ||
+          timingSafeCompare(tokenRecord.token, cleanOtp)));
 
     if (!otpValid) {
       const attemptState = await incrementOtpAttemptAndCheckLocked(cleanEmail, "EMAIL_VERIFICATION", 5, 900);
@@ -237,28 +262,6 @@ export async function verifyRegistration(
         };
       }
       return { success: false, error: "Invalid verification code. Please check the code sent to your email." };
-    }
-
-    // Re-verify student constraints to be safe
-    const student = await prisma.student.findFirst({
-      where: {
-        AdmissionNo: {
-          equals: cleanAdmissionNo,
-          mode: "insensitive",
-        },
-      },
-      include: { User: true, Class: true },
-    });
-
-    if (!student) {
-      return { success: false, error: "Invalid Registration Number." };
-    }
-
-    if (student.UserID && student.User && student.User.IsActive) {
-      return {
-        success: false,
-        error: "This Registration Number already has an active portal account.",
-      };
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);

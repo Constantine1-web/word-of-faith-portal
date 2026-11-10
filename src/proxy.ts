@@ -38,7 +38,7 @@ function resolveProxyJwtSecret(): string {
   if (process.env.NODE_ENV === "production") {
     throw new Error("CRITICAL: NEXTAUTH_SECRET must be configured in production.");
   }
-  return "dev-only-nextauth-secret-do-not-use-in-production-2026";
+  return configured || "dev-ephemeral-nextauth-secret-local-only-2026";
 }
 
 function applySecurityHeaders(response: NextResponse): NextResponse {

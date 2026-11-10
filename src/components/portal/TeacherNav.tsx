@@ -104,6 +104,48 @@ export default function TeacherNav({
         <FiUserCheck /> Form Master Hub
       </Link>
       <Link
+        href="/portal/teacher?tab=attendance-hub"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.85rem",
+          padding: "0.75rem 1rem",
+          color: "rgba(255,255,255,0.85)",
+          textDecoration: "none",
+          borderRadius: "0.5rem",
+        }}
+      >
+        <FiUserCheck /> Attendance Roll Call
+      </Link>
+      <Link
+        href="/portal/teacher?tab=elearning-studio"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.85rem",
+          padding: "0.75rem 1rem",
+          color: "rgba(255,255,255,0.85)",
+          textDecoration: "none",
+          borderRadius: "0.5rem",
+        }}
+      >
+        <FiBookOpen /> Lesson Notes & Quiz Studio
+      </Link>
+      <Link
+        href="/portal/courses"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.85rem",
+          padding: "0.75rem 1rem",
+          color: "rgba(255,255,255,0.85)",
+          textDecoration: "none",
+          borderRadius: "0.5rem",
+        }}
+      >
+        <FiBookOpen /> Course Library
+      </Link>
+      <Link
         href="/portal/cbt"
         style={{
           display: "flex",

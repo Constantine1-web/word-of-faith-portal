@@ -200,6 +200,33 @@ export async function deleteCustomCbtQuestion(questionId: string) {
       "Admin",
     ]);
 
+    const existing = await prisma.cbtQuestion.findUnique({
+      where: { id: questionId },
+    });
+
+    if (!existing || existing.provider !== "SCHOOL_INTERNAL") {
+      return {
+        success: false,
+        error: "Only custom school-authored CBT questions can be removed.",
+      };
+    }
+
+    const isSchoolAdmin =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("Admin");
+    const isAuthor = Boolean(
+      existing.licenseRef &&
+        existing.licenseRef.startsWith(`TEACHER:${actor.UserID}:`)
+    );
+
+    if (!isSchoolAdmin && !isAuthor) {
+      return {
+        success: false,
+        error: "FORBIDDEN: You can only delete custom CBT questions that you authored.",
+      };
+    }
+
     await prisma.cbtQuestion.update({
       where: { id: questionId },
       data: { isActive: false },
@@ -236,6 +263,39 @@ export interface CourseMaterialItem {
   dueDate?: string | null;
   teacherEmail: string;
   createdAt: string;
+}
+
+function getDefaultCourseMaterials(classId?: number, className?: string): CourseMaterialItem[] {
+  return [
+    {
+      id: "default-math-wk1",
+      subjectName: "Mathematics",
+      classId: classId || 1,
+      className: className || "JSS 1A",
+      title: "Indices, Logarithms & Number Bases — Complete Formula Guide",
+      category: "Lesson Note",
+      weekLabel: "Week 1 & 2",
+      content:
+        "1. Laws of Indices:\n• xᵃ × xᵇ = xᵃ⁺ᵇ\n• xᵃ ÷ xᵇ = xᵃ⁻ᵇ\n• (xᵃ)ᵇ = xᵃᵇ\n• x⁰ = 1 (where x ≠ 0)\n• x⁻ⁿ = 1 / xⁿ\n\n2. Standard Logarithm Identities:\n• log₁₀(AB) = log₁₀A + log₁₀B\n• log₁₀(A/B) = log₁₀A - log₁₀B\n• log₁₀(Aⁿ) = n·log₁₀A\n\nWorked Example:\nGiven log₁₀2 = 0.3010 and log₁₀3 = 0.4771, evaluate log₁₀18:\n18 = 2 × 3² → log₁₀18 = log₁₀2 + 2·log₁₀3 = 0.3010 + 2(0.4771) = 1.2552.",
+      dueDate: null,
+      teacherEmail: "teacher.test@wordoffaithschools.edu.ng",
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: "default-eng-wk1",
+      subjectName: "English Language",
+      classId: classId || 1,
+      className: className || "JSS 1A",
+      title: "Concord (Subject-Verb Agreement) & Lexis Practice Assignment",
+      category: "Homework Assignment",
+      weekLabel: "Week 2",
+      content:
+        "Core Rules of Concord:\n1. Singular subjects joined by 'as well as', 'together with', or 'along with' take a singular verb (e.g., 'The Principal, together with the teachers, IS attending the seminar').\n2. 'Neither... nor' and 'Either... or' agree with the noun closer to the verb (Proximity Concord).\n3. Indefinite pronouns ('everyone', 'each', 'nobody', 'someone') always take singular verbs.\n\nHomework Task:\nComplete a 10-question Self-Paced Practice session in English Language on the CBT Portal (/portal/cbt) and write down the AI Tutor explanation for any question you miss.",
+      dueDate: "Friday, This Week",
+      teacherEmail: "teacher.test@wordoffaithschools.edu.ng",
+      createdAt: new Date().toISOString(),
+    },
+  ];
 }
 
 export async function publishCourseMaterial(data: {
@@ -310,6 +370,29 @@ export async function deleteCourseMaterial(materialId: string) {
       "Admin",
     ]);
 
+    const existing = await prisma.auditLog.findFirst({
+      where: {
+        Entity: "CourseMaterial",
+        EntityID: materialId,
+      },
+    });
+
+    if (!existing) {
+      return { success: false, error: "Course material not found." };
+    }
+
+    const isSchoolAdmin =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("Admin");
+
+    if (!isSchoolAdmin && existing.ActorID !== actor.UserID) {
+      return {
+        success: false,
+        error: "FORBIDDEN: You can only delete course materials that you published.",
+      };
+    }
+
     await prisma.auditLog.deleteMany({
       where: {
         Entity: "CourseMaterial",
@@ -351,46 +434,16 @@ export async function getCourseMaterials(classId?: number, className?: string) {
 
     // Provide default curriculum starter materials if none have been published yet
     if (materials.length === 0) {
-      materials = [
-        {
-          id: "default-math-wk1",
-          subjectName: "Mathematics",
-          classId: classId || 1,
-          className: className || "JSS 1A",
-          title: "Indices, Logarithms & Number Bases — Complete Formula Guide",
-          category: "Lesson Note",
-          weekLabel: "Week 1 & 2",
-          content:
-            "1. Laws of Indices:\n• xᵃ × xᵇ = xᵃ⁺ᵇ\n• xᵃ ÷ xᵇ = xᵃ⁻ᵇ\n• (xᵃ)ᵇ = xᵃᵇ\n• x⁰ = 1 (where x ≠ 0)\n• x⁻ⁿ = 1 / xⁿ\n\n2. Standard Logarithm Identities:\n• log₁₀(AB) = log₁₀A + log₁₀B\n• log₁₀(A/B) = log₁₀A - log₁₀B\n• log₁₀(Aⁿ) = n·log₁₀A\n\nWorked Example:\nGiven log₁₀2 = 0.3010 and log₁₀3 = 0.4771, evaluate log₁₀18:\n18 = 2 × 3² → log₁₀18 = log₁₀2 + 2·log₁₀3 = 0.3010 + 2(0.4771) = 1.2552.",
-          dueDate: null,
-          teacherEmail: "teacher.test@wordoffaithschools.edu.ng",
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: "default-eng-wk1",
-          subjectName: "English Language",
-          classId: classId || 1,
-          className: className || "JSS 1A",
-          title: "Concord (Subject-Verb Agreement) & Lexis Practice Assignment",
-          category: "Homework Assignment",
-          weekLabel: "Week 2",
-          content:
-            "Core Rules of Concord:\n1. Singular subjects joined by 'as well as', 'together with', or 'along with' take a singular verb (e.g., 'The Principal, together with the teachers, IS attending the seminar').\n2. 'Neither... nor' and 'Either... or' agree with the noun closer to the verb (Proximity Concord).\n3. Indefinite pronouns ('everyone', 'each', 'nobody', 'someone') always take singular verbs.\n\nHomework Task:\nComplete a 10-question Self-Paced Practice session in English Language on the CBT Portal (/portal/cbt) and write down the AI Tutor explanation for any question you miss.",
-          dueDate: "Friday, This Week",
-          teacherEmail: "teacher.test@wordoffaithschools.edu.ng",
-          createdAt: new Date().toISOString(),
-        },
-      ];
+      materials = getDefaultCourseMaterials(classId, className);
     } else if (classId || className) {
       const filtered = materials.filter(
         (m) =>
           (classId && m.classId === Number(classId)) ||
           (className && m.className.toLowerCase() === className.toLowerCase()) ||
-          m.className === "All Classes"
+          m.className === "All Classes" ||
+          m.className === "All Assigned Classes"
       );
-      if (filtered.length > 0) {
-        materials = filtered;
-      }
+      materials = filtered.length > 0 ? filtered : getDefaultCourseMaterials(classId, className);
     }
 
     return { success: true, materials };
@@ -717,6 +770,12 @@ const DEFAULT_NOTICES: SchoolNoticeItem[] = [
 ];
 
 export async function getSchoolNotices() {
+  try {
+    await requireActiveUser();
+  } catch {
+    return { success: false, error: "Unauthorized", notices: [] };
+  }
+
   try {
     const rows = await prisma.auditLog.findMany({
       where: {

@@ -333,9 +333,28 @@ export async function verifyScratchCard(
     return { success: false, error: "Unauthorized. Please log in." };
   }
 
-  const studentRecord = await prisma.student.findFirst({
+  let studentRecord = await prisma.student.findFirst({
     where: { UserID: actor.UserID },
   });
+
+  if (!studentRecord) {
+    const parent = await prisma.parent.findUnique({
+      where: { UserID: actor.UserID },
+      include: { Children: { include: { Student: true } } },
+    });
+    if (parent && parent.Children.length > 0) {
+      studentRecord = parent.Children[0].Student;
+    } else if (actor.Email) {
+      studentRecord = await prisma.student.findFirst({
+        where: {
+          ParentEmail: {
+            equals: actor.Email.trim(),
+            mode: "insensitive",
+          },
+        },
+      });
+    }
+  }
 
   if (!studentRecord) {
     return { success: false, error: "Student profile not found." };
