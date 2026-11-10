@@ -59,6 +59,7 @@ export default function Navbar() {
             <Link href="/academics">Academics</Link>
             <Link href="/admissions">Admissions</Link>
             <Link href="/news">News</Link>
+            <Link href="/contact">Contact</Link>
           </div>
           <ThemeToggle />
           {isPortal ? (
@@ -84,6 +85,7 @@ export default function Navbar() {
           <Link href="/academics" onClick={closeMenu} className={styles.mobileNavLink}>Academics</Link>
           <Link href="/admissions" onClick={closeMenu} className={styles.mobileNavLink}>Admissions</Link>
           <Link href="/news" onClick={closeMenu} className={styles.mobileNavLink}>News</Link>
+          <Link href="/contact" onClick={closeMenu} className={styles.mobileNavLink}>Contact</Link>
         </div>
       </div>
     </nav>

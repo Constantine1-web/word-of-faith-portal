@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getStudentProfile } from "@/app/actions/studentProfile";
 import Link from "next/link";
-import { FiCreditCard, FiUser, FiFileText, FiUploadCloud } from "react-icons/fi";
+import { FiCreditCard, FiUser, FiFileText, FiUploadCloud, FiAward, FiBookOpen } from "react-icons/fi";
 import InspirationSlideshow from "./InspirationSlideshow";
 import NoticeBoard from "./NoticeBoard";
 import QuickLinkCard from "./QuickLinkCard";
@@ -73,12 +73,20 @@ export default function StudentDashboard({ session }: { session: any }) {
         
         {/* Quick Link Cards */}
         <QuickLinkCard 
-          href="/portal/fees/history" 
-          icon={<FiCreditCard />} 
-          iconBgColor="rgba(59, 130, 246, 0.2)" 
-          iconColor="#3b82f6" 
-          title="Fee Status" 
-          subtitle={`${payments.length} Transactions`} 
+          href="/portal/courses" 
+          icon={<FiBookOpen />} 
+          iconBgColor="rgba(16, 185, 129, 0.2)" 
+          iconColor="#10b981" 
+          title="Study Notes" 
+          subtitle="E-Learning Library" 
+        />
+        <QuickLinkCard 
+          href="/portal/cbt" 
+          icon={<FiAward />} 
+          iconBgColor="rgba(139, 92, 246, 0.2)" 
+          iconColor="#8b5cf6" 
+          title="CBT Exams" 
+          subtitle="Mocks & Timed Tests" 
         />
         <QuickLinkCard 
           href="/portal/results" 
@@ -87,6 +95,14 @@ export default function StudentDashboard({ session }: { session: any }) {
           iconColor="#a855f7" 
           title="My Results" 
           subtitle="Terminal Reports" 
+        />
+        <QuickLinkCard 
+          href="/portal/fees/history" 
+          icon={<FiCreditCard />} 
+          iconBgColor="rgba(59, 130, 246, 0.2)" 
+          iconColor="#3b82f6" 
+          title="Fee Status" 
+          subtitle={`${payments.length} Transactions`} 
         />
         <QuickLinkCard 
           href="/portal/profile" 

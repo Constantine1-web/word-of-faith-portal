@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import Footer from "@/components/Footer";
 import Faithbot from "@/components/Faithbot";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import PageTransition from "@/components/PageTransition";
@@ -37,6 +38,7 @@ export default function RootLayout({
           <PageTransition>
             {children}
           </PageTransition>
+          <Footer />
           <ErrorBoundary>
             <Faithbot />
           </ErrorBoundary>
