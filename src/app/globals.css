@@ -40,7 +40,7 @@
   --nav-bg: #F3F4F6;
   --nav-bg-glass: rgba(243, 244, 246, 0.6);
   --nav-bg-overlay: rgba(243, 244, 246, 0.3);
-  --page-bg-overlay: rgba(248, 250, 252, 0.45);
+  --page-bg-overlay: rgba(243, 244, 246, 0.15);
   --nav-bg-img: url('/school_light.png');
 
   /* Safe Area Insets (iOS Safari, notch & dynamic island adaptation) */
@@ -83,7 +83,7 @@
   --nav-bg: #020617;
   --nav-bg-glass: rgba(2, 6, 23, 0.85);
   --nav-bg-overlay: rgba(2, 6, 23, 0.55);
-  --page-bg-overlay: rgba(2, 6, 23, 0.45);
+  --page-bg-overlay: rgba(2, 6, 23, 0.2);
   --nav-bg-img: url('/school_dark.png');
   --btn-primary-text: #052E16;
 
@@ -116,7 +116,6 @@ body {
   background-size: cover, 300px;
   background-position: center, center;
   background-repeat: no-repeat, repeat;
-  background-attachment: fixed;
   color: var(--color-gray-900);
   font-family: var(--font-primary);
   line-height: 1.5;
