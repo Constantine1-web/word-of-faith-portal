@@ -96,7 +96,7 @@
 .main {
   flex: 1;
   min-width: 0; /* critical: lets wide tables scroll inside instead of widening the page */
-  background: transparent;
+  background: var(--color-gray-50);
   padding: 1rem;
 }
 

@@ -9,11 +9,7 @@
   min-height: calc(100vh - 4.5rem);
   min-height: calc(100dvh - 4.5rem);
   position: relative;
-  background-color: var(--nav-bg);
-  background-image: linear-gradient(var(--page-bg-overlay), var(--page-bg-overlay)), var(--nav-bg-img);
-  background-size: cover, 300px;
-  background-position: center, center;
-  background-repeat: no-repeat, repeat;
+  background: var(--color-gray-50);
 }
 
 .mainContent {
