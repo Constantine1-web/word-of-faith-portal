@@ -40,6 +40,7 @@
   --nav-bg: #F3F4F6;
   --nav-bg-glass: rgba(243, 244, 246, 0.6);
   --nav-bg-overlay: rgba(243, 244, 246, 0.3);
+  --page-bg-overlay: rgba(248, 250, 252, 0.45);
   --nav-bg-img: url('/school_light.png');
 
   /* Safe Area Insets (iOS Safari, notch & dynamic island adaptation) */
@@ -47,27 +48,60 @@
   --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
+
+  /* Semantic Surface & Status Tokens (Light) */
+  --surface-subtle: #F8FAFC;
+  --surface-elevated: #FFFFFF;
+  --surface-table-head: #0A2540;
+  --text-table-head: #FFFFFF;
+  --badge-success-bg: #DCFCE7;
+  --badge-success-text: #166534;
+  --badge-warn-bg: #FEF3C7;
+  --badge-warn-text: #92400E;
+  --badge-info-bg: #EFF6FF;
+  --badge-info-text: #1E40AF;
+  --badge-danger-bg: #FEE2E2;
+  --badge-danger-text: #991B1B;
+  --badge-purple-bg: #F3E8FF;
+  --badge-purple-text: #6D28D9;
 }
 
 [data-theme='dark'] {
-  --color-white: #111827;
-  --color-gray-50: #1F2937;
-  --color-gray-100: #374151;
-  --color-gray-200: #4B5563;
-  --color-gray-300: #9CA3AF;
-  --color-gray-500: #D1D5DB;
-  --color-gray-600: #D1D5DB;
-  --color-gray-800: #F3F4F6;
-  --color-gray-900: #F9FAFB;
+  --color-white: #0F172A;
+  --color-gray-50: #060913;
+  --color-gray-100: #1E293B;
+  --color-gray-200: #334155;
+  --color-gray-300: #475569;
+  --color-gray-500: #94A3B8;
+  --color-gray-600: #CBD5E1;
+  --color-gray-800: #F1F5F9;
+  --color-gray-900: #F8FAFC;
   --color-navy-blue: #60A5FA;
   --color-primary-green: #4ADE80;
   color-scheme: dark;
-  --bg-dark: #000000;
-  --nav-bg: #000000;
-  --nav-bg-glass: rgba(0, 0, 0, 0.6);
-  --nav-bg-overlay: rgba(0, 0, 0, 0.3);
+  --bg-dark: #020617;
+  --nav-bg: #020617;
+  --nav-bg-glass: rgba(2, 6, 23, 0.85);
+  --nav-bg-overlay: rgba(2, 6, 23, 0.55);
+  --page-bg-overlay: rgba(2, 6, 23, 0.45);
   --nav-bg-img: url('/school_dark.png');
-  --btn-primary-text: #000000;
+  --btn-primary-text: #052E16;
+
+  /* Semantic Surface & Status Tokens (Dark) */
+  --surface-subtle: #1E293B;
+  --surface-elevated: #0F172A;
+  --surface-table-head: #1E293B;
+  --text-table-head: #F8FAFC;
+  --badge-success-bg: rgba(34, 197, 94, 0.18);
+  --badge-success-text: #86EFAC;
+  --badge-warn-bg: rgba(245, 158, 11, 0.18);
+  --badge-warn-text: #FCD34D;
+  --badge-info-bg: rgba(59, 130, 246, 0.18);
+  --badge-info-text: #93C5FD;
+  --badge-danger-bg: rgba(239, 68, 68, 0.2);
+  --badge-danger-text: #FCA5A5;
+  --badge-purple-bg: rgba(168, 85, 247, 0.2);
+  --badge-purple-text: #D8B4FE;
 }
 
 html {
@@ -77,7 +111,12 @@ html {
 }
 
 body {
-  background-color: var(--color-gray-50);
+  background-color: var(--nav-bg);
+  background-image: linear-gradient(var(--page-bg-overlay), var(--page-bg-overlay)), var(--nav-bg-img);
+  background-size: cover, 300px;
+  background-position: center, center;
+  background-repeat: no-repeat, repeat;
+  background-attachment: fixed;
   color: var(--color-gray-900);
   font-family: var(--font-primary);
   line-height: 1.5;
@@ -86,6 +125,7 @@ body {
   min-width: 320px;
   display: flex;
   flex-direction: column;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 * {
@@ -362,8 +402,36 @@ html, body {
 /* Any table that is not inside a scroll wrapper scrolls by itself on small screens */
 .table-scroll {
   width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+
+/* Global Portal Modal Overlay & Card (above sticky Navbar 1000 & Sidebar 1100) */
+.portal-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(1rem, var(--sat)) max(1rem, var(--sar)) max(1rem, var(--sab)) max(1rem, var(--sal));
+  overflow-y: auto;
+}
+
+.portal-modal-card {
+  background: var(--color-white);
+  color: var(--color-gray-900);
+  border: 1px solid var(--color-gray-200);
+  border-radius: 14px;
+  width: 100%;
+  max-height: 88dvh;
+  overflow-y: auto;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+  animation: modal-fade-in var(--transition-normal);
 }
 
 /* =========================================

@@ -75,7 +75,7 @@ export default function NoticeBoard() {
         <h2 className={styles.headerTitle} style={{ margin: 0 }}>
           School Noticeboard &amp; Academic Calendar
         </h2>
-        <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#15803d", background: "#dcfce7", padding: "0.2rem 0.65rem", borderRadius: "999px" }}>
+        <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--badge-success-text)", background: "var(--badge-success-bg)", padding: "0.2rem 0.65rem", borderRadius: "999px" }}>
           Live Broadcasts ({notices.length})
         </span>
       </div>
@@ -89,7 +89,7 @@ export default function NoticeBoard() {
                 {notice.type}
               </span>
               {notice.eventDate && (
-                <span style={{ fontSize: "0.72rem", background: "#f1f5f9", color: "#334155", padding: "0.12rem 0.45rem", borderRadius: "6px", fontWeight: 700 }}>
+                <span style={{ fontSize: "0.72rem", background: "var(--color-gray-100)", color: "var(--color-gray-800)", padding: "0.12rem 0.45rem", borderRadius: "6px", fontWeight: 700 }}>
                   📅 {notice.eventDate}
                 </span>
               )}
@@ -97,7 +97,7 @@ export default function NoticeBoard() {
             <h4 style={{ color: "var(--color-gray-900)", margin: "0.45rem 0", fontSize: "0.96rem" }}>{notice.title}</h4>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.86rem", margin: 0, lineHeight: 1.45 }}>{notice.details}</p>
             {notice.targetAudience && (
-              <div style={{ marginTop: "0.55rem", fontSize: "0.72rem", color: "#64748b", fontWeight: 600 }}>
+              <div style={{ marginTop: "0.55rem", fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 600 }}>
                 Target: {notice.targetAudience}
               </div>
             )}
@@ -114,7 +114,7 @@ export default function NoticeBoard() {
                 {activeNotice.type}
               </span>
               {activeNotice.eventDate && (
-                <span style={{ fontSize: "0.72rem", background: "#f1f5f9", color: "#334155", padding: "0.12rem 0.45rem", borderRadius: "6px", fontWeight: 700 }}>
+                <span style={{ fontSize: "0.72rem", background: "var(--color-gray-100)", color: "var(--color-gray-800)", padding: "0.12rem 0.45rem", borderRadius: "6px", fontWeight: 700 }}>
                   📅 {activeNotice.eventDate}
                 </span>
               )}

@@ -41,10 +41,10 @@ export default function StudentDashboard({ session }: { session: any }) {
       <div style={{ 
         background: isPrimary 
           ? "linear-gradient(135deg, #059669, #047857)" 
-          : "linear-gradient(135deg, var(--color-navy-blue), #1e3a8a)", 
+          : "linear-gradient(135deg, #0A2540, #1E3A8A)", 
         borderRadius: "var(--radius-lg)", 
         padding: "clamp(1.25rem, 3vw, 2rem)", 
-        color: "white", 
+        color: "#FFFFFF", 
         marginBottom: "2rem", 
         display: "flex", 
         justifyContent: "space-between", 
@@ -54,16 +54,16 @@ export default function StudentDashboard({ session }: { session: any }) {
         boxShadow: "var(--shadow-md)" 
       }}>
         <div>
-          <h1 style={{ fontSize: "clamp(1.25rem, 5vw, 2rem)", marginBottom: "0.5rem", color: "white", wordBreak: "break-word", lineHeight: 1.2 }}>
+          <h1 style={{ fontSize: "clamp(1.25rem, 5vw, 2rem)", marginBottom: "0.5rem", color: "#FFFFFF", wordBreak: "break-word", lineHeight: 1.2 }}>
             {isPrimary ? "Hello there, Champion!" : "Welcome back,"} {profile?.preferredName || session?.user?.email?.split('@')[0]}
           </h1>
-          <p style={{ color: isPrimary ? "rgba(255,255,255,0.9)" : "var(--color-gray-300)", fontSize: "1.1rem" }}>
+          <p style={{ color: "rgba(255,255,255,0.88)", fontSize: "1.1rem" }}>
             {profile?.className || "Class Not Assigned"}
           </p>
         </div>
-        <div style={{ background: "rgba(255,255,255,0.1)", padding: "1rem 2rem", borderRadius: "var(--radius-md)", backdropFilter: "blur(10px)" }}>
-          <p style={{ fontSize: "0.9rem", color: isPrimary ? "rgba(255,255,255,0.9)" : "var(--color-gray-300)", marginBottom: "0.25rem" }}>Registration Number</p>
-          <p style={{ fontSize: "1.5rem", fontWeight: "bold", fontFamily: "monospace" }}>{profile?.admissionNo || "N/A"}</p>
+        <div style={{ background: "rgba(255,255,255,0.12)", padding: "1rem 2rem", borderRadius: "var(--radius-md)", backdropFilter: "blur(10px)" }}>
+          <p style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.88)", marginBottom: "0.25rem" }}>Registration Number</p>
+          <p style={{ fontSize: "1.5rem", fontWeight: "bold", fontFamily: "monospace", color: "#FFFFFF" }}>{profile?.admissionNo || "N/A"}</p>
         </div>
       </div>
 

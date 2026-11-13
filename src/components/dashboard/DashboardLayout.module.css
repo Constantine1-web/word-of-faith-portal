@@ -9,7 +9,12 @@
   min-height: calc(100vh - 4.5rem);
   min-height: calc(100dvh - 4.5rem);
   position: relative;
-  background: linear-gradient(135deg, #003322 0%, #001a11 100%);
+  background-color: var(--nav-bg);
+  background-image: linear-gradient(var(--page-bg-overlay), var(--page-bg-overlay)), var(--nav-bg-img);
+  background-size: cover, 300px;
+  background-position: center, center;
+  background-repeat: no-repeat, repeat;
+  background-attachment: fixed;
 }
 
 .mainContent {

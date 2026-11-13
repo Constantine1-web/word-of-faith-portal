@@ -328,12 +328,12 @@ export default function ResultsPage() {
                 }}
                 style={{
                   padding: "0.5rem 0.95rem",
-                  background: "#f1f5f9",
-                  border: "1px solid #cbd5e1",
+                  background: "var(--surface-subtle)",
+                  border: "1px solid var(--color-gray-300)",
                   borderRadius: "8px",
                   cursor: "pointer",
                   fontWeight: 700,
-                  color: "#0A2540",
+                  color: "var(--color-gray-900)",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "0.4rem",
@@ -348,7 +348,7 @@ export default function ResultsPage() {
                   onClick={handlePrintOfficialReportCard}
                   style={{
                     background: "linear-gradient(135deg, #16a34a, #15803d)",
-                    color: "white",
+                    color: "#ffffff",
                     border: "none",
                     borderRadius: "8px",
                     padding: "0.55rem 1.1rem",
@@ -366,18 +366,18 @@ export default function ResultsPage() {
             </div>
 
             {/* Official Report Sheet Header */}
-            <div style={{ textAlign: "center", marginBottom: "1.75rem", borderBottom: "3px double #16a34a", paddingBottom: "1.25rem" }}>
-              <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#15803d", textTransform: "uppercase", letterSpacing: "1px" }}>
+            <div style={{ textAlign: "center", marginBottom: "1.75rem", borderBottom: "3px double var(--color-primary-green)", paddingBottom: "1.25rem" }}>
+              <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "var(--color-primary-green)", textTransform: "uppercase", letterSpacing: "1px" }}>
                 Word of Faith Group of Schools
               </div>
-              <h2 style={{ color: "#0A2540", fontSize: "1.65rem", margin: "0.25rem 0" }}>
+              <h2 style={{ color: "var(--color-navy-blue)", fontSize: "1.65rem", margin: "0.25rem 0" }}>
                 Official Terminal Report Card
               </h2>
               <span
                 style={{
                   display: "inline-block",
-                  background: "#0A2540",
-                  color: "white",
+                  background: "var(--surface-table-head)",
+                  color: "var(--text-table-head)",
                   padding: "0.28rem 0.95rem",
                   borderRadius: "999px",
                   fontSize: "0.78rem",
@@ -392,43 +392,43 @@ export default function ResultsPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 165px), 1fr))",
                 gap: "0.85rem",
-                background: "#f8fafc",
+                background: "var(--surface-subtle)",
                 padding: "1.1rem 1.25rem",
                 borderRadius: "10px",
-                border: "1px solid #cbd5e1",
+                border: "1px solid var(--color-gray-200)",
                 marginBottom: "1.5rem",
                 fontSize: "0.88rem",
               }}
             >
               <div>
-                <div style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Student Name</div>
-                <div style={{ fontWeight: 800, color: "#0A2540", marginTop: "0.15rem" }}>{studentFullName}</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 700, textTransform: "uppercase" }}>Student Name</div>
+                <div style={{ fontWeight: 800, color: "var(--color-gray-900)", marginTop: "0.15rem" }}>{studentFullName}</div>
               </div>
               <div>
-                <div style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Admission No</div>
-                <div style={{ fontWeight: 800, color: "#0A2540", marginTop: "0.15rem" }}>{resultData.student?.AdmissionNo}</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 700, textTransform: "uppercase" }}>Admission No</div>
+                <div style={{ fontWeight: 800, color: "var(--color-gray-900)", marginTop: "0.15rem" }}>{resultData.student?.AdmissionNo}</div>
               </div>
               <div>
-                <div style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Class / Level</div>
-                <div style={{ fontWeight: 800, color: "#0A2540", marginTop: "0.15rem" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 700, textTransform: "uppercase" }}>Class / Level</div>
+                <div style={{ fontWeight: 800, color: "var(--color-gray-900)", marginTop: "0.15rem" }}>
                   {resultData.student?.Class?.ClassName} ({resultData.student?.Class?.Level || "Secondary"})
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Total Score</div>
-                <div style={{ fontWeight: 800, color: "#0A2540", marginTop: "0.15rem" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 700, textTransform: "uppercase" }}>Total Score</div>
+                <div style={{ fontWeight: 800, color: "var(--color-gray-900)", marginTop: "0.15rem" }}>
                   {totalObtained} / {maxPossible}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: "0.72rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase" }}>Term Attendance</div>
-                <div style={{ fontWeight: 800, color: "#0A2540", marginTop: "0.15rem" }}>{attendanceLabel}</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 700, textTransform: "uppercase" }}>Term Attendance</div>
+                <div style={{ fontWeight: 800, color: "var(--color-gray-900)", marginTop: "0.15rem" }}>{attendanceLabel}</div>
               </div>
               <div>
-                <div style={{ fontSize: "0.72rem", color: "#166534", fontWeight: 700, textTransform: "uppercase" }}>Terminal Average</div>
-                <div style={{ fontWeight: 800, color: "#15803d", fontSize: "1.05rem", marginTop: "0.1rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                <div style={{ fontSize: "0.72rem", color: "var(--badge-success-text)", fontWeight: 700, textTransform: "uppercase" }}>Terminal Average</div>
+                <div style={{ fontWeight: 800, color: "var(--badge-success-text)", fontSize: "1.05rem", marginTop: "0.1rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
                   <FiAward /> {averagePct}%
                 </div>
               </div>
@@ -438,7 +438,7 @@ export default function ResultsPage() {
             <div className="table-scroll">
               <table style={{ width: "100%", borderCollapse: "collapse", color: "var(--color-gray-900)", minWidth: "580px" }}>
                 <thead>
-                  <tr style={{ background: "#0A2540", color: "white" }}>
+                  <tr style={{ background: "var(--surface-table-head)", color: "var(--text-table-head)" }}>
                     <th style={{ padding: "0.85rem", textAlign: "left", fontSize: "0.8rem", textTransform: "uppercase" }}>Subject</th>
                     <th style={{ padding: "0.85rem", textAlign: "center", fontSize: "0.8rem", textTransform: "uppercase" }}>CA (40)</th>
                     <th style={{ padding: "0.85rem", textAlign: "center", fontSize: "0.8rem", textTransform: "uppercase" }}>Exam (60)</th>
@@ -450,31 +450,31 @@ export default function ResultsPage() {
                 <tbody>
                   {resultsList.length > 0 ? (
                     resultsList.map((res: any, idx: number) => (
-                      <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "white" : "#f8fafc" }}>
-                        <td style={{ padding: "0.85rem", fontWeight: 700, color: "#0A2540" }}>
+                      <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-200)", background: idx % 2 === 0 ? "var(--color-white)" : "var(--surface-subtle)" }}>
+                        <td style={{ padding: "0.85rem", fontWeight: 700, color: "var(--color-gray-900)" }}>
                           {res.Subject?.SubjectName || `Subject ${res.SubjectID}`}
                         </td>
                         <td style={{ padding: "0.85rem", textAlign: "center" }}>{res.CAScore}</td>
                         <td style={{ padding: "0.85rem", textAlign: "center" }}>{res.ExamScore}</td>
-                        <td style={{ padding: "0.85rem", textAlign: "center", fontWeight: 800, color: "#0f172a" }}>{res.TotalScore}</td>
+                        <td style={{ padding: "0.85rem", textAlign: "center", fontWeight: 800, color: "var(--color-gray-900)" }}>{res.TotalScore}</td>
                         <td
                           style={{
                             padding: "0.85rem",
                             textAlign: "center",
-                            color: res.Grade === "F" || res.Grade === "F9" ? "#dc2626" : "#15803d",
+                            color: res.Grade === "F" || res.Grade === "F9" ? "var(--badge-danger-text)" : "var(--badge-success-text)",
                             fontWeight: 800,
                           }}
                         >
                           {res.Grade}
                         </td>
-                        <td style={{ padding: "0.85rem", fontSize: "0.85rem", color: "#475569" }}>
+                        <td style={{ padding: "0.85rem", fontSize: "0.85rem", color: "var(--color-gray-600)" }}>
                           {deriveRemark(res.Grade, res.Remark)}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6} style={{ padding: "1.5rem", textAlign: "center", color: "#64748b" }}>
+                      <td colSpan={6} style={{ padding: "1.5rem", textAlign: "center", color: "var(--color-gray-500)" }}>
                         No results found for this term.
                       </td>
                     </tr>
@@ -487,15 +487,15 @@ export default function ResultsPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
                 gap: "1rem",
                 marginTop: "1.35rem",
               }}
             >
               <div
                 style={{
-                  background: "#f8fafc",
-                  border: "1px solid #cbd5e1",
+                  background: "var(--surface-subtle)",
+                  border: "1px solid var(--color-gray-200)",
                   borderRadius: "10px",
                   padding: "1rem 1.15rem",
                 }}
@@ -504,11 +504,11 @@ export default function ResultsPage() {
                   style={{
                     fontSize: "0.75rem",
                     fontWeight: 800,
-                    color: "#0A2540",
+                    color: "var(--color-navy-blue)",
                     textTransform: "uppercase",
                     letterSpacing: "0.5px",
                     marginBottom: "0.65rem",
-                    borderBottom: "1px solid #e2e8f0",
+                    borderBottom: "1px solid var(--color-gray-200)",
                     paddingBottom: "0.4rem",
                   }}
                 >
@@ -517,10 +517,10 @@ export default function ResultsPage() {
                 <div style={{ display: "grid", gap: "0.35rem", fontSize: "0.83rem" }}>
                   {Object.entries(parsedAffective).map(([key, val]) => (
                     <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: "#475569", textTransform: "capitalize" }}>
+                      <span style={{ color: "var(--color-gray-600)", textTransform: "capitalize" }}>
                         {key.replace(/([A-Z])/g, " $1")}
                       </span>
-                      <span style={{ fontWeight: 800, color: "#0A2540" }}>{String(val)} / 5</span>
+                      <span style={{ fontWeight: 800, color: "var(--color-gray-900)" }}>{String(val)} / 5</span>
                     </div>
                   ))}
                 </div>
@@ -528,8 +528,8 @@ export default function ResultsPage() {
 
               <div
                 style={{
-                  background: "#f0fdf4",
-                  border: "1px solid #bbf7d0",
+                  background: "var(--badge-success-bg)",
+                  border: "1px solid var(--color-primary-green)",
                   borderRadius: "10px",
                   padding: "1rem 1.15rem",
                 }}
@@ -538,11 +538,11 @@ export default function ResultsPage() {
                   style={{
                     fontSize: "0.75rem",
                     fontWeight: 800,
-                    color: "#166534",
+                    color: "var(--badge-success-text)",
                     textTransform: "uppercase",
                     letterSpacing: "0.5px",
                     marginBottom: "0.65rem",
-                    borderBottom: "1px solid #bbf7d0",
+                    borderBottom: "1px solid var(--color-primary-green)",
                     paddingBottom: "0.4rem",
                   }}
                 >
@@ -551,10 +551,10 @@ export default function ResultsPage() {
                 <div style={{ display: "grid", gap: "0.35rem", fontSize: "0.83rem" }}>
                   {Object.entries(parsedPsychomotor).map(([key, val]) => (
                     <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: "#14532d", textTransform: "capitalize" }}>
+                      <span style={{ color: "var(--color-gray-900)", textTransform: "capitalize" }}>
                         {key.replace(/([A-Z])/g, " $1")}
                       </span>
-                      <span style={{ fontWeight: 800, color: "#15803d" }}>{String(val)} / 5</span>
+                      <span style={{ fontWeight: 800, color: "var(--badge-success-text)" }}>{String(val)} / 5</span>
                     </div>
                   ))}
                 </div>
@@ -565,12 +565,12 @@ export default function ResultsPage() {
             <div
               style={{
                 marginTop: "1.25rem",
-                background: "#f0fdf4",
-                border: "1px solid #bbf7d0",
+                background: "var(--badge-success-bg)",
+                border: "1px solid var(--color-primary-green)",
                 borderRadius: "10px",
                 padding: "1.15rem 1.25rem",
                 fontSize: "0.88rem",
-                color: "#14532d",
+                color: "var(--color-gray-900)",
               }}
             >
               <div style={{ marginBottom: "0.5rem" }}>
@@ -590,10 +590,10 @@ export default function ResultsPage() {
                 flexWrap: "wrap",
                 gap: "0.75rem",
                 fontSize: "0.8rem",
-                color: "#64748b",
+                color: "var(--color-gray-500)",
               }}
             >
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "#15803d", fontWeight: 700 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "var(--badge-success-text)", fontWeight: 700 }}>
                 <FiCheckCircle /> Verified via Scratch Card ({resultData.cardMeta?.serialNumber || "ACTIVE"})
               </span>
               <span>

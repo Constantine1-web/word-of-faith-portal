@@ -148,9 +148,9 @@ export default function CoursesPage() {
         >
           <div>
             <h2 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <FiBookOpen style={{ color: "#15803d" }} /> E-Learning Lesson Notes &amp; Homework Assignments
+              <FiBookOpen style={{ color: "var(--color-primary-green)" }} /> E-Learning Lesson Notes &amp; Homework Assignments
             </h2>
-            <p style={{ color: "#64748b", fontSize: "0.86rem", margin: "0.2rem 0 0 0" }}>
+            <p style={{ color: "var(--color-gray-500)", fontSize: "0.86rem", margin: "0.2rem 0 0 0" }}>
               Published directly by your subject teachers. Click any study card to read or print the full note.
             </p>
           </div>
@@ -167,9 +167,9 @@ export default function CoursesPage() {
                   fontSize: "0.8rem",
                   fontWeight: 700,
                   cursor: "pointer",
-                  border: selectedCategory === cat ? "1px solid #0A2540" : "1px solid #cbd5e1",
-                  background: selectedCategory === cat ? "#0A2540" : "#f8fafc",
-                  color: selectedCategory === cat ? "white" : "#334155",
+                  border: selectedCategory === cat ? "1px solid var(--color-navy-blue)" : "1px solid var(--color-gray-300)",
+                  background: selectedCategory === cat ? "var(--color-navy-blue)" : "var(--surface-subtle)",
+                  color: selectedCategory === cat ? "var(--btn-primary-text, #ffffff)" : "var(--color-gray-800)",
                 }}
               >
                 {cat === "All" ? "All Materials" : `${cat}s`}
@@ -179,14 +179,14 @@ export default function CoursesPage() {
         </div>
 
         {filteredMaterials.length === 0 ? (
-          <div style={{ padding: "2rem", textAlign: "center", color: "#64748b", background: "#f8fafc", borderRadius: "10px" }}>
+          <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)", background: "var(--surface-subtle)", borderRadius: "10px" }}>
             No materials published in this category yet.
           </div>
         ) : (
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 270px), 1fr))",
               gap: "1rem",
             }}
           >
@@ -197,19 +197,20 @@ export default function CoursesPage() {
                 <div
                   key={mat.id}
                   style={{
-                    border: "1px solid #e2e8f0",
-                    borderTop: `4px solid ${isHomework ? "#d97706" : isRevision ? "#7c3aed" : "#15803d"}`,
+                    border: "1px solid var(--color-gray-200)",
+                    borderTop: `4px solid ${isHomework ? "#d97706" : isRevision ? "#7c3aed" : "var(--color-primary-green)"}`,
                     borderRadius: "10px",
                     padding: "1.2rem",
-                    background: "#ffffff",
+                    background: "var(--surface-subtle)",
                     display: "flex",
                     flexDirection: "column",
                     justifyContent: "space-between",
                     gap: "0.85rem",
+                    minWidth: 0,
                   }}
                 >
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.5rem" }}>
                       <span
                         style={{
                           fontSize: "0.72rem",
@@ -217,26 +218,26 @@ export default function CoursesPage() {
                           textTransform: "uppercase",
                           padding: "0.18rem 0.6rem",
                           borderRadius: "999px",
-                          background: isHomework ? "#fef3c7" : isRevision ? "#f3e8ff" : "#dcfce7",
-                          color: isHomework ? "#b45309" : isRevision ? "#6d28d9" : "#166534",
+                          background: isHomework ? "var(--badge-warn-bg)" : isRevision ? "var(--badge-purple-bg)" : "var(--badge-success-bg)",
+                          color: isHomework ? "var(--badge-warn-text)" : isRevision ? "var(--badge-purple-text)" : "var(--badge-success-text)",
                         }}
                       >
                         {mat.category}
                       </span>
-                      <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748b" }}>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--color-gray-500)" }}>
                         {mat.weekLabel} • {mat.className}
                       </span>
                     </div>
 
-                    <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#0284c7", textTransform: "uppercase" }}>
+                    <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "var(--color-navy-blue)", textTransform: "uppercase" }}>
                       {mat.subjectName}
                     </div>
-                    <h3 style={{ color: "#0A2540", fontSize: "1.05rem", margin: "0.25rem 0 0.5rem 0" }}>
+                    <h3 style={{ color: "var(--color-gray-900)", fontSize: "1.05rem", margin: "0.25rem 0 0.5rem 0" }}>
                       {mat.title}
                     </h3>
                     <p
                       style={{
-                        color: "#475569",
+                        color: "var(--color-gray-600)",
                         fontSize: "0.85rem",
                         margin: 0,
                         display: "-webkit-box",
@@ -255,7 +256,7 @@ export default function CoursesPage() {
                       <div
                         style={{
                           fontSize: "0.78rem",
-                          color: "#b45309",
+                          color: "var(--badge-warn-text)",
                           fontWeight: 700,
                           display: "flex",
                           alignItems: "center",
@@ -314,7 +315,7 @@ export default function CoursesPage() {
         <div className="table-scroll">
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "520px" }}>
             <thead>
-              <tr style={{ background: "#0A2540", color: "white", textAlign: "left" }}>
+              <tr style={{ background: "var(--surface-table-head)", color: "var(--text-table-head)", textAlign: "left" }}>
                 <th style={{ padding: "0.85rem 1rem", fontSize: "0.8rem", textTransform: "uppercase" }}>Subject Code</th>
                 <th style={{ padding: "0.85rem 1rem", fontSize: "0.8rem", textTransform: "uppercase" }}>Subject Name</th>
                 <th style={{ padding: "0.85rem 1rem", fontSize: "0.8rem", textTransform: "uppercase" }}>Assigned Teacher</th>
@@ -324,15 +325,15 @@ export default function CoursesPage() {
             <tbody>
               {academics.length > 0 ? (
                 academics.map((ac, idx) => (
-                  <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
+                  <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
                     <td style={{ padding: "0.9rem 1rem", color: "var(--color-gray-600)", fontFamily: "monospace", fontWeight: 700 }}>
                       {(ac.subject || "SUB").slice(0, 3).toUpperCase()}-10{idx + 1}
                     </td>
-                    <td style={{ padding: "0.9rem 1rem", fontWeight: 700, color: "#0A2540" }}>{ac.subject}</td>
-                    <td style={{ padding: "0.9rem 1rem", color: "var(--color-gray-700)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                      <FiUser style={{ color: "#64748b" }} /> {ac.teacher}
+                    <td style={{ padding: "0.9rem 1rem", fontWeight: 700, color: "var(--color-gray-900)" }}>{ac.subject}</td>
+                    <td style={{ padding: "0.9rem 1rem", color: "var(--color-gray-800)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <FiUser style={{ color: "var(--color-gray-500)" }} /> {ac.teacher}
                     </td>
-                    <td style={{ padding: "0.9rem 1rem", color: "#15803d", fontWeight: 700 }}>
+                    <td style={{ padding: "0.9rem 1rem", color: "var(--badge-success-text)", fontWeight: 700 }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
                         <FiCheckCircle /> Active
                       </span>
@@ -353,32 +354,17 @@ export default function CoursesPage() {
 
       {/* Study Reader Modal */}
       {activeMaterial && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(10, 37, 64, 0.65)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-          }}
-        >
+        <div className="portal-modal-overlay" onClick={() => setActiveMaterial(null)}>
           <div
+            className="portal-modal-card"
+            onClick={(e) => e.stopPropagation()}
             style={{
-              background: "white",
-              borderRadius: "12px",
-              padding: "2rem",
-              width: "100%",
+              padding: "clamp(1rem, 3vw, 2rem)",
               maxWidth: "680px",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              boxShadow: "0 20px 40px rgba(0,0,0,0.25)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem", marginBottom: "1.25rem" }}>
-              <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "1rem", marginBottom: "1.25rem" }}>
+              <div style={{ minWidth: 0, flex: "1 1 220px" }}>
                 <span
                   style={{
                     fontSize: "0.72rem",
@@ -386,16 +372,17 @@ export default function CoursesPage() {
                     textTransform: "uppercase",
                     padding: "0.2rem 0.65rem",
                     borderRadius: "999px",
-                    background: "#dcfce7",
-                    color: "#166534",
+                    background: "var(--badge-success-bg)",
+                    color: "var(--badge-success-text)",
+                    display: "inline-block",
                   }}
                 >
                   {activeMaterial.category} • {activeMaterial.weekLabel}
                 </span>
-                <h2 style={{ color: "#0A2540", margin: "0.5rem 0 0.2rem 0", fontSize: "1.35rem" }}>
+                <h2 style={{ color: "var(--color-gray-900)", margin: "0.5rem 0 0.25rem 0", fontSize: "clamp(1.1rem, 3vw, 1.35rem)" }}>
                   {activeMaterial.title}
                 </h2>
-                <div style={{ fontSize: "0.83rem", color: "#64748b" }}>
+                <div style={{ fontSize: "0.83rem", color: "var(--color-gray-500)", lineHeight: 1.5 }}>
                   <strong>Subject:</strong> {activeMaterial.subjectName} &nbsp;•&nbsp;{" "}
                   <strong>Class:</strong> {activeMaterial.className} &nbsp;•&nbsp;{" "}
                   <strong>By:</strong> {activeMaterial.teacherEmail}
@@ -405,7 +392,7 @@ export default function CoursesPage() {
                 type="button"
                 onClick={() => setActiveMaterial(null)}
                 className="btn btn-outline"
-                style={{ padding: "0.35rem 0.75rem" }}
+                style={{ padding: "0.35rem 0.85rem", minHeight: "40px", flexShrink: 0 }}
               >
                 Close
               </button>
@@ -414,9 +401,9 @@ export default function CoursesPage() {
             {activeMaterial.dueDate && (
               <div
                 style={{
-                  background: "#fef3c7",
-                  border: "1px solid #fde68a",
-                  color: "#92400e",
+                  background: "var(--badge-warn-bg)",
+                  border: "1px solid var(--color-gray-200)",
+                  color: "var(--badge-warn-text)",
                   padding: "0.65rem 1rem",
                   borderRadius: "8px",
                   fontSize: "0.85rem",
@@ -430,20 +417,21 @@ export default function CoursesPage() {
 
             <div
               style={{
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
+                background: "var(--surface-subtle)",
+                border: "1px solid var(--color-gray-200)",
                 borderRadius: "10px",
-                padding: "1.25rem",
+                padding: "clamp(0.85rem, 2.5vw, 1.25rem)",
                 whiteSpace: "pre-wrap",
                 lineHeight: 1.7,
-                color: "#1e293b",
+                color: "var(--color-gray-900)",
                 fontSize: "0.95rem",
+                overflowWrap: "break-word",
               }}
             >
               {activeMaterial.content}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: "0.75rem", marginTop: "1.25rem" }}>
               <button
                 type="button"
                 onClick={() => handlePrintMaterial(activeMaterial)}

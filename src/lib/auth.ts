@@ -51,8 +51,11 @@ const isProd = process.env.NODE_ENV === "production";
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
-    maxAge: 8 * 60 * 60, // 8 hours absolute session lifetime
-    updateAge: 60 * 60, // Rotate session token every 1 hour
+    maxAge: 365 * 24 * 60 * 60, // 1 year — keep user logged in until explicit logout
+    updateAge: 24 * 60 * 60, // Refresh session token every 24 hours
+  },
+  jwt: {
+    maxAge: 365 * 24 * 60 * 60,
   },
   secret: resolveNextAuthSecret(),
   cookies: {

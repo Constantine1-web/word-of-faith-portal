@@ -144,8 +144,8 @@ export default function FeesHistoryPage() {
             <tbody>
               {payments.length > 0 ? (
                 payments.map((p) => (
-                  <tr key={p.id} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
-                    <td style={{ padding: "1rem", fontFamily: "monospace", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
+                  <tr key={p.id} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
+                    <td style={{ padding: "1rem", fontFamily: "monospace", fontSize: "0.84rem", color: "var(--color-gray-600)", fontWeight: 600 }}>
                       {p.reference || `WOF-REC-${String(p.id).padStart(6, "0")}`}
                     </td>
                     <td style={{ padding: "1rem", fontWeight: 600, color: "var(--color-gray-900)" }}>{p.description}</td>
@@ -171,16 +171,16 @@ export default function FeesHistoryPage() {
                           fontWeight: 700,
                           backgroundColor:
                             p.status === "Approved" || p.status === "Successful"
-                              ? "rgba(74, 222, 128, 0.2)"
+                              ? "var(--badge-success-bg)"
                               : p.status === "Rejected"
-                              ? "rgba(239, 68, 68, 0.2)"
-                              : "rgba(251, 146, 60, 0.2)",
+                              ? "var(--badge-danger-bg)"
+                              : "var(--badge-warn-bg)",
                           color:
                             p.status === "Approved" || p.status === "Successful"
-                              ? "#166534"
+                              ? "var(--badge-success-text)"
                               : p.status === "Rejected"
-                              ? "#991b1b"
-                              : "#9a3412",
+                              ? "var(--badge-danger-text)"
+                              : "var(--badge-warn-text)",
                         }}
                       >
                         {p.status}
@@ -194,9 +194,9 @@ export default function FeesHistoryPage() {
                           style={{
                             padding: "0.4rem 0.75rem",
                             borderRadius: "8px",
-                            border: "1px solid #cbd5e1",
-                            background: "#f8fafc",
-                            color: "#0A2540",
+                            border: "1px solid var(--color-gray-300)",
+                            background: "var(--surface-subtle)",
+                            color: "var(--color-gray-900)",
                             fontSize: "0.8rem",
                             fontWeight: 700,
                             cursor: "pointer",
@@ -211,8 +211,8 @@ export default function FeesHistoryPage() {
                             padding: "0.4rem 0.8rem",
                             borderRadius: "8px",
                             border: "none",
-                            background: "#0A2540",
-                            color: "white",
+                            background: "var(--color-navy-blue)",
+                            color: "var(--btn-primary-text, #ffffff)",
                             fontSize: "0.8rem",
                             fontWeight: 700,
                             cursor: "pointer",
@@ -243,28 +243,28 @@ export default function FeesHistoryPage() {
           <div
             style={{
               marginTop: "2rem",
-              border: "2px solid #0A2540",
+              border: "2px solid var(--color-navy-blue)",
               borderRadius: "12px",
-              padding: "1.75rem",
-              background: "#f8fafc",
+              padding: "clamp(1rem, 3vw, 1.75rem)",
+              background: "var(--surface-subtle)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem", borderBottom: "2px solid #16a34a", paddingBottom: "1rem", marginBottom: "1.25rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem", borderBottom: "2px solid var(--color-primary-green)", paddingBottom: "1rem", marginBottom: "1.25rem" }}>
               <div>
-                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "#15803d", textTransform: "uppercase" }}>
+                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--color-primary-green)", textTransform: "uppercase" }}>
                   Word of Faith Group of Schools • Bursary Division
                 </div>
-                <h3 style={{ margin: "0.2rem 0", color: "#0A2540", fontSize: "1.25rem" }}>
+                <h3 style={{ margin: "0.2rem 0", color: "var(--color-gray-900)", fontSize: "1.25rem" }}>
                   Official School Fee Receipt — WOF/BUR/{new Date(selectedReceipt.date).getFullYear()}/{String(selectedReceipt.id).padStart(5, "0")}
                 </h3>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                 <button
                   type="button"
                   onClick={() => handlePrintReceipt(selectedReceipt)}
                   style={{
                     background: "#16a34a",
-                    color: "white",
+                    color: "#ffffff",
                     border: "none",
                     borderRadius: "8px",
                     padding: "0.5rem 0.95rem",
@@ -282,8 +282,8 @@ export default function FeesHistoryPage() {
                   type="button"
                   onClick={() => setSelectedReceipt(null)}
                   style={{
-                    background: "#e2e8f0",
-                    color: "#334155",
+                    background: "var(--color-gray-200)",
+                    color: "var(--color-gray-900)",
                     border: "none",
                     borderRadius: "8px",
                     padding: "0.5rem 0.75rem",
@@ -300,27 +300,27 @@ export default function FeesHistoryPage() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "1.25rem", fontSize: "0.88rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem", marginBottom: "1.25rem", fontSize: "0.88rem" }}>
               <div>
-                <div style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Student</div>
-                <div style={{ fontWeight: 700, color: "#0f172a" }}>{student?.fullName || student?.admissionNo}</div>
+                <div style={{ color: "var(--color-gray-500)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Student</div>
+                <div style={{ fontWeight: 700, color: "var(--color-gray-900)" }}>{student?.fullName || student?.admissionNo}</div>
               </div>
               <div>
-                <div style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Admission No &amp; Class</div>
-                <div style={{ fontWeight: 700, color: "#0f172a" }}>{student?.admissionNo} • {student?.className}</div>
+                <div style={{ color: "var(--color-gray-500)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Admission No &amp; Class</div>
+                <div style={{ fontWeight: 700, color: "var(--color-gray-900)" }}>{student?.admissionNo} • {student?.className}</div>
               </div>
               <div>
-                <div style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Term &amp; Session</div>
-                <div style={{ fontWeight: 700, color: "#0f172a" }}>{selectedReceipt.term} ({selectedReceipt.session})</div>
+                <div style={{ color: "var(--color-gray-500)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Term &amp; Session</div>
+                <div style={{ fontWeight: 700, color: "var(--color-gray-900)" }}>{selectedReceipt.term} ({selectedReceipt.session})</div>
               </div>
               <div>
-                <div style={{ color: "#64748b", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Amount Credited</div>
-                <div style={{ fontWeight: 800, color: "#15803d", fontSize: "1.1rem" }}>₦{Number(selectedReceipt.amount).toLocaleString()}.00</div>
+                <div style={{ color: "var(--color-gray-500)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Amount Credited</div>
+                <div style={{ fontWeight: 800, color: "var(--badge-success-text)", fontSize: "1.1rem" }}>₦{Number(selectedReceipt.amount).toLocaleString()}.00</div>
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", paddingTop: "0.85rem", borderTop: "1px dashed #cbd5e1", fontSize: "0.82rem", color: "#475569" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 700, color: "#15803d" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", paddingTop: "0.85rem", borderTop: "1px dashed var(--color-gray-300)", fontSize: "0.82rem", color: "var(--color-gray-600)" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 700, color: "var(--badge-success-text)" }}>
                 <FiCheckCircle /> Verified &amp; Cleared by Word of Faith Schools Bursary
               </span>
               <span>Reference: <strong>{selectedReceipt.reference}</strong></span>

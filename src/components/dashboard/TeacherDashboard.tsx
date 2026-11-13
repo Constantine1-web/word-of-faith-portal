@@ -1796,8 +1796,8 @@ export default function TeacherDashboard({
 
       {/* Form Master Remarks & Affective / Psychomotor Domain Modal */}
       {selectedStudentForRemark && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-          <div className="modal-content" style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "2rem", width: "100%", maxWidth: "620px", maxHeight: "90vh", overflowY: "auto", boxShadow: "var(--shadow-floating)" }}>
+        <div className="portal-modal-overlay">
+          <div className="portal-modal-card" style={{ padding: "clamp(1rem, 3vw, 2rem)", maxWidth: "620px" }}>
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.25rem" }}>
               Form Master Assessment, Affective &amp; Psychomotor Ratings
             </h3>
