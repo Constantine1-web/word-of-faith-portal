@@ -305,7 +305,7 @@ export default function ResultsPage() {
                   style={{
                     marginTop: "0.75rem",
                     textAlign: "center",
-                    color: status.includes("Error") ? "#dc2626" : "#15803d",
+                    color: status.includes("Error") ? "var(--status-error-text)" : "var(--status-success-text)",
                     fontWeight: 600,
                     fontSize: "0.9rem",
                   }}
@@ -347,7 +347,7 @@ export default function ResultsPage() {
                   type="button"
                   onClick={handlePrintOfficialReportCard}
                   style={{
-                    background: "linear-gradient(135deg, #16a34a, #15803d)",
+                    background: "linear-gradient(135deg, #15803d, #14532d)",
                     color: "#ffffff",
                     border: "none",
                     borderRadius: "8px",

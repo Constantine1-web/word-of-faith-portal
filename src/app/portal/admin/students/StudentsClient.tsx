@@ -268,8 +268,9 @@ export default function StudentsClient({
               width: "100%",
               padding: "0.65rem 0.75rem 0.65rem 2.25rem",
               borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--color-gray-300)",
-              background: "white",
+              border: "1px solid var(--input-outline)",
+              background: "var(--bg-input)",
+              color: "var(--text-primary)",
             }}
           />
         </div>
@@ -283,9 +284,9 @@ export default function StudentsClient({
               display: "flex",
               alignItems: "center",
               gap: "0.5rem",
-              background: "#0A2540",
-              color: "white",
-              border: "none",
+              background: "var(--brand-secondary)",
+              color: "var(--brand-secondary-text)",
+              border: "1px solid var(--border-primary)",
               padding: "0.65rem 1.1rem",
               borderRadius: "var(--radius-sm)",
               fontWeight: 600,
@@ -311,17 +312,17 @@ export default function StudentsClient({
         <form
           onSubmit={handleAdd}
           style={{
-            background: "white",
+            background: "var(--bg-card)",
             padding: "1.5rem",
             borderRadius: "var(--radius-md)",
             marginBottom: "2rem",
             display: "grid",
             gap: "1rem",
             boxShadow: "var(--shadow-sm)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
           }}
         >
-          <h3 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Enroll New Student Profile</h3>
+          <h3 style={{ margin: 0, color: "var(--text-heading)" }}>Enroll New Student Profile</h3>
           <div
             style={{
               display: "grid",
@@ -335,7 +336,7 @@ export default function StudentsClient({
               required
               value={formData.firstName}
               onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }}
+              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)" }}
             />
             <input
               type="text"
@@ -343,7 +344,7 @@ export default function StudentsClient({
               required
               value={formData.lastName}
               onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }}
+              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)" }}
             />
             <input
               type="email"
@@ -351,14 +352,14 @@ export default function StudentsClient({
               required
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }}
+              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)" }}
             />
             <input
               type="tel"
               placeholder="WhatsApp / SMS Phone (e.g. 0803...)"
               value={formData.parentContact}
               onChange={(e) => setFormData({ ...formData, parentContact: e.target.value })}
-              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }}
+              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)" }}
             />
             <input
               type="text"
@@ -366,12 +367,12 @@ export default function StudentsClient({
               required
               value={formData.admissionNo}
               onChange={(e) => setFormData({ ...formData, admissionNo: e.target.value })}
-              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }}
+              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)" }}
             />
             <select
               value={formData.classId}
               onChange={(e) => setFormData({ ...formData, classId: parseInt(e.target.value) })}
-              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid #ddd" }}
+              style={{ padding: "0.65rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)" }}
             >
               {classes.map((c) => (
                 <option key={c.ClassID} value={c.ClassID}>
@@ -390,15 +391,15 @@ export default function StudentsClient({
       <div
         style={{
           overflowX: "auto",
-          background: "white",
+          background: "var(--bg-card)",
           borderRadius: "var(--radius-md)",
           boxShadow: "var(--shadow-sm)",
-          border: "1px solid var(--color-gray-200)",
+          border: "1px solid var(--border-primary)",
         }}
       >
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "760px" }}>
           <thead>
-            <tr style={{ background: "var(--color-gray-100)", borderBottom: "1px solid #ddd" }}>
+            <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-primary)" }}>
               <th style={{ padding: "0.9rem 1rem", textAlign: "left" }}>Student Name</th>
               <th style={{ padding: "0.9rem 1rem", textAlign: "left" }}>Admission No</th>
               <th style={{ padding: "0.9rem 1rem", textAlign: "left" }}>Class</th>
@@ -421,8 +422,8 @@ export default function StudentsClient({
                   : cleanDigits;
 
               return (
-                <tr key={s.StudentID} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={{ padding: "0.9rem 1rem", fontWeight: 600, color: "var(--color-navy-blue)" }}>
+                <tr key={s.StudentID} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                  <td style={{ padding: "0.9rem 1rem", fontWeight: 600, color: "var(--text-heading)" }}>
                     {s.PreferredName || `${s.FirstName || ""} ${s.LastName || ""}`.trim() || s.AdmissionNo}
                   </td>
                   <td style={{ padding: "0.9rem 1rem", fontFamily: "monospace", fontSize: "0.9rem" }}>
@@ -431,13 +432,13 @@ export default function StudentsClient({
                   <td style={{ padding: "0.9rem 1rem" }}>{s.Class?.ClassName || "Unassigned"}</td>
                   <td style={{ padding: "0.9rem 1rem", fontSize: "0.9rem" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
-                      <FiMail size={14} color="var(--color-primary-green)" />
+                      <FiMail size={14} color="var(--brand-primary)" />
                       {regEmail}
                     </span>
                   </td>
                   <td style={{ padding: "0.9rem 1rem", fontSize: "0.9rem" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
-                      <FiPhone size={14} color="#0284c7" />
+                      <FiPhone size={14} color="var(--status-info-text)" />
                       {phone}
                     </span>
                   </td>
@@ -456,9 +457,9 @@ export default function StudentsClient({
                       onClick={() => openDirectMessageForStudent(s)}
                       title="Send Direct Email, WhatsApp, or SMS using Student Email"
                       style={{
-                        background: "#ecfdf5",
-                        color: "#065f46",
-                        border: "1px solid #a7f3d0",
+                        background: "var(--status-success-bg)",
+                        color: "var(--status-success-text)",
+                        border: "1px solid var(--status-success-border)",
                         borderRadius: "6px",
                         padding: "0.4rem 0.7rem",
                         fontSize: "0.82rem",
@@ -481,8 +482,8 @@ export default function StudentsClient({
                         rel="noopener noreferrer"
                         title={`Direct WhatsApp to ${phone}`}
                         style={{
-                          background: "#25D366",
-                          color: "white",
+                          background: "#15803d",
+                          color: "#ffffff",
                           borderRadius: "6px",
                           padding: "0.4rem 0.65rem",
                           fontSize: "0.8rem",
@@ -502,9 +503,9 @@ export default function StudentsClient({
                       onClick={() => handleDelete(s.StudentID)}
                       title="Delete Student"
                       style={{
-                        color: "#dc2626",
-                        background: "#fef2f2",
-                        border: "1px solid #fecaca",
+                        color: "var(--status-error-text)",
+                        background: "var(--status-error-bg)",
+                        border: "1px solid var(--status-error-border)",
                         borderRadius: "6px",
                         cursor: "pointer",
                         padding: "0.4rem 0.55rem",
@@ -523,28 +524,16 @@ export default function StudentsClient({
       {/* Direct Student Email / WhatsApp / SMS Dispatch Modal */}
       {showMessageModal && (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(10, 37, 64, 0.65)",
-            backdropFilter: "blur(4px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1100,
-            padding: "1rem",
-          }}
+          className="portal-modal-overlay"
+          style={{ zIndex: 1100 }}
         >
           <div
+            className="portal-modal-card"
             style={{
-              background: "white",
-              borderRadius: "var(--radius-lg)",
-              width: "100%",
               maxWidth: "580px",
               maxHeight: "92vh",
               overflowY: "auto",
               padding: "1.75rem",
-              boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
             }}
           >
             <div
@@ -599,8 +588,8 @@ export default function StudentsClient({
                     onClick={handleLookupByEmail}
                     disabled={lookingUp}
                     style={{
-                      background: "var(--color-navy-blue)",
-                      color: "white",
+                      background: "var(--brand-secondary)",
+                      color: "var(--brand-secondary-text)",
                       border: "none",
                       borderRadius: "var(--radius-sm)",
                       padding: "0 1rem",
@@ -617,12 +606,12 @@ export default function StudentsClient({
               {resolvedStudent && (
                 <div
                   style={{
-                    background: "#f0fdf4",
-                    border: "1px solid #bbf7d0",
+                    background: "var(--status-success-bg)",
+                    border: "1px solid var(--status-success-border)",
                     borderRadius: "var(--radius-sm)",
                     padding: "0.85rem 1rem",
                     fontSize: "0.85rem",
-                    color: "#065f46",
+                    color: "var(--status-success-text)",
                   }}
                 >
                   <div>
@@ -637,7 +626,7 @@ export default function StudentsClient({
 
               {/* Student Phone Number for Direct WhatsApp & SMS */}
               <div>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "var(--color-navy-blue)" }}>
+                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.35rem", color: "var(--text-label)" }}>
                   Student Phone Number (for Direct WhatsApp & SMS)
                 </label>
                 <input
@@ -649,17 +638,19 @@ export default function StudentsClient({
                     width: "100%",
                     padding: "0.65rem 0.75rem",
                     borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--color-gray-300)",
+                    border: "1px solid var(--input-outline)",
+                    background: "var(--bg-input)",
+                    color: "var(--text-primary)",
                   }}
                 />
-                <small style={{ color: "var(--color-gray-500)", fontSize: "0.78rem" }}>
+                <small style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>
                   Used for Direct WhatsApp and Direct SMS. Updating this number automatically saves it to the student&apos;s profile.
                 </small>
               </div>
 
               {/* Delivery Channels */}
               <div>
-                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem", color: "var(--color-navy-blue)" }}>
+                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.4rem", color: "var(--text-label)" }}>
                   Select Delivery Channels *
                 </label>
                 <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
@@ -680,8 +671,9 @@ export default function StudentsClient({
                           gap: "0.45rem",
                           padding: "0.5rem 0.85rem",
                           borderRadius: "var(--radius-sm)",
-                          border: active ? "2px solid var(--color-primary-green)" : "1px solid var(--color-gray-300)",
-                          background: active ? "#ecfdf5" : "#f9fafb",
+                          border: active ? "2px solid var(--brand-primary)" : "1px solid var(--border-primary)",
+                          background: active ? "var(--status-success-bg)" : "var(--bg-secondary)",
+                          color: "var(--text-primary)",
                           fontWeight: 600,
                           fontSize: "0.83rem",
                           cursor: "pointer",
@@ -744,9 +736,9 @@ export default function StudentsClient({
                   style={{
                     padding: "0.9rem 1rem",
                     borderRadius: "var(--radius-sm)",
-                    background: dispatchFeedback.type === "success" ? "#ecfdf5" : "#fef2f2",
-                    border: `1px solid ${dispatchFeedback.type === "success" ? "#a7f3d0" : "#fecaca"}`,
-                    color: dispatchFeedback.type === "success" ? "#065f46" : "#b91c1c",
+                    background: dispatchFeedback.type === "success" ? "var(--status-success-bg)" : "var(--status-error-bg)",
+                    border: `1px solid ${dispatchFeedback.type === "success" ? "var(--status-success-border)" : "var(--status-error-border)"}`,
+                    color: dispatchFeedback.type === "success" ? "var(--status-success-text)" : "var(--status-error-text)",
                     fontSize: "0.86rem",
                   }}
                 >
@@ -762,8 +754,8 @@ export default function StudentsClient({
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
-                            background: "#25D366",
-                            color: "white",
+                            background: "#15803d",
+                            color: "#ffffff",
                             padding: "0.45rem 0.85rem",
                             borderRadius: "6px",
                             textDecoration: "none",
@@ -781,8 +773,8 @@ export default function StudentsClient({
                         <a
                           href={dispatchFeedback.smsUrl}
                           style={{
-                            background: "#0284c7",
-                            color: "white",
+                            background: "#0369a1",
+                            color: "#ffffff",
                             padding: "0.45rem 0.85rem",
                             borderRadius: "6px",
                             textDecoration: "none",
@@ -805,12 +797,10 @@ export default function StudentsClient({
                 <button
                   type="button"
                   onClick={() => setShowMessageModal(false)}
+                  className="btn btn-outline"
                   style={{
                     padding: "0.65rem 1.1rem",
                     borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--color-gray-300)",
-                    background: "white",
-                    cursor: "pointer",
                   }}
                 >
                   Close

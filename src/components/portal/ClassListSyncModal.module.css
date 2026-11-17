@@ -1,41 +1,42 @@
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--bg-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1200;
   padding: 1rem;
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(3px);
 }
 
 .modal {
-  background: var(--color-white, #ffffff);
+  background: var(--bg-modal);
+  color: var(--text-primary);
   border-radius: var(--radius-lg, 12px);
   width: 100%;
   max-width: 860px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-floating);
   overflow: hidden;
-  border: 1px solid var(--color-gray-200, #e5e7eb);
+  border: 1px solid var(--border-primary);
 }
 
 .header {
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--color-gray-50, #f9fafb);
+  background: var(--bg-secondary);
 }
 
 .header h2 {
   margin: 0;
   font-size: 1.25rem;
-  color: var(--color-navy-blue, #143424);
+  color: var(--text-heading);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -45,15 +46,15 @@
   background: none;
   border: none;
   font-size: 1.25rem;
-  color: var(--color-gray-500, #6b7280);
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0.25rem;
   border-radius: 4px;
 }
 
 .closeBtn:hover {
-  color: #111827;
-  background: var(--color-gray-200, #e5e7eb);
+  color: var(--text-primary);
+  background: var(--hover-bg);
 }
 
 .body {
@@ -63,8 +64,9 @@
 }
 
 .scopeBanner {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
+  border: 1px solid var(--status-success-border);
   border-radius: var(--radius-md, 8px);
   padding: 0.85rem 1rem;
   margin-bottom: 1.25rem;
@@ -76,8 +78,8 @@
 }
 
 .scopeBadge {
-  background: #143424;
-  color: #ffffff;
+  background: var(--brand-primary);
+  color: var(--brand-primary-text);
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
   font-size: 0.85rem;
@@ -85,22 +87,23 @@
 }
 
 .dropzone {
-  border: 2px dashed #143424;
+  border: 2px dashed var(--border-primary);
   border-radius: var(--radius-md, 8px);
   padding: 2.5rem 1.5rem;
   text-align: center;
-  background: var(--color-gray-50, #f9fafb);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .dropzone:hover {
-  background: #f0fdf4;
-  border-color: #15803d;
+  background: var(--status-success-bg);
+  border-color: var(--active-border);
 }
 
 .tableContainer {
-  border: 1px solid var(--color-gray-200, #e5e7eb);
+  border: 1px solid var(--border-primary);
   border-radius: var(--radius-md, 8px);
   overflow-x: auto;
   margin-top: 1rem;
@@ -114,12 +117,12 @@
 }
 
 .table th {
-  background: var(--color-gray-100, #f3f4f6);
+  background: var(--bg-tertiary);
   padding: 0.75rem 1rem;
   text-align: left;
   font-weight: 600;
-  color: var(--color-gray-700, #374151);
-  border-bottom: 2px solid var(--color-gray-200, #e5e7eb);
+  color: var(--text-label);
+  border-bottom: 2px solid var(--border-primary);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -127,12 +130,13 @@
 
 .table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--color-gray-200, #e5e7eb);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
 }
 
 .badgeExisting {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
   padding: 0.2rem 0.5rem;
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -143,8 +147,8 @@
 }
 
 .badgeNew {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--status-info-bg);
+  color: var(--status-info-text);
   padding: 0.2rem 0.5rem;
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -157,18 +161,20 @@
 .inputName {
   width: 100%;
   padding: 0.4rem 0.6rem;
-  border: 1px solid var(--color-gray-300, #d1d5db);
+  border: 1px solid var(--input-outline);
+  background: var(--bg-input);
+  color: var(--text-primary);
   border-radius: 4px;
   font-size: 0.9rem;
 }
 
 .footer {
   padding: 1rem 1.5rem;
-  border-top: 1px solid var(--color-gray-200, #e5e7eb);
+  border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--color-gray-50, #f9fafb);
+  background: var(--bg-secondary);
   flex-wrap: wrap;
   gap: 0.75rem;
 }
@@ -181,8 +187,9 @@
 }
 
 .slipCard {
-  border: 1px solid #d1fae5;
-  background: #f0fdf4;
+  border: 1px solid var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--text-primary);
   border-radius: 8px;
   padding: 1rem;
   position: relative;
@@ -193,6 +200,6 @@
   font-size: 1.15rem;
   font-weight: bold;
   letter-spacing: 1px;
-  color: #143424;
+  color: var(--status-success-text);
   margin: 0.4rem 0;
 }

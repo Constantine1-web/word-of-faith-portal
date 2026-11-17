@@ -167,9 +167,9 @@ export default function CoursesPage() {
                   fontSize: "0.8rem",
                   fontWeight: 700,
                   cursor: "pointer",
-                  border: selectedCategory === cat ? "1px solid var(--color-navy-blue)" : "1px solid var(--color-gray-300)",
-                  background: selectedCategory === cat ? "var(--color-navy-blue)" : "var(--surface-subtle)",
-                  color: selectedCategory === cat ? "var(--btn-primary-text, #ffffff)" : "var(--color-gray-800)",
+                  border: selectedCategory === cat ? "1px solid var(--brand-secondary)" : "1px solid var(--border-primary)",
+                  background: selectedCategory === cat ? "var(--brand-secondary)" : "var(--surface-subtle)",
+                  color: selectedCategory === cat ? "var(--brand-secondary-text)" : "var(--text-primary)",
                 }}
               >
                 {cat === "All" ? "All Materials" : `${cat}s`}

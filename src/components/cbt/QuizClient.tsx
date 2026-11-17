@@ -385,15 +385,15 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
   // 1. Terminated & Day-Locked View
   if (terminatedReason) {
     return (
-      <div style={{ maxWidth: "640px", margin: "3rem auto", background: "#fef2f2", border: "2px solid #ef4444", borderRadius: "16px", padding: "2.5rem", textAlign: "center" }}>
-        <FiLock size={48} color="#dc2626" style={{ marginBottom: "1rem" }} />
-        <h2 style={{ color: "#991b1b", marginBottom: "0.75rem" }}>
+      <div style={{ maxWidth: "640px", margin: "3rem auto", background: "var(--status-error-bg)", border: "2px solid var(--status-error-border)", borderRadius: "16px", padding: "2.5rem", textAlign: "center" }}>
+        <FiLock size={48} color="var(--status-error-text)" style={{ marginBottom: "1rem" }} />
+        <h2 style={{ color: "var(--status-error-text)", marginBottom: "0.75rem" }}>
           CBT Attempt Terminated & Day-Lock Active
         </h2>
-        <p style={{ color: "#7f1d1d", fontSize: "0.96rem", lineHeight: 1.6, marginBottom: "1.5rem" }}>
+        <p style={{ color: "var(--text-primary)", fontSize: "0.96rem", lineHeight: 1.6, marginBottom: "1.5rem" }}>
           {terminatedReason}
         </p>
-        <div style={{ background: "white", padding: "1rem", borderRadius: "8px", fontSize: "0.85rem", color: "#475569", marginBottom: "1.5rem" }}>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", padding: "1rem", borderRadius: "8px", fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
           Your attempt and integrity telemetry have been logged in the school&apos;s append-only AuditLog. Please contact your Subject Teacher or the Principal if this was caused by a power or device interruption.
         </div>
         <Link href="/portal/cbt" className="btn btn-primary" style={{ textDecoration: "none" }}>
@@ -418,7 +418,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
             <strong>{summary.questionCount}</strong> ({summary.subjectCode.toUpperCase()} ·{" "}
             {summary.examBody})
           </p>
-          <p style={{ fontSize: "0.85rem", color: "#64748b" }}>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
             Integrity Strikes Recorded: {summary.hardStrikes} / 2
           </p>
           <div className={styles.resultActions}>
@@ -451,7 +451,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
                 <p className={styles.aiFeedback}>{aiAnalysis.overallFeedback}</p>
                 {aiAnalysis.strengths.length > 0 && (
                   <div className={styles.aiSection}>
-                    <strong style={{ color: "#10b981" }}>Key Strengths:</strong>
+                    <strong style={{ color: "var(--status-success-text)" }}>Key Strengths:</strong>
                     <ul>
                       {aiAnalysis.strengths.map((s, idx) => (
                         <li key={idx}>{s}</li>
@@ -461,7 +461,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
                 )}
                 {aiAnalysis.weaknesses.length > 0 && (
                   <div className={styles.aiSection}>
-                    <strong style={{ color: "#ef4444" }}>Areas for Revision:</strong>
+                    <strong style={{ color: "var(--status-error-text)" }}>Areas for Revision:</strong>
                     <ul>
                       {aiAnalysis.weaknesses.map((w, idx) => (
                         <li key={idx}>{w}</li>
@@ -471,7 +471,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
                 )}
                 {aiAnalysis.recommendations.length > 0 && (
                   <div className={styles.aiSection}>
-                    <strong style={{ color: "#3b82f6" }}>Examiner Recommendations:</strong>
+                    <strong style={{ color: "var(--status-info-text)" }}>Examiner Recommendations:</strong>
                     <ul>
                       {aiAnalysis.recommendations.map((r, idx) => (
                         <li key={idx}>{r}</li>
@@ -556,7 +556,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
 
   if (loadingQuestion && !currentQuestion) {
     return (
-      <div style={{ padding: "4rem", textAlign: "center", color: "#64748b" }}>
+      <div style={{ padding: "4rem", textAlign: "center", color: "var(--text-muted)" }}>
         Loading protected CBT question slot from server...
       </div>
     );
@@ -564,7 +564,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
 
   if (errorMsg && !currentQuestion) {
     return (
-      <div style={{ padding: "3rem", textAlign: "center", color: "#b91c1c" }}>
+      <div style={{ padding: "3rem", textAlign: "center", color: "var(--status-error-text)" }}>
         <h3>{errorMsg}</h3>
         <Link href="/portal/cbt" className="btn btn-primary" style={{ marginTop: "1rem", display: "inline-block" }}>
           Back to CBT Portal
@@ -663,26 +663,26 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
           style={{
             marginTop: "1.5rem",
             padding: "0.85rem",
-            background: "#f8fafc",
+            background: "var(--bg-secondary)",
             borderRadius: "8px",
-            border: "1px solid #e2e8f0",
+            border: "1px solid var(--border-subtle)",
             fontSize: "0.78rem",
-            color: "#475569",
+            color: "var(--text-secondary)",
           }}
         >
-          <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-            <FiShield color={attemptMeta?.mode === "MOCK" ? "#dc2626" : "#16a34a"} />{" "}
+          <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <FiShield color={attemptMeta?.mode === "MOCK" ? "#ef4444" : "#22c55e"} />{" "}
             {attemptMeta?.mode === "MOCK" ? "Strict Exam Integrity" : "Self-Paced Practice"}
           </div>
           {attemptMeta?.mode === "MOCK" ? (
             <div>
               Strikes:{" "}
-              <strong style={{ color: (attemptMeta?.hardStrikes || 0) > 0 ? "#dc2626" : "#15803d" }}>
+              <strong style={{ color: (attemptMeta?.hardStrikes || 0) > 0 ? "var(--status-error-text)" : "var(--status-success-text)" }}>
                 {attemptMeta?.hardStrikes || 0} / {attemptMeta?.maxStrikes || 2}
               </strong>
             </div>
           ) : (
-            <div style={{ color: "#15803d", fontWeight: 600 }}>
+            <div style={{ color: "var(--status-success-text)", fontWeight: 600 }}>
               No Strike Penalties Active
             </div>
           )}
@@ -724,7 +724,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
             transform: "rotate(-18deg) scale(1.15)",
             fontSize: "0.82rem",
             fontWeight: 800,
-            color: "#0A2540",
+            color: "var(--text-primary)",
             whiteSpace: "nowrap",
           }}
         >

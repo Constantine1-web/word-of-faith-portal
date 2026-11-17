@@ -28,8 +28,8 @@ export default async function NewsDetails({ params }: { params: Promise<{ slug: 
       }}>
         <div className="container" style={{ maxWidth: "800px" }}>
           <span style={{ 
-            background: "var(--color-primary-green)", 
-            color: "white", 
+            background: "var(--brand-primary)", 
+            color: "var(--brand-primary-text)", 
             padding: "0.5rem 1rem", 
             borderRadius: "20px", 
             fontSize: "0.85rem", 

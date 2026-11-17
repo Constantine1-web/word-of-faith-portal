@@ -243,7 +243,7 @@ export default function ContactPage() {
                 overflow: "hidden",
                 boxShadow: "var(--shadow-sm)",
                 height: "320px",
-                border: "1px solid var(--border-color)",
+                border: "1px solid var(--border-primary)",
               }}
             >
               <iframe
@@ -262,11 +262,11 @@ export default function ContactPage() {
           {/* Contact Form */}
           <div
             style={{
-              background: "var(--color-white)",
+              background: "var(--bg-card)",
               padding: "clamp(1.25rem, 4vw, 2.75rem)",
               borderRadius: "var(--radius-lg)",
               boxShadow: "var(--shadow-md)",
-              border: "1px solid var(--border-color)",
+              border: "1px solid var(--border-primary)",
             }}
           >
             <h3
@@ -278,25 +278,25 @@ export default function ContactPage() {
             >
               Send Us a Message
             </h3>
-            <p style={{ color: "var(--color-gray-600)", fontSize: "0.95rem", marginBottom: "1.75rem" }}>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", marginBottom: "1.75rem" }}>
               Our administrative and admissions team typically replies within 24 business hours.
             </p>
 
             {status === "success" && (
               <div
                 style={{
-                  background: "rgba(34, 197, 94, 0.12)",
-                  border: "1px solid #4ade80",
+                  background: "var(--status-success-bg)",
+                  border: "1px solid var(--status-success-border)",
                   borderRadius: "var(--radius-md)",
                   padding: "1rem 1.25rem",
                   marginBottom: "1.5rem",
                   display: "flex",
                   alignItems: "center",
                   gap: "0.75rem",
-                  color: "#166534",
+                  color: "var(--status-success-text)",
                 }}
               >
-                <FiCheckCircle size={22} color="#16a34a" />
+                <FiCheckCircle size={22} />
                 <div>
                   <strong style={{ display: "block" }}>Message Received!</strong>
                   <span style={{ fontSize: "0.9rem" }}>

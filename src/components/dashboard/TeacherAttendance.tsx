@@ -38,19 +38,19 @@ export default function TeacherAttendance({ classId, students }: { classId: numb
   return (
     <div style={{ marginTop: "2rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-        <h4 style={{ color: "var(--color-navy-blue)", margin: 0 }}>Daily Attendance</h4>
+        <h4 style={{ color: "var(--text-heading)", margin: 0 }}>Daily Attendance</h4>
         <input 
           type="date" 
           value={date} 
           onChange={(e) => setDate(e.target.value)}
-          className="btn-outline"
-          style={{ padding: "0.5rem", borderRadius: "var(--radius-sm)" }}
+          className="form-input"
+          style={{ padding: "0.5rem", borderRadius: "var(--radius-sm)", width: "auto" }}
         />
       </div>
 
-      <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", background: "white", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+      <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
         <thead>
-          <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
+          <tr style={{ background: "var(--bg-secondary)", borderBottom: "2px solid var(--border-primary)" }}>
             <th style={{ padding: "1rem", textAlign: "left" }}>Student Name</th>
             <th style={{ padding: "1rem", textAlign: "center" }}>Status</th>
             <th style={{ padding: "1rem", textAlign: "center" }}>Action</th>
@@ -60,15 +60,16 @@ export default function TeacherAttendance({ classId, students }: { classId: numb
           {students.map(s => {
             const current = attendance[s.StudentID] || "Not Marked";
             return (
-              <tr key={s.StudentID} style={{ borderBottom: "1px solid var(--color-gray-100)" }}>
+              <tr key={s.StudentID} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                 <td data-label="Student Name" style={{ padding: "1rem", fontWeight: "500" }}>{s.PreferredName || s.User?.Email}</td>
                 <td data-label="Status" style={{ padding: "1rem", textAlign: "center" }}>
                   <span style={{ 
                     padding: "0.25rem 0.75rem", 
                     borderRadius: "15px", 
                     fontSize: "0.85rem",
-                    background: current === "Present" ? "#d1fae5" : current === "Absent" ? "#fee2e2" : current === "Late" ? "#fef3c7" : "#f3f4f6",
-                    color: current === "Present" ? "#065f46" : current === "Absent" ? "#991b1b" : current === "Late" ? "#92400e" : "#374151",
+                    background: current === "Present" ? "var(--status-success-bg)" : current === "Absent" ? "var(--status-error-bg)" : current === "Late" ? "var(--status-warning-bg)" : "var(--bg-tertiary)",
+                    color: current === "Present" ? "var(--status-success-text)" : current === "Absent" ? "var(--status-error-text)" : current === "Late" ? "var(--status-warning-text)" : "var(--text-secondary)",
+                    border: `1px solid ${current === "Present" ? "var(--status-success-border)" : current === "Absent" ? "var(--status-error-border)" : current === "Late" ? "var(--status-warning-border)" : "var(--border-subtle)"}`,
                     fontWeight: "bold"
                   }}>
                     {current}
@@ -88,7 +89,7 @@ export default function TeacherAttendance({ classId, students }: { classId: numb
           })}
         </tbody>
       </table>
-      {status && <p style={{ color: "red", marginTop: "1rem" }}>{status}</p>}
+      {status && <p style={{ color: "var(--status-error-text)", marginTop: "1rem", fontWeight: 600 }}>{status}</p>}
     </div>
   );
 }

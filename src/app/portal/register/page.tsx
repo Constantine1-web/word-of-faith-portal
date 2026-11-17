@@ -89,12 +89,12 @@ export default function Register() {
     <div className={styles.loginContainer}>
       <div className={styles.loginCard}>
         <h1 className={styles.title}>Student Registration</h1>
-        <p style={{ textAlign: "center", marginBottom: "1.5rem", color: "var(--color-gray-800)", fontSize: "0.9rem" }}>
+        <p style={{ textAlign: "center", marginBottom: "1.5rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
           {step === 1 ? "Enter your school-assigned Registration Number to claim your portal account." : "Enter the 6-digit verification code sent to your email."}
         </p>
         
         {error && <div className={styles.error}>{error}</div>}
-        {success && <div style={{ background: "var(--color-primary-green)", color: "#fff", padding: "0.75rem", borderRadius: "var(--radius-sm)", marginBottom: "1.5rem", textAlign: "center" }}>{success}</div>}
+        {success && <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.75rem", borderRadius: "var(--radius-sm)", marginBottom: "1.5rem", textAlign: "center", fontWeight: 600 }}>{success}</div>}
 
         {step === 1 ? (
           <form onSubmit={handleInitiate}>

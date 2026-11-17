@@ -64,7 +64,7 @@ export default function PreviewResponsivePage() {
             style={{
               padding: "0.4rem 0.8rem",
               borderRadius: "4px",
-              background: activeTab === "student" ? "#f43f5e" : "rgba(255,255,255,0.1)",
+              background: activeTab === "student" ? "#be123c" : "rgba(255,255,255,0.1)",
               color: "white",
               border: "none",
               cursor: "pointer",
@@ -154,7 +154,7 @@ export default function PreviewResponsivePage() {
                       <td style={{ padding: "1rem", textAlign: "center" }}>35</td>
                       <td style={{ padding: "1rem", textAlign: "center" }}>54</td>
                       <td style={{ padding: "1rem", textAlign: "center", fontWeight: "bold" }}>89</td>
-                      <td style={{ padding: "1rem", textAlign: "center", color: "#166534", fontWeight: "bold" }}>A</td>
+                      <td style={{ padding: "1rem", textAlign: "center", color: "var(--status-success-text)", fontWeight: "bold" }}>A</td>
                     </tr>
                   ))}
                 </tbody>
@@ -178,18 +178,18 @@ export default function PreviewResponsivePage() {
           }
         >
           <div>
-            <h1 style={{ color: "var(--color-navy-blue)" }}>Educator Workspace</h1>
-            <p style={{ color: "var(--color-gray-600)", marginBottom: "1.5rem" }}>
+            <h1 style={{ color: "var(--text-heading)" }}>Educator Workspace</h1>
+            <p style={{ color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
               Continuous assessment and grade entry.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
-              <div style={{ background: "white", padding: "1.5rem", borderRadius: "8px", boxShadow: "var(--shadow-sm)" }}>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", padding: "1.5rem", borderRadius: "8px", boxShadow: "var(--shadow-sm)" }}>
                 <h3>SS2 Mathematics</h3>
-                <p style={{ color: "var(--color-gray-500)" }}>38 Students Enrolled</p>
+                <p style={{ color: "var(--text-muted)" }}>38 Students Enrolled</p>
               </div>
-              <div style={{ background: "white", padding: "1.5rem", borderRadius: "8px", boxShadow: "var(--shadow-sm)" }}>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", padding: "1.5rem", borderRadius: "8px", boxShadow: "var(--shadow-sm)" }}>
                 <h3>JSS3 Basic Science</h3>
-                <p style={{ color: "var(--color-gray-500)" }}>42 Students Enrolled</p>
+                <p style={{ color: "var(--text-muted)" }}>42 Students Enrolled</p>
               </div>
             </div>
           </div>
@@ -200,12 +200,12 @@ export default function PreviewResponsivePage() {
         <div className={styles.layoutContainer}>
           <Sidebar />
           <main className={styles.mainContent} style={{ padding: "1.5rem" }}>
-            <h1 style={{ color: "white" }}>Student Dashboard</h1>
-            <p style={{ color: "rgba(255,255,255,0.8)", marginBottom: "1.5rem" }}>
+            <h1 style={{ color: "var(--text-heading)" }}>Student Dashboard</h1>
+            <p style={{ color: "var(--text-secondary)", marginBottom: "1.5rem" }}>
               Track academic progress and fee payments.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: "1rem" }}>
-              <div style={{ background: "rgba(255,255,255,0.1)", color: "white", padding: "1.5rem", borderRadius: "8px" }}>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", color: "var(--text-primary)", padding: "1.5rem", borderRadius: "8px", boxShadow: "var(--shadow-sm)" }}>
                 <h3>First Term</h3>
                 <p>Status: Registered</p>
               </div>

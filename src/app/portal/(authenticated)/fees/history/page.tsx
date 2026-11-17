@@ -211,8 +211,8 @@ export default function FeesHistoryPage() {
                             padding: "0.4rem 0.8rem",
                             borderRadius: "8px",
                             border: "none",
-                            background: "var(--color-navy-blue)",
-                            color: "var(--btn-primary-text, #ffffff)",
+                            background: "var(--brand-secondary)",
+                            color: "var(--brand-secondary-text)",
                             fontSize: "0.8rem",
                             fontWeight: 700,
                             cursor: "pointer",
@@ -263,7 +263,7 @@ export default function FeesHistoryPage() {
                   type="button"
                   onClick={() => handlePrintReceipt(selectedReceipt)}
                   style={{
-                    background: "#16a34a",
+                    background: "#15803d",
                     color: "#ffffff",
                     border: "none",
                     borderRadius: "8px",

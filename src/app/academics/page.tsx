@@ -37,7 +37,7 @@ export default function Academics() {
           </div>
 
           <div style={{ background: "var(--color-white)", padding: "clamp(1.5rem, 4vw, 2.5rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)", transition: "transform 0.3s ease" }} className="hover-lift">
-            <div style={{ color: "#f97316", fontSize: "2.5rem", marginBottom: "1rem" }}><FiBriefcase /></div>
+            <div style={{ color: "var(--accent-orange)", fontSize: "2.5rem", marginBottom: "1rem" }}><FiBriefcase /></div>
             <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.5rem", marginBottom: "1rem" }}>Practical Skill-Building</h3>
             <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6 }}>
               We strongly emphasize active entrepreneurship. Through our annual trade fairs and practical workshops, students learn to build, market, and sell real products.
@@ -77,15 +77,15 @@ export default function Academics() {
             <div className="responsive-grid" style={{ gap: "clamp(1.5rem, 4vw, 3rem)", alignItems: "center" }}>
               <div style={{ height: "clamp(240px, 40vw, 400px)", background: "url('/images/academics/media__1782455258837.jpg') center/cover", borderRadius: "var(--radius-lg)", order: 2 }}></div>
               <div style={{ background: "var(--color-white)", padding: "clamp(1.25rem, 4vw, 3rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-md)", order: 1 }}>
-                <span style={{ color: "#3b82f6", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px" }}>Basic Education</span>
+                <span style={{ color: "var(--accent-blue)", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px" }}>Basic Education</span>
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "clamp(1.4rem, 4vw, 2rem)", margin: "1rem 0" }}>Primary School</h3>
                 <p style={{ color: "var(--color-gray-600)", lineHeight: 1.8, marginBottom: "1.5rem" }}>
                   At the Primary level, we seamlessly blend the Nigerian National Curriculum with International Standards, laying a robust foundation for academic excellence.
                 </p>
                 <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "#3b82f6" }} /> Advanced Literacy & Numeracy</li>
-                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "#3b82f6" }} /> Basic Science & Technology</li>
-                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "#3b82f6" }} /> Coding & ICT Introduction</li>
+                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "var(--accent-blue)" }} /> Advanced Literacy & Numeracy</li>
+                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "var(--accent-blue)" }} /> Basic Science & Technology</li>
+                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "var(--accent-blue)" }} /> Coding & ICT Introduction</li>
                 </ul>
               </div>
             </div>
@@ -93,15 +93,15 @@ export default function Academics() {
             {/* Secondary */}
             <div id="high-school" className="responsive-grid" style={{ gap: "clamp(1.5rem, 4vw, 3rem)", alignItems: "center" }}>
               <div style={{ background: "var(--color-white)", padding: "clamp(1.25rem, 4vw, 3rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-md)" }}>
-                <span style={{ color: "#a855f7", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px" }}>High School</span>
+                <span style={{ color: "var(--accent-purple)", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px" }}>High School</span>
                 <h3 style={{ color: "var(--color-navy-blue)", fontSize: "clamp(1.4rem, 4vw, 2rem)", margin: "1rem 0" }}>Secondary School</h3>
                 <p style={{ color: "var(--color-gray-600)", lineHeight: 1.8, marginBottom: "1.5rem" }}>
                   Our Secondary School prepares students for global leadership. Senior students are guided into specialized Science, Arts, or Commercial classes to prepare them for WAEC, NECO, and International Exams.
                 </p>
                 <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "0.8rem" }}>
-                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "#a855f7" }} /> Comprehensive WAEC/NECO Prep</li>
-                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "#a855f7" }} /> STEM & Robotics Laboratories</li>
-                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "#a855f7" }} /> Specialized Art & Humanities Tracking</li>
+                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "var(--accent-purple)" }} /> Comprehensive WAEC/NECO Prep</li>
+                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "var(--accent-purple)" }} /> STEM & Robotics Laboratories</li>
+                  <li style={{ display: "flex", alignItems: "center", gap: "0.8rem", color: "var(--color-gray-800)" }}><FiCheckCircle style={{ color: "var(--accent-purple)" }} /> Specialized Art & Humanities Tracking</li>
                 </ul>
               </div>
               <div style={{ height: "clamp(240px, 40vw, 400px)", background: "url('/images/academics/media__1782455266075.jpg') center/cover", borderRadius: "var(--radius-lg)" }}></div>

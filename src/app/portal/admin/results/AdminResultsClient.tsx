@@ -207,8 +207,9 @@ export default function AdminResultsClient({
             padding: "1rem",
             marginBottom: "1.5rem",
             borderRadius: "var(--radius-md)",
-            background: message.type === "error" ? "#fee2e2" : "#dcfce7",
-            color: message.type === "error" ? "#b91c1c" : "#15803d",
+            background: message.type === "error" ? "var(--status-error-bg)" : "var(--status-success-bg)",
+            color: message.type === "error" ? "var(--status-error-text)" : "var(--status-success-text)",
+            border: `1px solid ${message.type === "error" ? "var(--status-error-border)" : "var(--status-success-border)"}`,
             fontWeight: "bold",
           }}
         >
@@ -367,8 +368,8 @@ export default function AdminResultsClient({
                             borderRadius: "var(--radius-full)",
                             fontSize: "0.82rem",
                             fontWeight: "bold",
-                            background: isAllSubmitted ? "#dcfce7" : "#fef3c7",
-                            color: isAllSubmitted ? "#15803d" : "#b45309",
+                            background: isAllSubmitted ? "var(--status-success-bg)" : "var(--status-warning-bg)",
+                            color: isAllSubmitted ? "var(--status-success-text)" : "var(--status-warning-text)",
                           }}
                         >
                           {submitted} / {totalSubj} Sheets
@@ -384,20 +385,20 @@ export default function AdminResultsClient({
                               fontWeight: 700,
                               background:
                                 bsStatus === "PUBLISHED"
-                                  ? "#dcfce7"
+                                  ? "var(--status-success-bg)"
                                   : bsStatus === "SIGNED_OFF"
-                                  ? "#ede9fe"
+                                  ? "var(--status-purple-bg)"
                                   : bsStatus === "COMPUTED"
-                                  ? "#dbeafe"
-                                  : "#f3f4f6",
+                                  ? "var(--status-info-bg)"
+                                  : "var(--bg-tertiary)",
                               color:
                                 bsStatus === "PUBLISHED"
-                                  ? "#15803d"
+                                  ? "var(--status-success-text)"
                                   : bsStatus === "SIGNED_OFF"
-                                  ? "#6d28d9"
+                                  ? "var(--status-purple-text)"
                                   : bsStatus === "COMPUTED"
-                                  ? "#1d4ed8"
-                                  : "#4b5563",
+                                  ? "var(--status-info-text)"
+                                  : "var(--text-secondary)",
                             }}
                           >
                             {bsStatus} {bs?.computeVersion ? `(v${bs.computeVersion})` : ""}
@@ -406,8 +407,9 @@ export default function AdminResultsClient({
                             <span
                               style={{
                                 fontSize: "0.72rem",
-                                color: "#b91c1c",
-                                background: "#fee2e2",
+                                color: "var(--status-error-text)",
+                                background: "var(--status-error-bg)",
+                                border: "1px solid var(--status-error-border)",
                                 padding: "0.1rem 0.45rem",
                                 borderRadius: "4px",
                                 fontWeight: 700,
@@ -443,8 +445,8 @@ export default function AdminResultsClient({
                               display: "inline-flex",
                               alignItems: "center",
                               gap: "0.25rem",
-                              borderColor: "#6d28d9",
-                              color: "#6d28d9",
+                              borderColor: "var(--status-purple-border)",
+                              color: "var(--status-purple-text)",
                             }}
                             title="Principal Sign-Off"
                           >
@@ -528,16 +530,16 @@ export default function AdminResultsClient({
                           borderRadius: "999px",
                           fontSize: "0.8rem",
                           fontWeight: 700,
-                          background: sheet.Status === "Draft" ? "#f3f4f6" : "#fef3c7",
-                          color: sheet.Status === "Draft" ? "#374151" : "#b45309",
+                          background: sheet.Status === "Draft" ? "var(--bg-tertiary)" : "var(--status-warning-bg)",
+                          color: sheet.Status === "Draft" ? "var(--text-secondary)" : "var(--status-warning-text)",
                         }}
                       >
                         {sheet.Status}
                       </span>
                     </td>
-                    <td style={{ padding: "1rem", fontSize: "0.88rem", color: "var(--color-gray-700)" }}>
+                    <td style={{ padding: "1rem", fontSize: "0.88rem", color: "var(--text-secondary)" }}>
                       {sheet.UnlockRequestedReason || sheet.UnlockedReason || (
-                        <span style={{ color: "var(--color-gray-400)", fontStyle: "italic" }}>
+                        <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
                           No formal request note
                         </span>
                       )}
@@ -551,8 +553,8 @@ export default function AdminResultsClient({
                           style={{
                             padding: "0.4rem 0.8rem",
                             fontSize: "0.82rem",
-                            borderColor: "#b45309",
-                            color: "#b45309",
+                            borderColor: "var(--status-warning-border)",
+                            color: "var(--status-warning-text)",
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "0.3rem",
@@ -561,7 +563,7 @@ export default function AdminResultsClient({
                           <FiUnlock /> Unlock (24h Window)
                         </button>
                       ) : (
-                        <span style={{ fontSize: "0.82rem", color: "#15803d", fontWeight: 600 }}>
+                        <span style={{ fontSize: "0.82rem", color: "var(--status-success-text)", fontWeight: 600 }}>
                           Open in Draft
                         </span>
                       )}

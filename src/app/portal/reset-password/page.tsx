@@ -88,18 +88,18 @@ function ResetPasswordContent() {
     <div className={styles.loginContainer}>
       <div className={styles.loginCard}>
         <h1 className={styles.title}>Set New Password</h1>
-        <p style={{ textAlign: "center", marginBottom: "1.25rem", color: "var(--color-gray-800)", fontSize: "0.9rem" }}>
+        <p style={{ textAlign: "center", marginBottom: "1.25rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
           Enter the 6-digit code sent to <strong>{email || "your email"}</strong> and choose a new password.
         </p>
 
         {error && <div className={styles.error}>{error}</div>}
         {success && (
-          <div style={{ background: "var(--color-primary-green)", color: "#fff", padding: "0.75rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", textAlign: "center" }}>
+          <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.75rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", textAlign: "center", fontWeight: 600 }}>
             {success}
           </div>
         )}
         {resendMsg && (
-          <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", padding: "0.6rem 0.8rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", fontSize: "0.85rem", textAlign: "center" }}>
+          <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", color: "var(--status-success-text)", padding: "0.6rem 0.8rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", fontSize: "0.85rem", textAlign: "center" }}>
             {resendMsg}
           </div>
         )}
@@ -126,7 +126,7 @@ function ResetPasswordContent() {
               required 
             />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.4rem" }}>
-              <span style={{ fontSize: "0.75rem", color: "#64748b" }}>Code expires in 15 minutes</span>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Code expires in 15 minutes</span>
               <button
                 type="button"
                 onClick={handleResendCode}
@@ -134,7 +134,7 @@ function ResetPasswordContent() {
                 style={{
                   background: "none",
                   border: "none",
-                  color: resendCooldown > 0 ? "#94a3b8" : "var(--color-primary-green, #10b981)",
+                  color: resendCooldown > 0 ? "var(--text-disabled)" : "var(--brand-accent)",
                   fontSize: "0.8rem",
                   fontWeight: 600,
                   cursor: resendCooldown > 0 ? "default" : "pointer",
@@ -158,7 +158,7 @@ function ResetPasswordContent() {
                 {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
               </button>
             </div>
-            <small style={{ color: "var(--color-gray-500)", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" }}>Must contain letters, numbers, and special characters (min 8 chars).</small>
+            <small style={{ color: "var(--text-muted)", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" }}>Must contain letters, numbers, and special characters (min 8 chars).</small>
           </div>
 
           <div className={styles.formGroup}>
@@ -175,8 +175,8 @@ function ResetPasswordContent() {
             {loading ? "Resetting Password..." : "Reset Password"}
           </button>
 
-          <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", fontSize: "0.8rem", color: "#475569", lineHeight: 1.5 }}>
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontWeight: "600", color: "#1e293b", marginBottom: "0.2rem" }}>
+          <div style={{ marginTop: "1rem", padding: "0.75rem", background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)", borderRadius: "8px", fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontWeight: "600", color: "var(--text-primary)", marginBottom: "0.2rem" }}>
               <FiInfo /> Need immediate assistance?
             </div>
             If the email takes too long or you no longer have access to this email address, contact your <strong>Form Master</strong> or the <strong>School ICT Administrator</strong> to reset your password instantly.

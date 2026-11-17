@@ -3,24 +3,28 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--color-gray-100);
+  background-color: var(--bg-secondary);
   padding: 2rem 1rem;
+  transition: background-color var(--transition-theme);
 }
 
 .loginCard {
-  background: var(--color-white);
+  background: var(--bg-card);
+  color: var(--text-primary);
   padding: 3rem 2rem;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 450px;
-  border-top: 5px solid var(--color-navy-blue);
+  border: 1px solid var(--border-subtle);
+  border-top: 5px solid var(--brand-primary);
+  transition: background-color var(--transition-theme), border-color var(--transition-theme);
 }
 
 .title {
   text-align: center;
   margin-bottom: 2rem;
-  color: var(--color-navy-blue);
+  color: var(--text-heading);
 }
 
 .formGroup {
@@ -30,60 +34,70 @@
 .label {
   display: block;
   margin-bottom: 0.5rem;
-  font-weight: 500;
-  color: var(--color-gray-800);
+  font-weight: 600;
+  color: var(--text-label);
 }
 
 .input {
   width: 100%;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--color-gray-200);
+  border: 1px solid var(--input-outline);
   border-radius: var(--radius-md);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
   font-family: inherit;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-theme), color var(--transition-theme);
+}
+
+.input::placeholder {
+  color: var(--text-placeholder);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--color-primary-green);
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+  border-color: var(--active-border);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .button {
   width: 100%;
   margin-top: 1rem;
   padding: 1rem;
-  background-color: var(--color-navy-blue);
-  color: var(--color-white);
+  background-color: var(--brand-secondary);
+  color: var(--brand-secondary-text);
   border: none;
   border-radius: var(--radius-md);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease-in-out;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: background-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: var(--shadow-sm);
 }
 
-.button:hover {
-  background-color: var(--color-primary-green);
+.button:hover:not(:disabled) {
+  background-color: var(--brand-primary);
+  color: var(--brand-primary-text);
   transform: translateY(-2px);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-md);
 }
 
 .button:disabled {
-  background-color: var(--color-gray-400);
+  background-color: var(--text-disabled);
+  opacity: 0.65;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
 }
 
 .error {
-  color: #ef4444;
-  background: #fee2e2;
+  color: var(--status-error-text);
+  background: var(--status-error-bg);
+  border: 1px solid var(--status-error-border);
   padding: 0.75rem;
   border-radius: var(--radius-sm);
   margin-bottom: 1rem;
   font-size: 0.9rem;
+  font-weight: 600;
   text-align: center;
 }
 
@@ -91,6 +105,7 @@
   margin-top: 1.5rem;
   text-align: center;
   font-size: 0.9rem;
+  color: var(--text-secondary);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -98,14 +113,15 @@
 }
 
 .link {
-  color: #4ADE80;
-  font-weight: bold;
+  color: var(--brand-accent);
+  font-weight: 700;
   text-decoration: none;
   transition: color 0.2s;
 }
 
 .link:hover {
-  color: #FFFFFF;
+  color: var(--text-heading);
+  text-decoration: underline;
 }
 
 @media (max-width: 480px) {

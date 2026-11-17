@@ -41,7 +41,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
           style={{
             marginTop: "0.75rem",
             fontSize: "0.85rem",
-            color: "rgba(255,255,255,0.85)",
+            color: "var(--sidebar-muted)",
             fontWeight: 600,
             wordBreak: "break-all",
           }}
@@ -92,7 +92,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -106,7 +106,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -120,7 +120,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -134,7 +134,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -148,7 +148,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -162,7 +162,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -176,7 +176,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -190,7 +190,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -204,7 +204,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -218,7 +218,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -232,7 +232,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -246,7 +246,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}
@@ -260,7 +260,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             alignItems: "center",
             gap: "0.85rem",
             padding: "0.7rem 1rem",
-            color: "rgba(255,255,255,0.88)",
+            color: "var(--sidebar-muted)",
             textDecoration: "none",
             borderRadius: "0.5rem",
           }}

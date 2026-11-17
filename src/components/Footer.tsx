@@ -22,9 +22,9 @@ export default function Footer() {
   return (
     <footer
       style={{
-        background: "linear-gradient(180deg, #0A2540 0%, #061828 100%)",
-        color: "white",
-        borderTop: "3px solid var(--color-primary-green)",
+        background: "var(--footer-bg)",
+        color: "var(--footer-text)",
+        borderTop: "3px solid var(--brand-primary)",
         padding: "clamp(3rem, 6vw, 4.5rem) 1rem 1.5rem",
       }}
     >
@@ -54,7 +54,7 @@ export default function Footer() {
                 </span>
               </div>
             </div>
-            <p style={{ color: "rgba(255, 255, 255, 0.8)", fontSize: "0.88rem", lineHeight: 1.6, margin: "0 0 1.25rem 0" }}>
+            <p style={{ color: "var(--footer-muted)", fontSize: "0.88rem", lineHeight: 1.6, margin: "0 0 1.25rem 0" }}>
               A premier Christian institution committed to nurturing the total child—spirit, body, and soul. Raising leaders with academic brilliance, godly character, and practical excellence.
             </p>
             <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", background: "rgba(34, 197, 94, 0.15)", padding: "0.4rem 0.8rem", borderRadius: "999px", border: "1px solid rgba(74, 222, 128, 0.3)" }}>
@@ -72,32 +72,32 @@ export default function Footer() {
             </h4>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.65rem", fontSize: "0.88rem" }}>
               <li>
-                <Link href="/" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#4ade80" /> Home Overview
                 </Link>
               </li>
               <li>
-                <Link href="/about" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/about" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#4ade80" /> About Our Legacy &amp; Vision
                 </Link>
               </li>
               <li>
-                <Link href="/academics" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/academics" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#4ade80" /> Academics &amp; Curriculum
                 </Link>
               </li>
               <li>
-                <Link href="/admissions" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/admissions" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#4ade80" /> Online Admissions Application
                 </Link>
               </li>
               <li>
-                <Link href="/news" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/news" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#4ade80" /> School News &amp; Events
                 </Link>
               </li>
               <li>
-                <Link href="/contact" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/contact" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#4ade80" /> Contact &amp; Campus Location
                 </Link>
               </li>
@@ -111,32 +111,32 @@ export default function Footer() {
             </h4>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.65rem", fontSize: "0.88rem" }}>
               <li>
-                <Link href="/portal/login" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/portal/login" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#38bdf8" /> Student &amp; Parent Portal Login
                 </Link>
               </li>
               <li>
-                <Link href="/portal/results" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/portal/results" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#38bdf8" /> Check Terminal Examination Results
                 </Link>
               </li>
               <li>
-                <Link href="/portal/cbt" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/portal/cbt" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#38bdf8" /> CBT Examination &amp; Practice Suite
                 </Link>
               </li>
               <li>
-                <Link href="/portal/courses" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/portal/courses" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#38bdf8" /> Lesson Notes &amp; Homework Hub
                 </Link>
               </li>
               <li>
-                <Link href="/portal/fees" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/portal/fees" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#38bdf8" /> Tuition &amp; Bursary Clearance
                 </Link>
               </li>
               <li>
-                <Link href="/portal/register" style={{ color: "rgba(255,255,255,0.8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                <Link href="/portal/register" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
                   <FiArrowRight size={13} color="#38bdf8" /> New Student Scratch Card Activation
                 </Link>
               </li>
@@ -148,7 +148,7 @@ export default function Footer() {
             <h4 style={{ color: "#4ade80", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "1.25rem" }}>
               Campus Information
             </h4>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", fontSize: "0.86rem", color: "rgba(255, 255, 255, 0.85)" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", fontSize: "0.86rem", color: "var(--footer-text)" }}>
               <div style={{ display: "flex", gap: "0.65rem", alignItems: "flex-start" }}>
                 <FiMapPin color="#4ade80" size={17} style={{ flexShrink: 0, marginTop: "2px" }} />
                 <span>
@@ -174,7 +174,7 @@ export default function Footer() {
         {/* Bottom Strip */}
         <div
           style={{
-            borderTop: "1px solid rgba(255, 255, 255, 0.12)",
+            borderTop: "1px solid var(--footer-border)",
             paddingTop: "1.5rem",
             display: "flex",
             justifyContent: "space-between",
@@ -182,17 +182,17 @@ export default function Footer() {
             flexWrap: "wrap",
             gap: "1rem",
             fontSize: "0.82rem",
-            color: "rgba(255, 255, 255, 0.65)",
+            color: "var(--footer-muted)",
           }}
         >
           <div>
             &copy; {new Date().getFullYear()} Word of Faith Schools. All Rights Reserved. Built with Academic &amp; Spiritual Excellence.
           </div>
           <div style={{ display: "flex", gap: "1.25rem" }}>
-            <Link href="/about" style={{ color: "rgba(255, 255, 255, 0.65)", textDecoration: "none" }}>
+            <Link href="/about" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>
               Privacy &amp; Honor Code
             </Link>
-            <Link href="/contact" style={{ color: "rgba(255, 255, 255, 0.65)", textDecoration: "none" }}>
+            <Link href="/contact" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>
               Campus Directions
             </Link>
             <Link href="/portal/login" style={{ color: "#4ade80", textDecoration: "none", fontWeight: 700 }}>

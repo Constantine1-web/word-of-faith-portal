@@ -22,7 +22,7 @@ export function WordFadeIn({
         hidden: { opacity: 0 },
         visible: {
           opacity: 1,
-          transition: { staggerChildren: 0.1, delayChildren: delay }
+          transition: { staggerChildren: 0.015, delayChildren: delay }
         }
       }}
     >
@@ -30,8 +30,8 @@ export function WordFadeIn({
         <motion.span
           key={index}
           variants={{
-            hidden: { opacity: 0, y: 10 },
-            visible: { opacity: 1, y: 0 }
+            hidden: { opacity: 0, y: 6 },
+            visible: { opacity: 1, y: 0, transition: { duration: 0.2 } }
           }}
           style={{ display: "inline-block", marginRight: "0.25em" }}
         >

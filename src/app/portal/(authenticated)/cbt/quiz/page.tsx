@@ -34,8 +34,8 @@ export default async function QuizPage({
     if (!started.success || !started.attemptId) {
       return (
         <div style={{ padding: "3rem", textAlign: "center", maxWidth: "600px", margin: "0 auto" }}>
-          <h2 style={{ color: "#b91c1c" }}>Unable to Start CBT Attempt</h2>
-          <p style={{ color: "#475569", margin: "1rem 0 1.5rem 0" }}>
+          <h2 style={{ color: "var(--status-error-text)" }}>Unable to Start CBT Attempt</h2>
+          <p style={{ color: "var(--text-secondary)", margin: "1rem 0 1.5rem 0" }}>
             {started.error || "Please return to the CBT portal to start a new session."}
           </p>
           <a href="/portal/cbt" className="btn btn-primary" style={{ textDecoration: "none" }}>

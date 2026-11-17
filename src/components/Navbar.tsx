@@ -50,7 +50,7 @@ export default function Navbar() {
           <MobileBackButton />
           <Link href="/" onClick={closeMenu} className={styles.logoLink}>
             <img src="/logo.jpg" alt="Word of Faith Schools" className={styles.logoImg} />
-            <span className="logo-text" style={{ fontWeight: "bold", color: "var(--color-navy-blue)" }}>Word of Faith Schools</span>
+            <span className="logo-text" style={{ fontWeight: "bold", color: "var(--text-heading)" }}>Word of Faith Schools</span>
           </Link>
         </div>
         <div className={styles.navRight}>

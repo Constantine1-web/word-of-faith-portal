@@ -416,65 +416,65 @@ export default function TeachersClient({
             boxShadow: "var(--shadow-sm)",
           }}
         >
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-label)", textTransform: "uppercase" }}>
             Active Academic Staff
           </div>
-          <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--color-navy-blue)", marginTop: "0.25rem" }}>
+          <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--text-heading)", marginTop: "0.25rem" }}>
             {kpis.totalTeachers}
           </div>
         </div>
 
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.15rem 1.25rem",
             borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
             boxShadow: "var(--shadow-sm)",
           }}
         >
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#166534", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--status-success-text)", textTransform: "uppercase" }}>
             Designated Form Masters
           </div>
-          <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "#15803d", marginTop: "0.25rem" }}>
+          <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--status-success-text)", marginTop: "0.25rem" }}>
             {kpis.formMastersCount}
           </div>
         </div>
 
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.15rem 1.25rem",
             borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
             boxShadow: "var(--shadow-sm)",
           }}
         >
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-label)", textTransform: "uppercase" }}>
             Subject-Class Allocations
           </div>
-          <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--color-navy-blue)", marginTop: "0.25rem" }}>
+          <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--text-heading)", marginTop: "0.25rem" }}>
             {kpis.totalSubjectAllocations}
           </div>
         </div>
 
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.15rem 1.25rem",
             borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
             boxShadow: "var(--shadow-sm)",
           }}
         >
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-label)", textTransform: "uppercase" }}>
             Classes Without Form Master
           </div>
           <div
             style={{
               fontSize: "1.65rem",
               fontWeight: 800,
-              color: kpis.unassignedClassesCount > 0 ? "#d97706" : "#15803d",
+              color: kpis.unassignedClassesCount > 0 ? "var(--status-warning-text)" : "var(--status-success-text)",
               marginTop: "0.25rem",
             }}
           >
@@ -486,8 +486,9 @@ export default function TeachersClient({
       {error && (
         <div
           style={{
-            background: "#fee2e2",
-            color: "#b91c1c",
+            background: "var(--status-error-bg)",
+            color: "var(--status-error-text)",
+            border: "1px solid var(--status-error-border)",
             padding: "1rem",
             borderRadius: "var(--radius-md)",
             marginBottom: "1.25rem",
@@ -500,8 +501,9 @@ export default function TeachersClient({
       {success && (
         <div
           style={{
-            background: "#dcfce7",
-            color: "#15803d",
+            background: "var(--status-success-bg)",
+            color: "var(--status-success-text)",
+            border: "1px solid var(--status-success-border)",
             padding: "1rem",
             borderRadius: "var(--radius-md)",
             marginBottom: "1.25rem",
@@ -516,8 +518,8 @@ export default function TeachersClient({
       {provisionedCredentials && (
         <div
           style={{
-            background: "#f0fdf4",
-            border: "2px solid #22c55e",
+            background: "var(--status-success-bg)",
+            border: "2px solid var(--status-success-border)",
             borderRadius: "var(--radius-lg)",
             padding: "1.25rem 1.5rem",
             marginBottom: "1.5rem",
@@ -529,17 +531,17 @@ export default function TeachersClient({
           }}
         >
           <div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "#166534", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            <div style={{ fontSize: "0.78rem", fontWeight: 800, color: "var(--status-success-text)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
               New Staff Account Provisioned Ready for Login
             </div>
-            <div style={{ marginTop: "0.35rem", fontSize: "0.95rem", color: "#0f172a" }}>
+            <div style={{ marginTop: "0.35rem", fontSize: "0.95rem", color: "var(--text-primary)" }}>
               <strong>Email:</strong> <code>{provisionedCredentials.email}</code> &nbsp;|&nbsp;{" "}
               <strong>Temporary Password:</strong>{" "}
-              <code style={{ background: "#dcfce7", padding: "2px 8px", borderRadius: "4px", fontWeight: 800, color: "#14532d" }}>
+              <code style={{ background: "var(--bg-card)", border: "1px solid var(--status-success-border)", padding: "2px 8px", borderRadius: "4px", fontWeight: 800, color: "var(--status-success-text)" }}>
                 {provisionedCredentials.password}
               </code>
             </div>
-            <div style={{ marginTop: "0.25rem", fontSize: "0.82rem", color: "#475569" }}>
+            <div style={{ marginTop: "0.25rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
               {provisionedCredentials.formMasterClass
                 ? `Form Master: ${provisionedCredentials.formMasterClass} • `
                 : ""}
@@ -590,7 +592,7 @@ export default function TeachersClient({
               left: "0.85rem",
               top: "50%",
               transform: "translateY(-50%)",
-              color: "#64748b",
+              color: "var(--text-muted)",
             }}
           />
           <input
@@ -622,8 +624,6 @@ export default function TeachersClient({
               display: "flex",
               alignItems: "center",
               gap: "0.5rem",
-              background: "#15803d",
-              borderColor: "#15803d",
             }}
           >
             <FiUserPlus /> + Enroll New Teacher (1-Step Wizard)
@@ -681,8 +681,8 @@ export default function TeachersClient({
                         fontWeight: 700,
                         padding: "0.15rem 0.55rem",
                         borderRadius: "999px",
-                        background: teacher.IsActive !== false ? "#dcfce7" : "#fee2e2",
-                        color: teacher.IsActive !== false ? "#166534" : "#991b1b",
+                        background: teacher.IsActive !== false ? "var(--status-success-bg)" : "var(--status-error-bg)",
+                        color: teacher.IsActive !== false ? "var(--status-success-text)" : "var(--status-error-text)",
                       }}
                     >
                       {teacher.IsActive !== false ? "Active Staff" : "Inactive"}
@@ -693,9 +693,10 @@ export default function TeachersClient({
                     <span
                       style={{
                         fontSize: "0.82rem",
-                        color: "#15803d",
+                        color: "var(--status-success-text)",
                         fontWeight: "bold",
-                        background: "#dcfce7",
+                        background: "var(--status-success-bg)",
+                        border: "1px solid var(--status-success-border)",
                         padding: "0.2rem 0.65rem",
                         borderRadius: "var(--radius-sm)",
                         display: "inline-flex",
@@ -707,7 +708,7 @@ export default function TeachersClient({
                       <FiAward /> Form Master: {teacher.FormMasterClasses.map((c: any) => c.ClassName).join(", ")}
                     </span>
                   ) : (
-                    <div style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "0.3rem" }}>
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
                       Subject Teacher (No Form Master class assigned)
                     </div>
                   )}
@@ -803,7 +804,7 @@ export default function TeachersClient({
                           style={{
                             background: "none",
                             border: "none",
-                            color: "#ef4444",
+                            color: "var(--status-error-text)",
                             cursor: "pointer",
                             display: "flex",
                             padding: 0,
@@ -825,36 +826,23 @@ export default function TeachersClient({
       {/* 1-STEP ENROLL NEW TEACHER WIZARD MODAL */}
       {showEnrollModal && (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(10, 37, 64, 0.6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-            overflowY: "auto",
-          }}
+          className="portal-modal-overlay"
+          style={{ overflowY: "auto" }}
         >
           <div
-            className="modal-content"
+            className="modal-content portal-modal-card"
             style={{
-              background: "var(--color-white)",
-              borderRadius: "var(--radius-lg)",
               padding: "2rem",
-              width: "100%",
               maxWidth: "620px",
               maxHeight: "92vh",
               overflowY: "auto",
-              boxShadow: "var(--shadow-floating)",
             }}
           >
-            <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "0.85rem", marginBottom: "1.25rem" }}>
-              <h3 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.35rem" }}>
+            <div style={{ borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.85rem", marginBottom: "1.25rem" }}>
+              <h3 style={{ color: "var(--text-heading)", margin: 0, fontSize: "1.35rem" }}>
                 Enroll New Teacher &amp; Allocate Classes
               </h3>
-              <p style={{ color: "#64748b", fontSize: "0.85rem", margin: "0.3rem 0 0 0" }}>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", margin: "0.3rem 0 0 0" }}>
                 Creates the teacher&apos;s login account, assigns an optional Form Master Class Arm, maps Subject Arms for{" "}
                 <strong>{activeTerm ? `${activeTerm.SessionName} (${activeTerm.TermName})` : "the active term"}</strong>, and emails their login details.
               </p>
@@ -864,14 +852,14 @@ export default function TeachersClient({
               {/* Step 1: Credentials */}
               <div
                 style={{
-                  background: "#f8fafc",
-                  border: "1px solid #e2e8f0",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-primary)",
                   borderRadius: "10px",
                   padding: "1.1rem",
                   marginBottom: "1.15rem",
                 }}
               >
-                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "#0a2540", textTransform: "uppercase", marginBottom: "0.75rem" }}>
+                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--text-heading)", textTransform: "uppercase", marginBottom: "0.75rem" }}>
                   1. Staff Identity &amp; Login Credentials
                 </div>
 
@@ -927,21 +915,21 @@ export default function TeachersClient({
               {/* Step 2: Form Master Designation */}
               <div
                 style={{
-                  background: "#f0fdf4",
-                  border: "1px solid #bbf7d0",
+                  background: "var(--status-success-bg)",
+                  border: "1px solid var(--status-success-border)",
                   borderRadius: "10px",
                   padding: "1.1rem",
                   marginBottom: "1.15rem",
                 }}
               >
-                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "#166534", textTransform: "uppercase", marginBottom: "0.5rem" }}>
+                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--status-success-text)", textTransform: "uppercase", marginBottom: "0.5rem" }}>
                   2. Form Master (Class Teacher) Designation — Optional
                 </div>
                 <select
                   className="form-input"
                   value={newFormMasterClassId}
                   onChange={(e) => setNewFormMasterClassId(e.target.value)}
-                  style={{ margin: 0, background: "white" }}
+                  style={{ margin: 0, background: "var(--bg-input)" }}
                 >
                   <option value="">-- Subject Teacher Only (No Form Master Class) --</option>
                   {classList.map((c) => (
@@ -956,20 +944,20 @@ export default function TeachersClient({
               {/* Step 3: Multi-Subject & Class Arm Allocation Queue */}
               <div
                 style={{
-                  background: "#f8fafc",
-                  border: "1px solid #e2e8f0",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-primary)",
                   borderRadius: "10px",
                   padding: "1.1rem",
                   marginBottom: "1.15rem",
                 }}
               >
-                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "#0a2540", textTransform: "uppercase", marginBottom: "0.65rem" }}>
+                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--text-heading)", textTransform: "uppercase", marginBottom: "0.65rem" }}>
                   3. Subject &amp; Class Arm Allocations ({queuedAllocations.length} Queued)
                 </div>
 
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
                   <div style={{ flex: "1 1 180px" }}>
-                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.25rem" }}>
+                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-label)", display: "block", marginBottom: "0.25rem" }}>
                       Subject
                     </label>
                     <select
@@ -987,7 +975,7 @@ export default function TeachersClient({
                   </div>
 
                   <div style={{ flex: "1 1 140px" }}>
-                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "#475569", display: "block", marginBottom: "0.25rem" }}>
+                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-label)", display: "block", marginBottom: "0.25rem" }}>
                       Class Arm
                     </label>
                     <select
@@ -1020,9 +1008,9 @@ export default function TeachersClient({
                       <span
                         key={`${q.subjectId}-${q.classId}`}
                         style={{
-                          background: "#e0f2fe",
-                          color: "#0369a1",
-                          border: "1px solid #bae6fd",
+                          background: "var(--status-info-bg)",
+                          color: "var(--status-info-text)",
+                          border: "1px solid var(--status-info-border)",
                           borderRadius: "999px",
                           padding: "0.3rem 0.75rem",
                           fontSize: "0.82rem",
@@ -1039,7 +1027,7 @@ export default function TeachersClient({
                           style={{
                             background: "none",
                             border: "none",
-                            color: "#0369a1",
+                            color: "var(--status-info-text)",
                             cursor: "pointer",
                             fontWeight: 800,
                             padding: 0,
@@ -1051,7 +1039,7 @@ export default function TeachersClient({
                     ))}
                   </div>
                 ) : (
-                  <div style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "0.65rem", fontStyle: "italic" }}>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.65rem", fontStyle: "italic" }}>
                     Select a Subject and Class Arm above and click &quot;+ Add Subject Arm&quot; to pre-assign classes now (or assign them later).
                   </div>
                 )}
@@ -1064,7 +1052,7 @@ export default function TeachersClient({
                   alignItems: "center",
                   gap: "0.6rem",
                   fontSize: "0.88rem",
-                  color: "#1e293b",
+                  color: "var(--text-primary)",
                   cursor: "pointer",
                   marginBottom: "1.5rem",
                 }}
@@ -1075,7 +1063,7 @@ export default function TeachersClient({
                   onChange={(e) => setSendWelcomeEmail(e.target.checked)}
                   style={{ width: "16px", height: "16px" }}
                 />
-                <FiMail style={{ color: "#15803d" }} />
+                <FiMail style={{ color: "var(--status-success-text)" }} />
                 <span>
                   Send official <strong>Welcome &amp; Portal Login Credentials Email</strong> via SMTP immediately
                 </span>
@@ -1094,7 +1082,6 @@ export default function TeachersClient({
                   type="submit"
                   className="btn btn-primary"
                   disabled={loading}
-                  style={{ background: "#15803d", borderColor: "#15803d" }}
                 >
                   {loading ? "Enrolling Teacher..." : "Complete Teacher Enrollment"}
                 </button>
@@ -1107,29 +1094,17 @@ export default function TeachersClient({
       {/* ASSIGN SUBJECT TO EXISTING TEACHER MODAL */}
       {showAssignModal && (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-          }}
+          className="portal-modal-overlay"
+          style={{ zIndex: 1000 }}
         >
           <div
-            className="modal-content"
+            className="modal-content portal-modal-card"
             style={{
-              background: "var(--color-white)",
-              borderRadius: "var(--radius-lg)",
               padding: "2rem",
-              width: "100%",
               maxWidth: "480px",
-              boxShadow: "var(--shadow-floating)",
             }}
           >
-            <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>
+            <h3 style={{ color: "var(--text-heading)", marginBottom: "1rem" }}>
               Assign Subject to Teacher
             </h3>
             <form onSubmit={handleAssign}>
@@ -1200,33 +1175,18 @@ export default function TeachersClient({
 
       {/* QUICK FORM MASTER ASSIGNMENT MODAL */}
       {showFormMasterModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-          }}
-        >
+        <div className="portal-modal-overlay">
           <div
-            className="modal-content"
+            className="modal-content portal-modal-card"
             style={{
-              background: "var(--color-white)",
-              borderRadius: "var(--radius-lg)",
               padding: "2rem",
-              width: "100%",
               maxWidth: "460px",
-              boxShadow: "var(--shadow-floating)",
             }}
           >
-            <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>
+            <h3 style={{ color: "var(--text-heading)", marginBottom: "0.5rem" }}>
               Assign Form Master Class Arm
             </h3>
-            <p style={{ fontSize: "0.85rem", color: "#64748b", marginBottom: "1.25rem" }}>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1.25rem" }}>
               Designating a teacher as Form Master unlocks their Class Broadsheet, Affective/Psychomotor Grading, and Daily Roll Call Attendance for that class.
             </p>
             <form onSubmit={handleAssignFormMasterSubmit}>

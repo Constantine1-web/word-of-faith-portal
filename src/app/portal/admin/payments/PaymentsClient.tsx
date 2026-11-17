@@ -28,6 +28,80 @@ export default function PaymentsClient({
 
   // Receipt Preview Modal
   const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
+  const [maintenanceRate, setMaintenanceRate] = useState<number>(1000);
+
+  // Compute live 80% / 20% Portal Maintenance / ICT Fee reconciliation from Approved payments
+  const approvedPayments = payments.filter(
+    (p) => p.Status === "Approved" || p.Status === "Successful"
+  );
+  const reconciliation = approvedPayments.reduce(
+    (acc, p) => {
+      const gross = Math.max(0, Number(p.AmountPaid) || 0);
+      const maint = gross >= maintenanceRate ? maintenanceRate : 0;
+      const tuition = Math.max(0, gross - maint);
+      const provider80 = Math.round(maint * 0.8);
+      const school20 = maint - provider80;
+      acc.count += 1;
+      acc.grossTotal += gross;
+      acc.tuitionTotal100 += tuition;
+      acc.maintenancePool += maint;
+      acc.providerShare80 += provider80;
+      acc.schoolMaintenanceShare20 += school20;
+      return acc;
+    },
+    {
+      count: 0,
+      grossTotal: 0,
+      tuitionTotal100: 0,
+      maintenancePool: 0,
+      providerShare80: 0,
+      schoolMaintenanceShare20: 0,
+    }
+  );
+
+  const handleExportReconciliationCsv = () => {
+    const headers = [
+      "Reference",
+      "Student Name",
+      "Admission No",
+      "Class",
+      "Status",
+      "Gross Amount Paid (NGN)",
+      "School Tuition & Levies 100% (NGN)",
+      "Portal Maintenance / ICT Fee (NGN)",
+      "Service Provider 80% Share (NGN)",
+      "School 20% Maintenance Share (NGN)",
+      "Date",
+    ];
+    const rows = approvedPayments.map((p) => {
+      const gross = Math.max(0, Number(p.AmountPaid) || 0);
+      const maint = gross >= maintenanceRate ? maintenanceRate : 0;
+      const tuition = Math.max(0, gross - maint);
+      const provider80 = Math.round(maint * 0.8);
+      const school20 = maint - provider80;
+      return [
+        p.Reference || `PAY-${p.PaymentID}`,
+        `"${(p.Student?.PreferredName || "Student").replace(/"/g, '""')}"`,
+        p.Student?.AdmissionNo || "",
+        p.Student?.Class?.ClassName || "",
+        p.Status,
+        gross,
+        tuition,
+        maint,
+        provider80,
+        school20,
+        p.PaymentDate ? new Date(p.PaymentDate).toISOString().split("T")[0] : "",
+      ].join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `WOF_Maintenance_Split_Reconciliation_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleApprove = async (paymentId: number, studentName: string) => {
     if (!confirm(`Approve fee payment for ${studentName}? This will grant fee clearance for result checking.`)) return;
@@ -92,18 +166,82 @@ export default function PaymentsClient({
 
   return (
     <div>
-      {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
-      {success && <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
+      {error && <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
+      {success && <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
 
       {/* Summary Cards */}
-      <div className="responsive-grid" style={{ marginBottom: "2rem" }}>
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid #f59e0b" }}>
-          <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Pending Audit Queue</p>
-          <h2 style={{ color: "#d97706", margin: 0 }}>{stats.pendingCount} Pending</h2>
+      <div className="responsive-grid" style={{ marginBottom: "1.5rem" }}>
+        <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--status-warning-border)" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Pending Audit Queue</p>
+          <h2 style={{ color: "var(--status-warning-text)", margin: 0 }}>{stats.pendingCount} Pending</h2>
         </div>
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid var(--color-primary-green)" }}>
-          <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Total Approved Revenue</p>
-          <h2 style={{ color: "var(--color-primary-green)", margin: 0 }}>₦{stats.totalRevenue.toLocaleString()}</h2>
+        <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--brand-primary)" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Total Approved Gross Revenue</p>
+          <h2 style={{ color: "var(--status-success-text)", margin: 0 }}>₦{reconciliation.grossTotal.toLocaleString()}</h2>
+          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+            100% School Tuition &amp; Levies: ₦{reconciliation.tuitionTotal100.toLocaleString()}
+          </span>
+        </div>
+        <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--accent-blue)" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Portal Maintenance / ICT Pool</p>
+          <h2 style={{ color: "var(--accent-blue)", margin: 0 }}>₦{reconciliation.maintenancePool.toLocaleString()}</h2>
+          <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+            {reconciliation.count} approved × ₦{maintenanceRate.toLocaleString()}/student
+          </span>
+        </div>
+        <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--accent-purple)" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Maintenance Split (80% / 20%)</p>
+          <h2 style={{ color: "var(--text-heading)", margin: 0, fontSize: "1.25rem" }}>
+            80%: ₦{reconciliation.providerShare80.toLocaleString()}
+          </h2>
+          <span style={{ fontSize: "0.8rem", color: "var(--status-success-text)", fontWeight: 700 }}>
+            20% School Share: ₦{reconciliation.schoolMaintenanceShare20.toLocaleString()}
+          </span>
+        </div>
+      </div>
+
+      {/* Portal Maintenance / ICT Fee Revenue-Sharing Control & Export Bar */}
+      <div style={{
+        background: "var(--bg-secondary)",
+        border: "1px solid var(--border-primary)",
+        borderRadius: "var(--radius-md)",
+        padding: "1rem 1.25rem",
+        marginBottom: "1.75rem",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: "1rem"
+      }}>
+        <div>
+          <strong style={{ color: "var(--text-heading)", fontSize: "0.95rem", display: "block" }}>
+            Automated Portal Maintenance / ICT Fee Allocation Ledger (80% Provider / 20% School)
+          </strong>
+          <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+            Applies strictly to the designated Portal Maintenance / ICT Fee line item (₦{maintenanceRate.toLocaleString()} per payment). Tuition remains 100% School revenue.
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-label)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            ICT/Maint Fee Rate (₦):
+            <input
+              type="number"
+              min={0}
+              step={100}
+              value={maintenanceRate}
+              onChange={(e) => setMaintenanceRate(Math.max(0, parseInt(e.target.value) || 0))}
+              className="form-input"
+              style={{ width: "105px", padding: "0.35rem 0.6rem", fontSize: "0.85rem" }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleExportReconciliationCsv}
+            className="btn btn-primary"
+            style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem", minHeight: "38px" }}
+          >
+            <FiFileText /> Export 80/20 Split CSV
+          </button>
         </div>
       </div>
 
@@ -196,8 +334,15 @@ export default function PaymentsClient({
                     </div>
                   </td>
 
-                  <td data-label="Amount" style={{ padding: "1rem", fontWeight: "bold", color: "var(--color-primary-green)" }}>
-                    ₦{p.AmountPaid?.toLocaleString()}
+                  <td data-label="Amount" style={{ padding: "1rem" }}>
+                    <div style={{ fontWeight: "bold", color: "var(--color-primary-green)" }}>
+                      ₦{p.AmountPaid?.toLocaleString()}
+                    </div>
+                    {Number(p.AmountPaid) >= maintenanceRate && maintenanceRate > 0 && (
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                        Tuition: ₦{Math.max(0, Number(p.AmountPaid) - maintenanceRate).toLocaleString()} · ICT: ₦{maintenanceRate.toLocaleString()} (80%: ₦{Math.round(maintenanceRate * 0.8).toLocaleString()} | 20%: ₦{(maintenanceRate - Math.round(maintenanceRate * 0.8)).toLocaleString()})
+                      </div>
+                    )}
                   </td>
 
                   <td data-label="Receipt / Reference" style={{ padding: "1rem", textAlign: "center" }}>
@@ -208,12 +353,12 @@ export default function PaymentsClient({
                       <button
                         onClick={() => setPreviewReceiptUrl(p.ReceiptUrl)}
                         className="btn"
-                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "#e0f2fe", color: "#0369a1", border: "none", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
+                        style={{ padding: "0.2rem 0.5rem", fontSize: "0.75rem", background: "var(--status-info-bg)", color: "var(--status-info-text)", border: "1px solid var(--status-info-border)", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}
                       >
                         <FiImage /> View Receipt
                       </button>
                     ) : (
-                      <span style={{ fontSize: "0.75rem", color: "var(--color-gray-400)" }}>Online Gateway</span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Online Gateway</span>
                     )}
                   </td>
 
@@ -223,8 +368,8 @@ export default function PaymentsClient({
                       borderRadius: "var(--radius-full)",
                       fontSize: "0.85rem",
                       fontWeight: "bold",
-                      background: p.Status === "Approved" || p.Status === "Successful" ? "#dcfce7" : p.Status === "Pending" ? "#fef3c7" : "#fee2e2",
-                      color: p.Status === "Approved" || p.Status === "Successful" ? "#15803d" : p.Status === "Pending" ? "#b45309" : "#b91c1c"
+                      background: p.Status === "Approved" || p.Status === "Successful" ? "var(--status-success-bg)" : p.Status === "Pending" ? "var(--status-warning-bg)" : "var(--status-error-bg)",
+                      color: p.Status === "Approved" || p.Status === "Successful" ? "var(--status-success-text)" : p.Status === "Pending" ? "var(--status-warning-text)" : "var(--status-error-text)"
                     }}>
                       {p.Status}
                     </span>
@@ -237,7 +382,7 @@ export default function PaymentsClient({
                           onClick={() => handleApprove(p.PaymentID, p.Student?.PreferredName || p.Student?.AdmissionNo)}
                           disabled={loading}
                           className="btn"
-                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "#dcfce7", color: "#15803d", border: "none", display: "flex", alignItems: "center", gap: "0.25rem" }}
+                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", display: "flex", alignItems: "center", gap: "0.25rem" }}
                           title="Approve & Grant Fee Clearance"
                         >
                           <FiCheck /> Approve
@@ -248,7 +393,7 @@ export default function PaymentsClient({
                           onClick={() => handleReject(p.PaymentID, p.Student?.PreferredName || p.Student?.AdmissionNo)}
                           disabled={loading}
                           className="btn"
-                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "#fee2e2", color: "#b91c1c", border: "none", display: "flex", alignItems: "center", gap: "0.25rem" }}
+                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", display: "flex", alignItems: "center", gap: "0.25rem" }}
                           title="Reject Payment"
                         >
                           <FiX /> Reject
@@ -265,15 +410,15 @@ export default function PaymentsClient({
 
       {/* Receipt Image / PDF Preview Modal */}
       {previewReceiptUrl && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-          <div style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "1.5rem", maxWidth: "680px", width: "100%", maxHeight: "90vh", overflowY: "auto", position: "relative" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "0.75rem" }}>
-              <h3 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Bank Transfer Receipt Preview</h3>
+        <div className="portal-modal-overlay">
+          <div className="portal-modal-card" style={{ padding: "1.5rem", maxWidth: "680px", maxHeight: "90vh", overflowY: "auto", position: "relative" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.75rem" }}>
+              <h3 style={{ margin: 0, color: "var(--text-heading)" }}>Bank Transfer Receipt Preview</h3>
               <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                <a href={previewReceiptUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.85rem", color: "var(--color-primary-green)", textDecoration: "underline" }}>
+                <a href={previewReceiptUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.85rem", color: "var(--brand-primary)", textDecoration: "underline" }}>
                   Open Full File
                 </a>
-                <button onClick={() => setPreviewReceiptUrl(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                <button onClick={() => setPreviewReceiptUrl(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)" }}>
                   <FiX size={20} />
                 </button>
               </div>

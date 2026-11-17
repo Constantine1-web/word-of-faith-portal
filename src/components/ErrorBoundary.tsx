@@ -32,7 +32,7 @@ export class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
       return (
-        <div style={{ position: "fixed", bottom: "2rem", left: "2rem", background: "red", color: "white", padding: "1rem", borderRadius: "8px", zIndex: 9999 }}>
+        <div style={{ position: "fixed", bottom: "2rem", left: "2rem", background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "8px", zIndex: 9999 }}>
           Chatbot crashed. Please refresh.
         </div>
       );

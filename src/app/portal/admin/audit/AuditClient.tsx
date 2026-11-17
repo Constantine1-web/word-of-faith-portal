@@ -180,9 +180,9 @@ export default function AuditClient({
           style={{
             padding: "1rem 1.25rem",
             borderRadius: "var(--radius-md)",
-            background: chainResult.isIntact ? "#dcfce7" : "#fee2e2",
-            color: chainResult.isIntact ? "#15803d" : "#b91c1c",
-            border: `1px solid ${chainResult.isIntact ? "#86efac" : "#fca5a5"}`,
+            background: chainResult.isIntact ? "var(--status-success-bg)" : "var(--status-error-bg)",
+            color: chainResult.isIntact ? "var(--status-success-text)" : "var(--status-error-text)",
+            border: `1px solid ${chainResult.isIntact ? "var(--status-success-border)" : "var(--status-error-border)"}`,
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
@@ -261,7 +261,7 @@ export default function AuditClient({
                   <td style={{ padding: "0.85rem 1rem", fontSize: "0.85rem" }}>
                     <div style={{ fontWeight: 600 }}>{log.actorEmail}</div>
                     {log.OnBehalfOfID && (
-                      <div style={{ fontSize: "0.75rem", color: "#b45309" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--status-warning-text)" }}>
                         On behalf of #{log.OnBehalfOfID}
                       </div>
                     )}
@@ -302,7 +302,7 @@ export default function AuditClient({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.5)",
+            background: "var(--bg-overlay)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

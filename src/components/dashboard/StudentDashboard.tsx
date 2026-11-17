@@ -40,7 +40,7 @@ export default function StudentDashboard({ session }: { session: any }) {
       {/* Dynamic Profile Header */}
       <div style={{ 
         background: isPrimary 
-          ? "linear-gradient(135deg, #059669, #047857)" 
+          ? "linear-gradient(135deg, #14532D, #065F46)" 
           : "linear-gradient(135deg, #0A2540, #1E3A8A)", 
         borderRadius: "var(--radius-lg)", 
         padding: "clamp(1.25rem, 3vw, 2rem)", 
@@ -75,40 +75,40 @@ export default function StudentDashboard({ session }: { session: any }) {
         <QuickLinkCard 
           href="/portal/courses" 
           icon={<FiBookOpen />} 
-          iconBgColor="rgba(16, 185, 129, 0.2)" 
-          iconColor="#10b981" 
+          iconBgColor="var(--status-success-bg)" 
+          iconColor="var(--accent-green)" 
           title="Study Notes" 
           subtitle="E-Learning Library" 
         />
         <QuickLinkCard 
           href="/portal/cbt" 
           icon={<FiAward />} 
-          iconBgColor="rgba(139, 92, 246, 0.2)" 
-          iconColor="#8b5cf6" 
+          iconBgColor="var(--status-purple-bg)" 
+          iconColor="var(--accent-purple)" 
           title="CBT Exams" 
           subtitle="Mocks & Timed Tests" 
         />
         <QuickLinkCard 
           href="/portal/results" 
           icon={<FiFileText />} 
-          iconBgColor="rgba(168, 85, 247, 0.2)" 
-          iconColor="#a855f7" 
+          iconBgColor="var(--status-purple-bg)" 
+          iconColor="var(--accent-purple)" 
           title="My Results" 
           subtitle="Terminal Reports" 
         />
         <QuickLinkCard 
           href="/portal/fees/history" 
           icon={<FiCreditCard />} 
-          iconBgColor="rgba(59, 130, 246, 0.2)" 
-          iconColor="#3b82f6" 
+          iconBgColor="var(--status-info-bg)" 
+          iconColor="var(--accent-blue)" 
           title="Fee Status" 
           subtitle={`${payments.length} Transactions`} 
         />
         <QuickLinkCard 
           href="/portal/profile" 
           icon={<FiUser />} 
-          iconBgColor="rgba(249, 115, 22, 0.2)" 
-          iconColor="#f97316" 
+          iconBgColor="var(--status-warning-bg)" 
+          iconColor="var(--accent-orange)" 
           title="Profile" 
           subtitle="Update Details" 
         />

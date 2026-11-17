@@ -181,8 +181,8 @@ export default function PayFeesPage() {
             width: "72px",
             height: "72px",
             borderRadius: "50%",
-            background: "#dcfce7",
-            color: "#166534",
+            background: "var(--status-success-bg)",
+            color: "var(--status-success-text)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -248,7 +248,7 @@ export default function PayFeesPage() {
       {/* Bill & Tracking ID Hero Card */}
       <div style={{
         background: "linear-gradient(135deg, #0b2216 0%, #143424 100%)",
-        color: "var(--color-white)",
+        color: "#ffffff",
         padding: "1.75rem",
         borderRadius: "var(--radius-lg)",
         boxShadow: "var(--shadow-floating)",
@@ -280,7 +280,7 @@ export default function PayFeesPage() {
           </div>
 
           <div style={{ textAlign: "right" }}>
-            <span style={{ fontSize: "0.8rem", color: "#9ca3af", display: "block" }}>Amount Due:</span>
+            <span style={{ fontSize: "0.8rem", color: "#e2e8f0", display: "block" }}>Amount Due:</span>
             <span style={{ fontSize: "2rem", fontWeight: "bold", color: "#ffffff" }}>
               ₦{amount.toLocaleString()}
             </span>
@@ -395,7 +395,7 @@ export default function PayFeesPage() {
           </div>
 
           {onlineError && (
-            <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "0.75rem 1rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", fontSize: "0.9rem" }}>
+            <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "0.75rem 1rem", borderRadius: "var(--radius-sm)", marginBottom: "1.25rem", fontSize: "0.9rem" }}>
               {onlineError}
             </div>
           )}
@@ -406,16 +406,20 @@ export default function PayFeesPage() {
 
           <form onSubmit={handleOnlinePayment} style={{ display: "grid", gap: "1.5rem" }}>
             <div style={{ background: "var(--color-gray-50)", padding: "1.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                <span style={{ color: "var(--color-gray-600)" }}>Charge Item:</span>
-                <strong>Consolidated School Fees</strong>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
+                <span style={{ color: "var(--color-gray-600)" }}>Tuition, Supplies &amp; School Levies (100% School):</span>
+                <strong>₦{Math.max(0, amount - 1000).toLocaleString()}</strong>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
+                <span style={{ color: "var(--color-gray-600)" }}>Portal Maintenance / ICT Fee:</span>
+                <strong>₦{(amount >= 1000 ? 1000 : 0).toLocaleString()}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.92rem" }}>
                 <span style={{ color: "var(--color-gray-600)" }}>Order Tracking Ref:</span>
                 <strong style={{ fontFamily: "monospace" }}>{trackingId}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--color-gray-200)", paddingTop: "0.5rem", fontSize: "1.1rem" }}>
-                <strong style={{ color: "var(--color-navy-blue)" }}>Total to Pay:</strong>
+                <strong style={{ color: "var(--color-navy-blue)" }}>Total Consolidated Invoice:</strong>
                 <strong style={{ color: "var(--color-primary-green)" }}>₦{amount.toLocaleString()}</strong>
               </div>
             </div>
@@ -435,41 +439,41 @@ export default function PayFeesPage() {
       {/* Tab 2: Bank Teller & Receipt Upload */}
       {activeTab === "TELLER" && (
         <div style={{
-          background: "var(--color-white)",
+          background: "var(--bg-card)",
           padding: "clamp(1rem, 2.5vw, 2rem)",
           borderRadius: "var(--radius-lg)",
           boxShadow: "var(--shadow-sm)",
-          border: "1px solid var(--color-gray-200)"
+          border: "1px solid var(--border-subtle)"
         }}>
           {/* Official Bank Account Details */}
           <div style={{
-            background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
+            background: "var(--status-success-bg)",
+            border: "1px solid var(--status-success-border)",
             padding: "1.5rem",
             borderRadius: "var(--radius-md)",
             marginBottom: "1.75rem"
           }}>
-            <h4 style={{ color: "#143424", margin: "0 0 0.75rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <h4 style={{ color: "var(--status-success-text)", margin: "0 0 0.75rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <FiCheckCircle /> Official School Bank Account Details
             </h4>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
               <div>
-                <span style={{ fontSize: "0.8rem", color: "#4b5563", display: "block" }}>Bank:</span>
-                <strong style={{ color: "#111827", fontSize: "1rem" }}>Zenith Bank PLC</strong>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block" }}>Bank:</span>
+                <strong style={{ color: "var(--text-primary)", fontSize: "1rem" }}>Zenith Bank PLC</strong>
               </div>
               <div>
-                <span style={{ fontSize: "0.8rem", color: "#4b5563", display: "block" }}>Account Name:</span>
-                <strong style={{ color: "#111827", fontSize: "1rem" }}>Word of Faith Schools</strong>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block" }}>Account Name:</span>
+                <strong style={{ color: "var(--text-primary)", fontSize: "1rem" }}>Word of Faith Schools</strong>
               </div>
               <div>
-                <span style={{ fontSize: "0.8rem", color: "#4b5563", display: "block" }}>Account Number:</span>
+                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block" }}>Account Number:</span>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <strong style={{ color: "#143424", fontSize: "1.1rem", letterSpacing: "1px", fontFamily: "monospace" }}>1015694201</strong>
+                  <strong style={{ color: "var(--status-success-text)", fontSize: "1.1rem", letterSpacing: "1px", fontFamily: "monospace" }}>1015694201</strong>
                   <button
                     type="button"
                     onClick={() => handleCopy("1015694201", "account")}
                     title="Copy Account Number"
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "#15803d" }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--status-success-text)" }}
                   >
                     {copiedAccount ? <FiCheck /> : <FiCopy />}
                   </button>
@@ -479,12 +483,12 @@ export default function PayFeesPage() {
 
             <div style={{
               marginTop: "1rem",
-              background: "#ffffff",
+              background: "var(--bg-card)",
               padding: "0.75rem 1rem",
               borderRadius: "var(--radius-sm)",
-              border: "1px solid #86efac",
+              border: "1px solid var(--status-success-border)",
               fontSize: "0.85rem",
-              color: "#166534"
+              color: "var(--status-success-text)"
             }}>
               <strong>Mandatory Narration / Remark:</strong> Please enter <code>{trackingId}</code> in your bank transfer remark so the system can automatically match your payment.
             </div>
@@ -493,9 +497,9 @@ export default function PayFeesPage() {
           {/* Pending Upload Alert if student already submitted */}
           {feeOrder?.hasUploadedReceipt && (
             <div style={{
-              background: "#fffbeb",
-              border: "1px solid #fde68a",
-              color: "#92400e",
+              background: "var(--status-warning-bg)",
+              border: "1px solid var(--status-warning-border)",
+              color: "var(--status-warning-text)",
               padding: "1rem 1.25rem",
               borderRadius: "var(--radius-md)",
               marginBottom: "1.5rem",
@@ -514,13 +518,13 @@ export default function PayFeesPage() {
           )}
 
           {tellerSuccess && (
-            <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-sm)", marginBottom: "1.5rem", fontWeight: "bold" }}>
+            <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "var(--radius-sm)", marginBottom: "1.5rem", fontWeight: "bold" }}>
               {tellerSuccess}
             </div>
           )}
 
           {tellerError && (
-            <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-sm)", marginBottom: "1.5rem", fontWeight: "bold" }}>
+            <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-sm)", marginBottom: "1.5rem", fontWeight: "bold" }}>
               {tellerError}
             </div>
           )}

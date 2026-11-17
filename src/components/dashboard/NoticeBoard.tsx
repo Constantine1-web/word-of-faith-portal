@@ -17,7 +17,7 @@ const DEFAULT_NOTICES = [
   {
     id: "default-2",
     type: "Deadline",
-    color: "#dc2626",
+    color: "var(--accent-red)",
     title: "School Fees Clearance & Result Portal Activation",
     details: "Nov 25, 2026 · Please clear outstanding balances via Paystack or upload teller receipts.",
     eventDate: "2026-11-25",

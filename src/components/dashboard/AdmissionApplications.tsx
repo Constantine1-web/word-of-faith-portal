@@ -76,8 +76,9 @@ export default function AdmissionApplications() {
                       padding: "0.25rem 0.5rem", 
                       borderRadius: "12px", 
                       fontSize: "0.8rem",
-                      background: app.status === "Approved" ? "rgba(34, 197, 94, 0.1)" : app.status === "Rejected" ? "rgba(239, 68, 68, 0.1)" : "rgba(234, 179, 8, 0.1)",
-                      color: app.status === "Approved" ? "var(--color-primary-green)" : app.status === "Rejected" ? "#ef4444" : "#eab308"
+                      fontWeight: 600,
+                      background: app.status === "Approved" ? "var(--status-success-bg)" : app.status === "Rejected" ? "var(--status-error-bg)" : "var(--status-warning-bg)",
+                      color: app.status === "Approved" ? "var(--status-success-text)" : app.status === "Rejected" ? "var(--status-error-text)" : "var(--status-warning-text)"
                     }}>
                       {app.status}
                     </span>
@@ -85,10 +86,10 @@ export default function AdmissionApplications() {
                   <td style={{ padding: "0.75rem", borderBottom: "1px solid var(--color-gray-100)", textAlign: "right" }}>
                     {app.status === "Pending" && (
                       <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-                        <button onClick={() => updateStatus(app.id, "Approved")} style={{ background: "transparent", border: "1px solid var(--color-primary-green)", color: "var(--color-primary-green)", padding: "0.25rem", borderRadius: "var(--radius-sm)", cursor: "pointer" }} title="Approve">
+                        <button onClick={() => updateStatus(app.id, "Approved")} style={{ background: "transparent", border: "1px solid var(--status-success-border)", color: "var(--status-success-text)", padding: "0.25rem", borderRadius: "var(--radius-sm)", cursor: "pointer" }} title="Approve">
                           <FiCheck />
                         </button>
-                        <button onClick={() => updateStatus(app.id, "Rejected")} style={{ background: "transparent", border: "1px solid #ef4444", color: "#ef4444", padding: "0.25rem", borderRadius: "var(--radius-sm)", cursor: "pointer" }} title="Reject">
+                        <button onClick={() => updateStatus(app.id, "Rejected")} style={{ background: "transparent", border: "1px solid var(--status-error-border)", color: "var(--status-error-text)", padding: "0.25rem", borderRadius: "var(--radius-sm)", cursor: "pointer" }} title="Reject">
                           <FiX />
                         </button>
                       </div>

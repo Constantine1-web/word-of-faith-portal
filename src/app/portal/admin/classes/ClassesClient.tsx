@@ -85,8 +85,8 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
 
   return (
     <div>
-      {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
-      {success && <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
+      {error && <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
+      {success && <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.5rem", gap: "0.75rem", flexWrap: "wrap" }}>
         <button
@@ -138,8 +138,9 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
                       padding: "0.2rem 0.6rem",
                       borderRadius: "var(--radius-full)",
                       fontSize: "0.85rem",
-                      background: cls.Level.toLowerCase().includes("secondary") ? "#dbeafe" : "#fef3c7",
-                      color: cls.Level.toLowerCase().includes("secondary") ? "#1e40af" : "#92400e",
+                      background: cls.Level.toLowerCase().includes("secondary") ? "var(--status-info-bg)" : "var(--status-warning-bg)",
+                      color: cls.Level.toLowerCase().includes("secondary") ? "var(--status-info-text)" : "var(--status-warning-text)",
+                      border: `1px solid ${cls.Level.toLowerCase().includes("secondary") ? "var(--status-info-border)" : "var(--status-warning-border)"}`,
                       fontWeight: "600"
                     }}>
                       {cls.Level}
@@ -177,9 +178,9 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
                         style={{
                           padding: "0.4rem 0.75rem",
                           fontSize: "0.85rem",
-                          background: "#f0fdf4",
-                          color: "#166534",
-                          border: "1px solid #bbf7d0",
+                          background: "var(--status-success-bg)",
+                          color: "var(--status-success-text)",
+                          border: "1px solid var(--status-success-border)",
                           display: "inline-flex",
                           alignItems: "center",
                           gap: "0.3rem",
@@ -196,9 +197,9 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
                         style={{
                           padding: "0.4rem 0.8rem",
                           fontSize: "0.85rem",
-                          background: "#fee2e2",
-                          color: "#b91c1c",
-                          border: "none",
+                          background: "var(--status-error-bg)",
+                          color: "var(--status-error-text)",
+                          border: "1px solid var(--status-error-border)",
                           opacity: cls._count?.Students > 0 ? 0.4 : 1,
                           cursor: cls._count?.Students > 0 ? "not-allowed" : "pointer"
                         }}
@@ -217,8 +218,8 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
 
       {/* Add Class Modal */}
       {showAddModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-          <div className="modal-content" style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "2rem", width: "100%", maxWidth: "480px", boxShadow: "var(--shadow-floating)" }}>
+        <div className="portal-modal-overlay">
+          <div className="modal-content portal-modal-card" style={{ maxWidth: "480px" }}>
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Add New Class Arm</h3>
             <form onSubmit={handleAddClass}>
               <div className="form-group">

@@ -76,8 +76,9 @@ export default function AdminCbtClient({
             padding: "1rem",
             marginBottom: "1.5rem",
             borderRadius: "var(--radius-md)",
-            background: message.type === "error" ? "#fee2e2" : "#dcfce7",
-            color: message.type === "error" ? "#b91c1c" : "#15803d",
+            background: message.type === "error" ? "var(--status-error-bg)" : "var(--status-success-bg)",
+            color: message.type === "error" ? "var(--status-error-text)" : "var(--status-success-text)",
+            border: `1px solid ${message.type === "error" ? "var(--status-error-border)" : "var(--status-success-border)"}`,
             fontWeight: "bold",
           }}
         >
@@ -96,64 +97,64 @@ export default function AdminCbtClient({
       >
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.25rem",
             borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
           }}
         >
-          <div style={{ fontSize: "0.82rem", color: "var(--color-gray-500)", fontWeight: 600 }}>
+          <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 600 }}>
             ACTIVE DAY LOCKS (2-STRIKE POLICY)
           </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: activeLocks.length > 0 ? "#b91c1c" : "#15803d" }}>
+          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: activeLocks.length > 0 ? "var(--status-error-text)" : "var(--status-success-text)" }}>
             {activeLocks.length}
           </div>
         </div>
 
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.25rem",
             borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
           }}
         >
-          <div style={{ fontSize: "0.82rem", color: "var(--color-gray-500)", fontWeight: 600 }}>
+          <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 600 }}>
             RECENT CBT ATTEMPTS
           </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--color-navy-blue)" }}>
+          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--text-heading)" }}>
             {recentAttempts.length}
           </div>
         </div>
 
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.25rem",
             borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
           }}
         >
-          <div style={{ fontSize: "0.82rem", color: "var(--color-gray-500)", fontWeight: 600 }}>
+          <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 600 }}>
             INTEGRITY TELEMETRY EVENTS
           </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#b45309" }}>
+          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--status-warning-text)" }}>
             {recentEvents.length}
           </div>
         </div>
 
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.25rem",
             borderRadius: "var(--radius-lg)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-primary)",
           }}
         >
-          <div style={{ fontSize: "0.82rem", color: "var(--color-gray-500)", fontWeight: 600 }}>
+          <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 600 }}>
             CACHED CBT QUESTION POOL
           </div>
-          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "#15803d" }}>
+          <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--status-success-text)" }}>
             {providerDiag?.totalCachedQuestions ?? 0}
           </div>
         </div>
@@ -265,8 +266,8 @@ export default function AdminCbtClient({
             <tbody>
               {activeLocks.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: "3rem", textAlign: "center", color: "var(--color-gray-500)" }}>
-                    <FiCheckCircle style={{ marginRight: "0.4rem", color: "#15803d" }} />
+                  <td colSpan={5} style={{ padding: "3rem", textAlign: "center", color: "var(--text-muted)" }}>
+                    <FiCheckCircle style={{ marginRight: "0.4rem", color: "var(--status-success-text)" }} />
                     No active CBT day locks today.
                   </td>
                 </tr>
@@ -278,15 +279,15 @@ export default function AdminCbtClient({
                     lock.student?.AdmissionNo ||
                     `Student #${lock.studentId}`;
                   return (
-                    <tr key={lock.id} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
-                      <td style={{ padding: "1rem", fontWeight: 700, color: "var(--color-navy-blue)" }}>
+                    <tr key={lock.id} style={{ borderBottom: "1px solid var(--border-primary)" }}>
+                      <td style={{ padding: "1rem", fontWeight: 700, color: "var(--text-heading)" }}>
                         {studentName} ({lock.student?.AdmissionNo})
                       </td>
                       <td style={{ padding: "1rem" }}>{lock.student?.Class?.ClassName || "—"}</td>
                       <td style={{ padding: "1rem", textAlign: "center", fontFamily: "monospace", fontWeight: 700 }}>
                         {lock.dayKey}
                       </td>
-                      <td style={{ padding: "1rem", color: "#b91c1c", fontSize: "0.88rem" }}>{lock.reason}</td>
+                      <td style={{ padding: "1rem", color: "var(--status-error-text)", fontSize: "0.88rem" }}>{lock.reason}</td>
                       <td style={{ padding: "1rem", textAlign: "right" }}>
                         <button
                           onClick={() => handleLiftLock(lock.id, studentName)}
@@ -295,8 +296,8 @@ export default function AdminCbtClient({
                           style={{
                             padding: "0.4rem 0.85rem",
                             fontSize: "0.82rem",
-                            borderColor: "#15803d",
-                            color: "#15803d",
+                            borderColor: "var(--status-success-border)",
+                            color: "var(--status-success-text)",
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "0.3rem",
@@ -360,16 +361,16 @@ export default function AdminCbtClient({
                           fontWeight: 700,
                           background:
                             att.status === "SUBMITTED"
-                              ? "#dcfce7"
+                              ? "var(--status-success-bg)"
                               : att.status === "TERMINATED"
-                              ? "#fee2e2"
-                              : "#dbeafe",
+                              ? "var(--status-error-bg)"
+                              : "var(--status-info-bg)",
                           color:
                             att.status === "SUBMITTED"
-                              ? "#15803d"
+                              ? "var(--status-success-text)"
                               : att.status === "TERMINATED"
-                              ? "#b91c1c"
-                              : "#1d4ed8",
+                              ? "var(--status-error-text)"
+                              : "var(--status-info-text)",
                         }}
                       >
                         {att.status}
@@ -380,7 +381,7 @@ export default function AdminCbtClient({
                         padding: "1rem",
                         textAlign: "center",
                         fontWeight: 700,
-                        color: att.hardStrikes > 0 ? "#b91c1c" : "#15803d",
+                        color: att.hardStrikes > 0 ? "var(--status-error-text)" : "var(--status-success-text)",
                       }}
                     >
                       {att.hardStrikes} / 2
@@ -447,8 +448,9 @@ export default function AdminCbtClient({
                           borderRadius: "999px",
                           fontSize: "0.75rem",
                           fontWeight: 700,
-                          background: ev.isHard ? "#fee2e2" : "#fef3c7",
-                          color: ev.isHard ? "#b91c1c" : "#b45309",
+                          background: ev.isHard ? "var(--status-error-bg)" : "var(--status-warning-bg)",
+                          color: ev.isHard ? "var(--status-error-text)" : "var(--status-warning-text)",
+                          border: `1px solid ${ev.isHard ? "var(--status-error-border)" : "var(--status-warning-border)"}`,
                         }}
                       >
                         {ev.isHard ? "HARD STRIKE" : "SOFT SIGNAL"}
@@ -512,29 +514,29 @@ export default function AdminCbtClient({
                 gap: "1rem",
               }}
             >
-              <div style={{ padding: "1rem", background: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
-                <div style={{ fontSize: "0.78rem", color: "var(--color-gray-500)", fontWeight: 700 }}>
+              <div style={{ padding: "1rem", background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)" }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 700 }}>
                   ALOC_API_KEY (Primary v1 + v2)
                 </div>
-                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.alocConfigured ? "#15803d" : "#b91c1c", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.alocConfigured ? "var(--status-success-text)" : "var(--status-error-text)", marginTop: "0.25rem" }}>
                   {providerDiag?.diagnostics?.alocConfigured ? `Operational (${providerDiag.diagnostics.alocKeyPreview})` : "Missing"}
                 </div>
               </div>
 
-              <div style={{ padding: "1rem", background: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
-                <div style={{ fontSize: "0.78rem", color: "var(--color-gray-500)", fontWeight: 700 }}>
+              <div style={{ padding: "1rem", background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)" }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 700 }}>
                   SDASH_API_KEY (Secondary Cloud)
                 </div>
-                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.sdashConfigured ? "#15803d" : "#b45309", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.sdashConfigured ? "var(--status-success-text)" : "var(--status-warning-text)", marginTop: "0.25rem" }}>
                   {providerDiag?.diagnostics?.sdashConfigured ? `Operational (${providerDiag.diagnostics.sdashKeyPreview})` : "Fallback Only"}
                 </div>
               </div>
 
-              <div style={{ padding: "1rem", background: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
-                <div style={{ fontSize: "0.78rem", color: "var(--color-gray-500)", fontWeight: 700 }}>
+              <div style={{ padding: "1rem", background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)" }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 700 }}>
                   GEMINI AI TUTOR KEY
                 </div>
-                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.geminiConfigured ? "#15803d" : "#b45309", marginTop: "0.25rem" }}>
+                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: providerDiag?.diagnostics?.geminiConfigured ? "var(--status-success-text)" : "var(--status-warning-text)", marginTop: "0.25rem" }}>
                   {providerDiag?.diagnostics?.geminiConfigured ? `Operational (${providerDiag.diagnostics.geminiKeyPreview})` : "Heuristic Fallback"}
                 </div>
               </div>
@@ -574,8 +576,8 @@ export default function AdminCbtClient({
                           borderRadius: "999px",
                           fontSize: "0.75rem",
                           fontWeight: 700,
-                          background: row.cachedCount > 0 ? "#dcfce7" : "#dbeafe",
-                          color: row.cachedCount > 0 ? "#15803d" : "#1d4ed8",
+                          background: row.cachedCount > 0 ? "var(--status-success-bg)" : "var(--status-info-bg)",
+                          color: row.cachedCount > 0 ? "var(--status-success-text)" : "var(--status-info-text)",
                         }}
                       >
                         {row.cachedCount > 0 ? "DB Pool + Cloud Ready" : "Cloud + Offline Bank Ready"}

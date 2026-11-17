@@ -25,6 +25,27 @@ async function requirePaymentManager() {
   return requireCapability(["MANAGE_FINANCE", "APPROVE_PAYMENTS"]);
 }
 
+const DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA = 1000;
+
+function computePaymentAllocationBreakdown(
+  grossAmountNaira: number,
+  maintenanceFeeRate: number = DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA
+) {
+  const total = Math.max(0, Number(grossAmountNaira) || 0);
+  const maintenanceFee = total >= maintenanceFeeRate ? maintenanceFeeRate : 0;
+  const tuitionAndSchoolLevies = Math.max(0, total - maintenanceFee);
+  const providerShare80 = Math.round(maintenanceFee * 0.8);
+  const schoolMaintenanceShare20 = maintenanceFee - providerShare80;
+  return {
+    totalAmount: total,
+    tuitionAndSchoolLevies,
+    maintenanceFee,
+    providerShare80,
+    schoolMaintenanceShare20,
+    totalSchoolRetention: tuitionAndSchoolLevies + schoolMaintenanceShare20,
+  };
+}
+
 // ==========================================
 // ADMIN / BURSAR: AUDIT QUEUE & FEE CLEARANCE
 // ==========================================
@@ -69,6 +90,7 @@ export async function getAdminPaymentAuditList(filters?: {
     const payments = rawPayments.map((p: any) => ({
       ...p,
       AmountKobo: Number(p.AmountKobo || 0),
+      allocation: computePaymentAllocationBreakdown(p.AmountPaid),
     }));
 
     const pendingCount = await prisma.payment_Record.count({ where: { Status: "Pending" } });
@@ -120,6 +142,7 @@ export async function approvePaymentRecord(paymentId: number) {
       }),
     ]);
 
+    const allocation = computePaymentAllocationBreakdown(payment.AmountPaid);
     await writeAuditLog({
       actorUserId: actor.UserID,
       actorRoles: Array.from(actor.roles).join(","),
@@ -127,7 +150,15 @@ export async function approvePaymentRecord(paymentId: number) {
       targetTable: "Payment_Record",
       targetId: String(paymentId),
       beforeState: { status: payment.Status },
-      afterState: { status: "Approved", studentId: payment.StudentID, amountPaid: payment.AmountPaid },
+      afterState: {
+        status: "Approved",
+        studentId: payment.StudentID,
+        amountPaid: payment.AmountPaid,
+        tuitionSchool100: allocation.tuitionAndSchoolLevies,
+        maintenanceFee: allocation.maintenanceFee,
+        providerShare80: allocation.providerShare80,
+        schoolMaintenanceShare20: allocation.schoolMaintenanceShare20,
+      },
     });
 
     revalidatePath("/portal/admin/payments");

@@ -91,8 +91,8 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
 
   return (
     <div>
-      {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
-      {success && <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
+      {error && <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
+      {success && <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
 
       {/* Global Active State Banner */}
       <div style={{
@@ -110,11 +110,11 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
       }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-            <span style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid #4ade80", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
+            <span style={{ background: "rgba(0, 0, 0, 0.35)", color: "#86efac", border: "1px solid #4ade80", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
               CURRENT ACTIVE PERIOD
             </span>
             {activeTerm?.IsLocked && (
-              <span style={{ background: "rgba(239, 68, 68, 0.2)", color: "#f87171", border: "1px solid #f87171", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+              <span style={{ background: "rgba(0, 0, 0, 0.35)", color: "#fecaca", border: "1px solid #f87171", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <FiLock /> SCORE ENTRY LOCKED
               </span>
             )}
@@ -134,8 +134,8 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
               disabled={loading}
               className="btn"
               style={{
-                background: activeTerm.IsLocked ? "#22c55e" : "#ef4444",
-                color: "white",
+                background: activeTerm.IsLocked ? "#15803d" : "#dc2626",
+                color: "#ffffff",
                 display: "flex",
                 alignItems: "center",
                 gap: "0.5rem"
@@ -185,27 +185,27 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
                   </td>
                   <td data-label="Status" style={{ padding: "1rem", textAlign: "center" }}>
                     {term.IsActive ? (
-                      <span style={{ background: "#dcfce7", color: "#15803d", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                      <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                         <FiCheckCircle /> Active
                       </span>
                     ) : (
-                      <span style={{ background: "var(--color-gray-100)", color: "var(--color-gray-600)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem" }}>
+                      <span style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem" }}>
                         Inactive
                       </span>
                     )}
                   </td>
                   <td data-label="Score Lock" style={{ padding: "1rem", textAlign: "center" }}>
                     {term.IsLocked ? (
-                      <span style={{ color: "#ef4444", fontWeight: "bold", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                      <span style={{ color: "var(--status-error-text)", fontWeight: "bold", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                         <FiLock /> Locked
                       </span>
                     ) : (
-                      <span style={{ color: "#22c55e", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                      <span style={{ color: "var(--status-success-text)", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                         <FiUnlock /> Open
                       </span>
                     )}
                   </td>
-                  <td data-label="Activity Records" style={{ padding: "1rem", textAlign: "center", fontSize: "0.85rem", color: "var(--color-gray-600)" }}>
+                  <td data-label="Activity Records" style={{ padding: "1rem", textAlign: "center", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
                     {term._count?.Results || 0} Results · {term._count?.ScratchCards || 0} Cards · {term._count?.PaymentRecords || 0} Payments
                   </td>
                   <td data-label="Actions" style={{ padding: "1rem", textAlign: "right" }}>
@@ -227,9 +227,9 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
                         style={{
                           padding: "0.4rem 0.8rem",
                           fontSize: "0.85rem",
-                          background: term.IsLocked ? "#dcfce7" : "#fee2e2",
-                          color: term.IsLocked ? "#15803d" : "#b91c1c",
-                          border: "none"
+                          background: term.IsLocked ? "var(--status-success-bg)" : "var(--status-error-bg)",
+                          color: term.IsLocked ? "var(--status-success-text)" : "var(--status-error-text)",
+                          border: `1px solid ${term.IsLocked ? "var(--status-success-border)" : "var(--status-error-border)"}`
                         }}
                       >
                         {term.IsLocked ? "Unlock Scores" : "Lock Scores"}
@@ -245,25 +245,12 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
 
       {/* Add Session/Term Modal */}
       {showModal && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
-          padding: "1rem"
-        }}>
-          <div className="modal-content" style={{
-            background: "var(--color-white)",
-            borderRadius: "var(--radius-lg)",
+        <div className="portal-modal-overlay">
+          <div className="modal-content portal-modal-card" style={{
             padding: "2rem",
-            width: "100%",
             maxWidth: "500px",
-            boxShadow: "var(--shadow-floating)"
           }}>
-            <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Add Academic Session & Term</h3>
+            <h3 style={{ color: "var(--text-heading)", marginBottom: "1rem" }}>Add Academic Session & Term</h3>
             <form onSubmit={handleCreateTerm}>
               <div className="form-group">
                 <label className="form-label">Academic Session</label>

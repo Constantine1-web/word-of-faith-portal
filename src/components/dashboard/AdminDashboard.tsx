@@ -116,7 +116,7 @@ export default function AdminDashboard() {
 
   if (!data) {
     return (
-      <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", textAlign: "center", color: "#b91c1c" }}>
+      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", padding: "3rem", borderRadius: "var(--radius-lg)", textAlign: "center", color: "var(--status-error-text)" }}>
         <p style={{ marginBottom: "1rem", fontWeight: 600 }}>
           {errorMsg || "Failed to load administrative overview."}
         </p>
@@ -144,7 +144,7 @@ export default function AdminDashboard() {
         boxShadow: "var(--shadow-md)"
       }}>
         <div>
-          <span style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid #4ade80", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
+          <span style={{ background: "rgba(0, 0, 0, 0.35)", color: "#86efac", border: "1px solid #4ade80", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
             ADMIN EXECUTIVE SUITE
           </span>
           <h2 style={{ color: "white", margin: "0.5rem 0 0 0", fontSize: "1.75rem" }}>
@@ -174,14 +174,14 @@ export default function AdminDashboard() {
           <h2 style={{ color: "var(--color-primary-green)", margin: 0 }}>₦{data.stats.totalRevenue.toLocaleString()}</h2>
         </div>
 
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid #3b82f6" }}>
+        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid var(--accent-blue)" }}>
           <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Active Teaching Staff</p>
-          <h2 style={{ color: "#2563eb", margin: 0 }}>{data.stats.totalTeachers}</h2>
+          <h2 style={{ color: "var(--accent-blue)", margin: 0 }}>{data.stats.totalTeachers}</h2>
         </div>
 
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid #f59e0b" }}>
+        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid var(--accent-amber)" }}>
           <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Pending Action Items</p>
-          <h2 style={{ color: "#d97706", margin: 0 }}>
+          <h2 style={{ color: "var(--accent-amber)", margin: 0 }}>
             {data.stats.pendingAdmissions + data.stats.pendingPayments} Items
           </h2>
         </div>
@@ -196,7 +196,7 @@ export default function AdminDashboard() {
         <Link href="/portal/admin/terms" style={{ textDecoration: "none" }}>
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-              <div style={{ background: "#e0e7ff", color: "#4338ca", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiCalendar size={20} /></div>
+              <div style={{ background: "var(--status-purple-bg)", color: "var(--status-purple-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiCalendar size={20} /></div>
               <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Session & Term Master</h4>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Set active school term, lock/unlock score entries across the school.</p>
@@ -206,7 +206,7 @@ export default function AdminDashboard() {
         <Link href="/portal/admin/classes" style={{ textDecoration: "none" }}>
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-              <div style={{ background: "#dbeafe", color: "#1e40af", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiLayers size={20} /></div>
+              <div style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiLayers size={20} /></div>
               <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Classes & Form Masters</h4>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Configure class arms (Gold, Blue) and assign 1-to-1 Form Masters.</p>
@@ -216,7 +216,7 @@ export default function AdminDashboard() {
         <Link href="/portal/admin/teachers" style={{ textDecoration: "none" }}>
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-              <div style={{ background: "#dcfce7", color: "#15803d", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiUsers size={20} /></div>
+              <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiUsers size={20} /></div>
               <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Subject Allocation</h4>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Assign subject teachers to multiple class arms for active term.</p>
@@ -226,7 +226,7 @@ export default function AdminDashboard() {
         <Link href="/portal/admin/cards" style={{ textDecoration: "none" }}>
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-              <div style={{ background: "#fef3c7", color: "#b45309", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiCreditCard size={20} /></div>
+              <div style={{ background: "var(--status-warning-bg)", color: "var(--status-warning-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiCreditCard size={20} /></div>
               <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Scratch Card Generator</h4>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Generate 12-digit PIN result cards, print sticker sheets, export CSV.</p>
@@ -236,7 +236,7 @@ export default function AdminDashboard() {
         <Link href="/portal/admin/payments" style={{ textDecoration: "none" }}>
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-              <div style={{ background: "#f1f5f9", color: "#334155", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiDollarSign size={20} /></div>
+              <div style={{ background: "var(--bg-tertiary)", color: "var(--text-primary)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiDollarSign size={20} /></div>
               <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Fee Clearance & Receipts</h4>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Audit bank receipts, verify Paystack, and approve result access.</p>
@@ -246,7 +246,7 @@ export default function AdminDashboard() {
         <Link href="/portal/admin/admissions" style={{ textDecoration: "none" }}>
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-              <div style={{ background: "#fae8ff", color: "#86198f", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiUserPlus size={20} /></div>
+              <div style={{ background: "var(--status-purple-bg)", color: "var(--status-purple-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiUserPlus size={20} /></div>
               <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Admissions & Onboarding</h4>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Approve applications with auto-formatted registration numbering.</p>
@@ -283,8 +283,9 @@ export default function AdminDashboard() {
               style={{
                 padding: "0.65rem 0.9rem",
                 borderRadius: "8px",
-                background: noticeMsg.startsWith("❌") ? "#fee2e2" : "#dcfce7",
-                color: noticeMsg.startsWith("❌") ? "#991b1b" : "#166534",
+                background: noticeMsg.startsWith("❌") ? "var(--status-error-bg)" : "var(--status-success-bg)",
+                color: noticeMsg.startsWith("❌") ? "var(--status-error-text)" : "var(--status-success-text)",
+                border: `1px solid ${noticeMsg.startsWith("❌") ? "var(--status-error-border)" : "var(--status-success-border)"}`,
                 fontSize: "0.84rem",
                 fontWeight: 600,
                 marginBottom: "0.85rem",
@@ -296,7 +297,7 @@ export default function AdminDashboard() {
           <form onSubmit={handlePublishNotice} style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
                   Category
                 </label>
                 <select
@@ -311,7 +312,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
                   Event / Effective Date
                 </label>
                 <input
@@ -324,7 +325,7 @@ export default function AdminDashboard() {
               </div>
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
                 Target Audience
               </label>
               <select
@@ -341,7 +342,7 @@ export default function AdminDashboard() {
               </select>
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
                 Headline / Title
               </label>
               <input
@@ -354,7 +355,7 @@ export default function AdminDashboard() {
               />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "#334155", marginBottom: "0.25rem" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
                 Details / Schedule Instructions
               </label>
               <textarea
@@ -379,20 +380,20 @@ export default function AdminDashboard() {
 
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.5rem",
             borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-gray-200)",
+            border: "1px solid var(--border-subtle)",
             boxShadow: "var(--shadow-sm)",
             display: "flex",
             flexDirection: "column",
             gap: "0.75rem",
           }}
         >
-          <h4 style={{ margin: "0 0 0.25rem 0", color: "var(--color-navy-blue)" }}>
+          <h4 style={{ margin: "0 0 0.25rem 0", color: "var(--text-heading)" }}>
             Active Broadcasts ({notices.length})
           </h4>
-          <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.82rem", color: "#64748b" }}>
+          <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
             These announcements appear immediately on the Student, Parent, and Teacher portals.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "340px", overflowY: "auto" }}>
@@ -402,8 +403,8 @@ export default function AdminDashboard() {
                 style={{
                   padding: "0.85rem 1rem",
                   borderRadius: "10px",
-                  border: "1px solid #e2e8f0",
-                  background: "#f8fafc",
+                  border: "1px solid var(--border-subtle)",
+                  background: "var(--bg-secondary)",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "flex-start",
@@ -417,24 +418,24 @@ export default function AdminDashboard() {
                         fontSize: "0.72rem",
                         fontWeight: 800,
                         textTransform: "uppercase",
-                        color: n.color || "var(--color-primary-green)",
+                        color: n.color || "var(--brand-accent)",
                       }}
                     >
                       {n.type}
                     </span>
                     {n.eventDate && (
-                      <span style={{ fontSize: "0.72rem", color: "#475569", fontWeight: 700 }}>
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 700 }}>
                         · 📅 {n.eventDate}
                       </span>
                     )}
                     {n.targetAudience && (
-                      <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
                         · {n.targetAudience}
                       </span>
                     )}
                   </div>
-                  <div style={{ fontWeight: 800, color: "#0A2540", fontSize: "0.92rem" }}>{n.title}</div>
-                  <div style={{ fontSize: "0.82rem", color: "#475569", marginTop: "0.2rem", lineHeight: 1.45 }}>
+                  <div style={{ fontWeight: 800, color: "var(--text-heading)", fontSize: "0.92rem" }}>{n.title}</div>
+                  <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "0.2rem", lineHeight: 1.45 }}>
                     {n.details}
                   </div>
                 </div>
@@ -444,9 +445,9 @@ export default function AdminDashboard() {
                     onClick={() => handleDeleteNotice(n.id)}
                     title="Remove Notice"
                     style={{
-                      background: "#fee2e2",
-                      color: "#b91c1c",
-                      border: "none",
+                      background: "var(--status-error-bg)",
+                      color: "var(--status-error-text)",
+                      border: "1px solid var(--status-error-border)",
                       borderRadius: "6px",
                       padding: "0.35rem 0.5rem",
                       cursor: "pointer",
@@ -463,23 +464,28 @@ export default function AdminDashboard() {
 
       {/* Analytics Charts */}
       <div className="responsive-grid-large" style={{ marginBottom: "2rem" }}>
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)" }}>
-          <h4 style={{ marginBottom: "1rem", color: "var(--color-navy-blue)" }}>Revenue Trend (NGN)</h4>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)" }}>
+          <h4 style={{ marginBottom: "1rem", color: "var(--text-heading)" }}>Revenue Trend (NGN)</h4>
           <div style={{ height: "260px" }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data.charts.monthlyRevenue}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(value: any) => `₦${value?.toLocaleString() || 0}`} />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-subtle)" />
+                <XAxis dataKey="name" stroke="var(--border-primary)" tick={{ fill: "var(--text-muted)", fontSize: 12 }} />
+                <YAxis stroke="var(--border-primary)" tick={{ fill: "var(--text-muted)", fontSize: 12 }} />
+                <Tooltip
+                  formatter={(value: any) => `₦${value?.toLocaleString() || 0}`}
+                  contentStyle={{ backgroundColor: "var(--bg-modal)", borderColor: "var(--border-primary)", color: "var(--text-primary)", borderRadius: "8px" }}
+                  itemStyle={{ color: "var(--text-primary)" }}
+                  labelStyle={{ color: "var(--text-heading)", fontWeight: 700 }}
+                />
                 <Line type="monotone" dataKey="revenue" stroke="var(--color-primary-green)" strokeWidth={3} dot={{ r: 4 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)" }}>
-          <h4 style={{ marginBottom: "1rem", color: "var(--color-navy-blue)" }}>Student Distribution by Level</h4>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)" }}>
+          <h4 style={{ marginBottom: "1rem", color: "var(--text-heading)" }}>Student Distribution by Level</h4>
           <div style={{ height: "260px" }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -491,13 +497,17 @@ export default function AdminDashboard() {
                   outerRadius={90}
                   paddingAngle={5}
                   dataKey="value"
-                  label
+                  label={{ fill: "var(--text-primary)", fontSize: 12 }}
                 >
                   {data.charts.studentDistribution.map((entry: any, index: number) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "var(--bg-modal)", borderColor: "var(--border-primary)", color: "var(--text-primary)", borderRadius: "8px" }}
+                  itemStyle={{ color: "var(--text-primary)" }}
+                  labelStyle={{ color: "var(--text-heading)", fontWeight: 700 }}
+                />
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -542,7 +552,7 @@ export default function AdminDashboard() {
                   <td style={{ padding: "0.75rem 1rem", fontWeight: 700, color: "var(--color-navy-blue)", fontFamily: "monospace" }}>
                     {log.Action}
                   </td>
-                  <td style={{ padding: "0.75rem 1rem", color: "#15803d", fontWeight: 600 }}>
+                  <td style={{ padding: "0.75rem 1rem", color: "var(--accent-green)", fontWeight: 600 }}>
                     {log.NewValue?.actorRoles || (log.ActorID ? `User #${log.ActorID}` : "SYSTEM")}
                   </td>
                   <td style={{ padding: "0.75rem 1rem", fontFamily: "monospace" }}>

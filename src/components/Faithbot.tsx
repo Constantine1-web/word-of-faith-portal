@@ -307,12 +307,12 @@ export default function Faithbot() {
           top: btnPos ? `${btnPos.y}px` : "auto",
           left: btnPos ? `${btnPos.x}px` : "2rem",
           bottom: btnPos ? "auto" : "2rem",
-          background: isOpen ? "var(--bg-dark)" : "#000000",
-          color: "white",
+          background: isOpen ? "var(--brand-secondary)" : "var(--brand-primary)",
+          color: isOpen ? "var(--brand-secondary-text)" : "var(--brand-primary-text)",
           borderRadius: "50%",
           width: "clamp(45px, 12vw, 60px)",
           height: "clamp(45px, 12vw, 60px)",
-          border: "none",
+          border: "2px solid var(--border-primary)",
           boxShadow: "var(--shadow-lg)",
           cursor: isDragging ? "grabbing" : "pointer",
           zIndex: 9999,
@@ -336,16 +336,15 @@ export default function Faithbot() {
           top: isFullScreen ? "0" : (popupPos ? `${popupPos.y}px` : "auto"),
           width: isFullScreen ? "100vw" : "min(350px, 85vw)",
           height: isFullScreen ? "100vh" : "min(500px, 65vh)",
-          background: "var(--nav-bg-glass)",
-          backdropFilter: "blur(16px) saturate(180%)",
-          WebkitBackdropFilter: "blur(16px) saturate(180%)", // iOS Safari support
+          background: "var(--bg-modal)",
+          color: "var(--text-primary)",
           borderRadius: isFullScreen ? "0" : "var(--radius-lg)",
           boxShadow: isFullScreen ? "none" : "var(--shadow-floating)",
           zIndex: 9999,
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          border: isFullScreen ? "none" : "1px solid var(--color-gray-200)",
+          border: isFullScreen ? "none" : "1px solid var(--border-primary)",
           transition: isDraggingPopup ? "none" : "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
         }}>
           <div 
@@ -354,8 +353,8 @@ export default function Faithbot() {
             onPointerUp={handlePopupPointerUp}
             onPointerCancel={handlePopupPointerUp}
             style={{ 
-              background: "rgba(30, 58, 138, 0.95)", // slightly transparent navy
-              color: "white", 
+              background: "var(--brand-secondary)",
+              color: "var(--brand-secondary-text)",
               padding: "1rem", 
               display: "flex",
               justifyContent: "space-between",
@@ -371,14 +370,14 @@ export default function Faithbot() {
             <div style={{ display: "flex", gap: "0.5rem" }} onPointerDown={(e) => e.stopPropagation()}>
               <button 
                 onClick={() => setIsFullScreen(!isFullScreen)}
-                style={{ background: "none", border: "none", color: "white", cursor: "pointer", fontSize: "1.2rem", padding: "0 0.5rem" }}
+                style={{ background: "none", border: "none", color: "var(--brand-secondary-text)", cursor: "pointer", fontSize: "1.2rem", padding: "0 0.5rem" }}
                 title={isFullScreen ? "Collapse" : "Expand Fullscreen"}
               >
                 {isFullScreen ? <FiMinimize2 /> : <FiMaximize2 />}
               </button>
               <button 
                 onClick={() => setIsOpen(false)}
-                style={{ background: "none", border: "none", color: "white", cursor: "pointer", fontSize: "1.2rem", padding: "0 0.5rem" }}
+                style={{ background: "none", border: "none", color: "var(--brand-secondary-text)", cursor: "pointer", fontSize: "1.2rem", padding: "0 0.5rem" }}
                 title="Close"
               >
                 <FiX />
@@ -386,8 +385,8 @@ export default function Faithbot() {
             </div>
           </div>
           
-          <div style={{ flex: 1, padding: "1rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {(!messages || messages.length === 0) && <p style={{ textAlign: "center", color: "var(--color-gray-800)", marginTop: "1rem" }}>Hello! How can I help you today?</p>}
+          <div style={{ flex: 1, padding: "1rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--bg-primary)" }}>
+            {(!messages || messages.length === 0) && <p style={{ textAlign: "center", color: "var(--text-secondary)", marginTop: "1rem" }}>Hello! How can I help you today?</p>}
             {messages?.map((m, index) => (
               <div key={m.id || `msg-${index}`} style={{
                 alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
@@ -395,8 +394,9 @@ export default function Faithbot() {
               }}>
                 <div style={{ 
                   margin: 0, 
-                  background: m.role === 'user' ? "var(--color-primary-green)" : "var(--color-gray-100)",
-                  color: m.role === 'user' ? "var(--btn-primary-text, white)" : "var(--color-gray-900)",
+                  background: m.role === 'user' ? "var(--brand-primary)" : "var(--bg-card)",
+                  color: m.role === 'user' ? "var(--brand-primary-text)" : "var(--text-primary)",
+                  border: m.role === 'user' ? "none" : "1px solid var(--border-subtle)",
                   padding: "0.75rem",
                   borderRadius: "var(--radius-md)",
                   boxShadow: "var(--shadow-sm)",
@@ -425,17 +425,17 @@ export default function Faithbot() {
                 </div>
               </div>
             ))}
-            {isLoading && <div style={{ alignSelf: "flex-start", color: "var(--color-gray-800)", fontStyle: "italic", fontSize: "0.9rem" }}>Faithbot is typing...</div>}
+            {isLoading && <div style={{ alignSelf: "flex-start", color: "var(--text-muted)", fontStyle: "italic", fontSize: "0.9rem" }}>Faithbot is typing...</div>}
             {error && (
-              <div style={{ alignSelf: "center", color: "red", fontSize: "0.8rem", textAlign: "center", padding: "0.5rem" }}>
+              <div style={{ alignSelf: "center", color: "var(--status-error-text)", background: "var(--status-error-bg)", border: "1px solid var(--status-error-border)", borderRadius: "var(--radius-sm)", fontSize: "0.8rem", textAlign: "center", padding: "0.5rem" }}>
                 Error: {error.message || "Failed to fetch response."}
               </div>
             )}
           </div>
           
-          <form onSubmit={onSubmit} style={{ padding: "1rem", borderTop: "1px solid var(--color-gray-200)", display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--color-gray-50)" }}>
+          <form onSubmit={onSubmit} style={{ padding: "1rem", borderTop: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--bg-secondary)" }}>
             {files && files.length > 0 && (
-              <div style={{ fontSize: "0.8rem", color: "var(--color-primary-green)", background: "var(--color-white)", padding: "0.25rem 0.5rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-primary-green)", alignSelf: "flex-start", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "var(--status-success-text)", background: "var(--status-success-bg)", padding: "0.25rem 0.5rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--status-success-border)", alignSelf: "flex-start", display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <FiPaperclip /> {files[0].name}
               </div>
             )}
@@ -448,14 +448,14 @@ export default function Faithbot() {
                 style={{ display: "none" }}
                 id="faithbot-file-upload"
               />
-              <label htmlFor="faithbot-file-upload" style={{ cursor: "pointer", padding: "0.75rem", color: "var(--color-gray-700)", background: "var(--color-white)", border: "1px solid var(--color-gray-300)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", justifyContent: "center" }} title="Upload Image">
+              <label htmlFor="faithbot-file-upload" style={{ cursor: "pointer", padding: "0.75rem", color: "var(--text-secondary)", background: "var(--bg-input)", border: "1px solid var(--input-outline)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", justifyContent: "center" }} title="Upload Image">
                 <FiPaperclip size={20} />
               </label>
               <input 
                 value={localInput} 
                 onChange={(e) => setLocalInput(e.target.value)} 
                 placeholder="Ask Faithbot..." 
-                style={{ flex: 1, minWidth: 0, padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-300)", background: "var(--color-white)", color: "var(--color-gray-900)" }}
+                style={{ flex: 1, minWidth: 0, padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)" }}
               />
               <button type="submit" className="btn btn-primary" style={{ padding: "0.75rem", display: "flex", alignItems: "center", justifyContent: "center" }} disabled={isLoading || (!localInput.trim() && (!files || files.length === 0))}>
                 <FiSend size={20} />

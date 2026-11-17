@@ -445,9 +445,10 @@ export default function CBTLandingPage() {
             style={
               !canClickStart
                 ? {
-                    backgroundColor: "#94a3b8",
-                    color: "#f8fafc",
-                    opacity: 0.6,
+                    backgroundColor: "var(--bg-tertiary)",
+                    color: "var(--text-muted)",
+                    border: "1px solid var(--border-primary)",
+                    opacity: 0.75,
                     cursor: "not-allowed",
                     boxShadow: "none",
                   }
@@ -613,17 +614,16 @@ export default function CBTLandingPage() {
                         gap: "0.75rem",
                         padding: "0.7rem 0.85rem",
                         borderRadius: "10px",
-                        background: badge.earned ? "var(--color-white)" : "var(--color-gray-100)",
-                        border: `1px solid ${badge.earned ? "var(--color-primary-green)" : "var(--color-gray-200)"}`,
-                        opacity: badge.earned ? 1 : 0.7,
+                        background: badge.earned ? "var(--bg-card)" : "var(--bg-secondary)",
+                        border: `1px solid ${badge.earned ? "var(--active-border)" : "var(--border-primary)"}`,
                       }}
                     >
                       <div style={{ fontSize: "1.5rem" }}>{badge.icon}</div>
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: "0.84rem", color: badge.earned ? "var(--color-gray-900)" : "var(--color-gray-500)" }}>
+                        <div style={{ fontWeight: 800, fontSize: "0.84rem", color: badge.earned ? "var(--text-primary)" : "var(--text-secondary)" }}>
                           {badge.title} {badge.earned && "✓"}
                         </div>
-                        <div style={{ fontSize: "0.74rem", color: "var(--color-gray-500)", lineHeight: 1.35 }}>
+                        <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.35 }}>
                           {badge.description}
                         </div>
                       </div>
@@ -890,8 +890,8 @@ export default function CBTLandingPage() {
                             onClick={() => handleOpenReview(att.id)}
                             disabled={reviewLoadingId === att.id}
                             style={{
-                              background: "var(--color-navy-blue)",
-                              color: "var(--btn-primary-text, #ffffff)",
+                              background: "var(--brand-secondary)",
+                              color: "var(--brand-secondary-text)",
                               border: "none",
                               borderRadius: "8px",
                               padding: "0.42rem 0.8rem",
@@ -966,7 +966,7 @@ export default function CBTLandingPage() {
                   onClick={() => handleRunAiTutor(selectedReview.summary.attemptId)}
                   disabled={aiLoading}
                   style={{
-                    background: "linear-gradient(135deg, #16a34a, #15803d)",
+                    background: "linear-gradient(135deg, #15803d, #14532d)",
                     color: "#ffffff",
                     border: "none",
                     borderRadius: "8px",
@@ -1061,7 +1061,7 @@ export default function CBTLandingPage() {
                         fontWeight: 800,
                         padding: "0.18rem 0.6rem",
                         borderRadius: "999px",
-                        background: item.isCorrect ? "#16a34a" : "#dc2626",
+                        background: item.isCorrect ? "#15803d" : "#dc2626",
                         color: "#ffffff",
                       }}
                     >

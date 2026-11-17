@@ -85,7 +85,7 @@ export default function ParentDashboard({ session }: { session: any }) {
 
   if (errorMsg) {
     return (
-      <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", textAlign: "center", color: "#b91c1c" }}>
+      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", padding: "3rem", borderRadius: "var(--radius-lg)", textAlign: "center", color: "var(--status-error-text)" }}>
         <p style={{ marginBottom: "1rem", fontWeight: 600 }}>{errorMsg}</p>
         <button onClick={fetchData} className="btn btn-primary">Retry</button>
       </div>
@@ -113,8 +113,8 @@ export default function ParentDashboard({ session }: { session: any }) {
       }}>
         <div>
           <span style={{
-            background: "rgba(34, 197, 94, 0.2)",
-            color: "#4ade80",
+            background: "rgba(0, 0, 0, 0.35)",
+            color: "#86efac",
             border: "1px solid #4ade80",
             padding: "0.2rem 0.6rem",
             borderRadius: "var(--radius-full)",
@@ -192,9 +192,9 @@ export default function ParentDashboard({ session }: { session: any }) {
                     gap: "0.75rem",
                     padding: "0.75rem 1.25rem",
                     borderRadius: "var(--radius-full)",
-                    border: isSelected ? "2px solid var(--color-primary-green)" : "1px solid var(--color-gray-200)",
-                    background: isSelected ? "var(--color-primary-green)" : "var(--color-white)",
-                    color: isSelected ? "#FFFFFF" : "var(--color-gray-800)",
+                    border: isSelected ? "2px solid var(--active-border)" : "1px solid var(--border-subtle)",
+                    background: isSelected ? "var(--brand-primary)" : "var(--bg-card)",
+                    color: isSelected ? "var(--brand-primary-text)" : "var(--text-primary)",
                     cursor: "pointer",
                     transition: "all 0.2s ease",
                     boxShadow: isSelected ? "var(--shadow-sm)" : "none",
@@ -205,8 +205,8 @@ export default function ParentDashboard({ session }: { session: any }) {
                     width: "32px",
                     height: "32px",
                     borderRadius: "50%",
-                    background: isSelected ? "rgba(255,255,255,0.25)" : "var(--color-gray-100)",
-                    color: isSelected ? "#FFFFFF" : "var(--color-navy-blue)",
+                    background: isSelected ? "rgba(255,255,255,0.22)" : "var(--bg-tertiary)",
+                    color: isSelected ? "var(--brand-primary-text)" : "var(--text-heading)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -246,8 +246,8 @@ export default function ParentDashboard({ session }: { session: any }) {
                       {currentChild.fullName}
                     </h2>
                     <span style={{
-                      background: currentChild.isFeeCleared ? "#dcfce7" : "#fef3c7",
-                      color: currentChild.isFeeCleared ? "#15803d" : "#b45309",
+                      background: currentChild.isFeeCleared ? "var(--status-success-bg)" : "var(--status-warning-bg)",
+                      color: currentChild.isFeeCleared ? "var(--status-success-text)" : "var(--status-warning-text)",
                       padding: "0.25rem 0.65rem",
                       borderRadius: "var(--radius-full)",
                       fontSize: "0.8rem",
@@ -288,17 +288,17 @@ export default function ParentDashboard({ session }: { session: any }) {
                   <span style={{ fontSize: "0.8rem", color: "var(--color-gray-500)" }}>{currentChild.results.length} subjects assessed</span>
                 </div>
 
-                <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid #3b82f6" }}>
+                <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid var(--accent-blue)" }}>
                   <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.85rem" }}>Attendance Record</p>
-                  <h2 style={{ color: "#2563eb", margin: 0, fontSize: "1.8rem" }}>
+                  <h2 style={{ color: "var(--accent-blue)", margin: 0, fontSize: "1.8rem" }}>
                     {currentChild.attendance.attendanceRate}%
                   </h2>
                   <span style={{ fontSize: "0.8rem", color: "var(--color-gray-500)" }}>{currentChild.attendance.presentDays} of {currentChild.attendance.totalDays} sessions</span>
                 </div>
 
-                <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid #8b5cf6" }}>
+                <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid var(--accent-purple)" }}>
                   <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.85rem" }}>CBT Practice Tests</p>
-                  <h2 style={{ color: "#7c3aed", margin: 0, fontSize: "1.8rem" }}>
+                  <h2 style={{ color: "var(--accent-purple)", margin: 0, fontSize: "1.8rem" }}>
                     {currentChild.cbtAttempts.length}
                   </h2>
                   <span style={{ fontSize: "0.8rem", color: "var(--color-gray-500)" }}>Timed tests completed</span>
@@ -306,7 +306,7 @@ export default function ParentDashboard({ session }: { session: any }) {
 
                 <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: `4px solid ${currentChild.isFeeCleared ? "#10b981" : "#f59e0b"}` }}>
                   <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.85rem" }}>Bursary Standing</p>
-                  <h2 style={{ color: currentChild.isFeeCleared ? "#15803d" : "#b45309", margin: 0, fontSize: "1.8rem" }}>
+                  <h2 style={{ color: currentChild.isFeeCleared ? "var(--status-success-text)" : "var(--status-warning-text)", margin: 0, fontSize: "1.8rem" }}>
                     {currentChild.isFeeCleared ? "CLEARED" : "DUE"}
                   </h2>
                   <span style={{ fontSize: "0.8rem", color: "var(--color-gray-500)" }}>{data.activeTerm}</span>
@@ -353,7 +353,7 @@ export default function ParentDashboard({ session }: { session: any }) {
                             <td style={{ padding: "0.85rem 1rem", textAlign: "center" }}>{res.caScore}</td>
                             <td style={{ padding: "0.85rem 1rem", textAlign: "center" }}>{res.examScore}</td>
                             <td style={{ padding: "0.85rem 1rem", textAlign: "center", fontWeight: "bold" }}>{res.totalScore}</td>
-                            <td style={{ padding: "0.85rem 1rem", textAlign: "center", color: res.grade === "F" ? "#dc2626" : "#16a34a", fontWeight: "bold" }}>{res.grade}</td>
+                            <td style={{ padding: "0.85rem 1rem", textAlign: "center", color: res.grade === "F" ? "var(--status-error-text)" : "var(--status-success-text)", fontWeight: "bold" }}>{res.grade}</td>
                             <td style={{ padding: "0.85rem 1rem", color: "var(--color-gray-600)", fontSize: "0.85rem" }}>{res.remark || "Satisfactory"}</td>
                           </tr>
                         ))}
@@ -386,7 +386,7 @@ export default function ParentDashboard({ session }: { session: any }) {
                             <strong style={{ fontSize: "0.9rem", color: "var(--color-navy-blue)" }}>{att.subjectCode.toUpperCase()}</strong>
                             <div style={{ fontSize: "0.75rem", color: "var(--color-gray-500)" }}>{new Date(att.date).toLocaleDateString()}</div>
                           </div>
-                          <div style={{ fontWeight: "bold", fontSize: "0.95rem", color: att.scorePercent >= 50 ? "#16a34a" : "#dc2626" }}>
+                          <div style={{ fontWeight: "bold", fontSize: "0.95rem", color: att.scorePercent >= 50 ? "var(--status-success-text)" : "var(--status-error-text)" }}>
                             {att.scorePercent}%
                           </div>
                         </div>
@@ -418,7 +418,7 @@ export default function ParentDashboard({ session }: { session: any }) {
                           </div>
                           <div style={{ textAlign: "right" }}>
                             <div style={{ fontWeight: "bold", fontSize: "0.95rem" }}>₦{pay.amount.toLocaleString()}</div>
-                            <span style={{ fontSize: "0.75rem", color: pay.status === "Approved" ? "#16a34a" : "#b45309", fontWeight: "bold" }}>{pay.status}</span>
+                            <span style={{ fontSize: "0.75rem", color: pay.status === "Approved" ? "var(--status-success-text)" : "var(--status-warning-text)", fontWeight: "bold" }}>{pay.status}</span>
                           </div>
                         </div>
                       ))}
@@ -475,8 +475,8 @@ export default function ParentDashboard({ session }: { session: any }) {
                 marginBottom: "1rem",
                 fontSize: "0.85rem",
                 fontWeight: 600,
-                background: linkMsg.success ? "#dcfce7" : "#fee2e2",
-                color: linkMsg.success ? "#15803d" : "#b91c1c"
+                background: linkMsg.success ? "var(--status-success-bg)" : "var(--status-error-bg)",
+                color: linkMsg.success ? "var(--status-success-text)" : "var(--status-error-text)"
               }}>
                 {linkMsg.text}
               </div>

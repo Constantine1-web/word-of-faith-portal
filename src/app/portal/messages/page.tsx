@@ -186,8 +186,8 @@ export default function MessagesPage() {
                   textAlign: "left",
                   padding: "0.95rem 1.25rem",
                   border: "none",
-                  background: selectedUserId === c.UserID ? "rgba(59, 130, 246, 0.1)" : "transparent",
-                  borderBottom: "1px solid var(--color-gray-100)",
+                  background: selectedUserId === c.UserID ? "var(--active-bg)" : "transparent",
+                  borderBottom: "1px solid var(--border-subtle)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -290,20 +290,21 @@ export default function MessagesPage() {
             </div>
 
             {directFeedback && (
-              <div
-                style={{
-                  padding: "0.65rem 1.25rem",
-                  background: directFeedback.type === "error" ? "#fee2e2" : "#dcfce7",
-                  color: directFeedback.type === "error" ? "#b91c1c" : "#15803d",
-                  fontSize: "0.84rem",
-                  fontWeight: 600,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: "0.5rem",
-                }}
-              >
+                <div
+                  style={{
+                    padding: "0.65rem 1.25rem",
+                    background: directFeedback.type === "error" ? "var(--status-error-bg)" : "var(--status-success-bg)",
+                    color: directFeedback.type === "error" ? "var(--status-error-text)" : "var(--status-success-text)",
+                    borderBottom: `1px solid ${directFeedback.type === "error" ? "var(--status-error-border)" : "var(--status-success-border)"}`,
+                    fontSize: "0.84rem",
+                    fontWeight: 600,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "0.5rem",
+                  }}
+                >
                 <span>{directFeedback.text}</span>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   {directFeedback.whatsappDeepLink && (
@@ -312,7 +313,7 @@ export default function MessagesPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        background: "#16a34a",
+                        background: "#15803d",
                         color: "white",
                         padding: "0.25rem 0.6rem",
                         borderRadius: "4px",
@@ -330,7 +331,7 @@ export default function MessagesPage() {
                     <a
                       href={directFeedback.smsDeepLink}
                       style={{
-                        background: "#0284c7",
+                        background: "#0369a1",
                         color: "white",
                         padding: "0.25rem 0.6rem",
                         borderRadius: "4px",
@@ -367,9 +368,10 @@ export default function MessagesPage() {
                       style={{
                         padding: "0.9rem 1.1rem",
                         borderRadius: isMine ? "18px 18px 0 18px" : "18px 18px 18px 0",
-                        background: isMine ? "var(--color-primary-green)" : "var(--color-gray-100)",
-                        color: isMine ? "white" : "var(--color-gray-800)",
-                        boxShadow: "0 2px 5px rgba(0,0,0,0.05)",
+                        background: isMine ? "var(--brand-primary)" : "var(--bg-tertiary)",
+                        color: isMine ? "var(--brand-primary-text)" : "var(--text-primary)",
+                        border: isMine ? "none" : "1px solid var(--border-subtle)",
+                        boxShadow: "var(--shadow-sm)",
                       }}
                     >
                       <p style={{ margin: 0, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{m.Content}</p>
@@ -426,8 +428,8 @@ export default function MessagesPage() {
                     style={{
                       padding: "0.3rem 0.7rem",
                       fontSize: "0.78rem",
-                      borderColor: "#16a34a",
-                      color: "#15803d",
+                      borderColor: "var(--status-success-border)",
+                      color: "var(--status-success-text)",
                       display: "inline-flex",
                       alignItems: "center",
                       gap: "0.3rem",
@@ -443,8 +445,8 @@ export default function MessagesPage() {
                     style={{
                       padding: "0.3rem 0.7rem",
                       fontSize: "0.78rem",
-                      borderColor: "#0284c7",
-                      color: "#0369a1",
+                      borderColor: "var(--status-info-border)",
+                      color: "var(--status-info-text)",
                       display: "inline-flex",
                       alignItems: "center",
                       gap: "0.3rem",

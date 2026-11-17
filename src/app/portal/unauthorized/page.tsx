@@ -16,7 +16,7 @@ export default async function UnauthorizedPage({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+        background: "var(--bg-secondary)",
         padding: "2rem",
       }}
     >
@@ -24,10 +24,12 @@ export default async function UnauthorizedPage({
         style={{
           maxWidth: "540px",
           width: "100%",
-          background: "#ffffff",
+          background: "var(--bg-card)",
+          color: "var(--text-primary)",
+          border: "1px solid var(--border-primary)",
           borderRadius: "16px",
           padding: "2.5rem",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.45)",
+          boxShadow: "var(--shadow-floating)",
           textAlign: "center",
           borderTop: "6px solid #dc2626",
         }}
@@ -37,8 +39,8 @@ export default async function UnauthorizedPage({
             width: "72px",
             height: "72px",
             borderRadius: "50%",
-            background: "#fef2f2",
-            color: "#dc2626",
+            background: "var(--status-error-bg)",
+            color: "var(--status-error-text)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -54,8 +56,9 @@ export default async function UnauthorizedPage({
             display: "inline-flex",
             alignItems: "center",
             gap: "0.4rem",
-            background: "#fee2e2",
-            color: "#991b1b",
+            background: "var(--status-error-bg)",
+            color: "var(--status-error-text)",
+            border: "1px solid var(--status-error-border)",
             padding: "0.35rem 0.85rem",
             borderRadius: "999px",
             fontSize: "0.75rem",
@@ -70,7 +73,7 @@ export default async function UnauthorizedPage({
 
         <h1
           style={{
-            color: "#0f172a",
+            color: "var(--text-heading)",
             fontSize: "1.65rem",
             fontWeight: 800,
             marginBottom: "0.75rem",
@@ -81,7 +84,7 @@ export default async function UnauthorizedPage({
 
         <p
           style={{
-            color: "#475569",
+            color: "var(--text-secondary)",
             fontSize: "0.95rem",
             lineHeight: 1.6,
             marginBottom: "2rem",
@@ -105,8 +108,8 @@ export default async function UnauthorizedPage({
               alignItems: "center",
               justifyContent: "center",
               gap: "0.5rem",
-              background: "var(--color-navy-blue, #1e3a8a)",
-              color: "#ffffff",
+              background: "var(--brand-secondary)",
+              color: "var(--brand-secondary-text)",
               padding: "0.85rem 1.5rem",
               borderRadius: "8px",
               fontWeight: 600,
@@ -124,8 +127,9 @@ export default async function UnauthorizedPage({
               alignItems: "center",
               justifyContent: "center",
               gap: "0.5rem",
-              background: "#f1f5f9",
-              color: "#334155",
+              background: "var(--bg-tertiary)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-primary)",
               padding: "0.85rem 1.5rem",
               borderRadius: "8px",
               fontWeight: 600,
@@ -143,7 +147,7 @@ export default async function UnauthorizedPage({
               alignItems: "center",
               justifyContent: "center",
               gap: "0.4rem",
-              color: "#64748b",
+              color: "var(--text-muted)",
               padding: "0.5rem",
               fontSize: "0.85rem",
               textDecoration: "none",

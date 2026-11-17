@@ -187,21 +187,21 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
     if (user.Role?.RoleName !== "Admin") return null;
     const caps: string[] = user.resolvedCapabilities || user.Capabilities || [];
     if (caps.length >= ALL_CAPABILITIES.length) {
-      return { label: "FULL PRESET (14/14)", bg: "#ede9fe", color: "#6d28d9" };
+      return { label: "FULL PRESET (14/14)", bg: "var(--status-purple-bg)", color: "var(--status-purple-text)" };
     }
     if (
       caps.length === 3 &&
       CAPABILITY_PRESETS.FINANCE.every((c) => caps.includes(c))
     ) {
-      return { label: "FINANCE PRESET (Bursar)", bg: "#fef3c7", color: "#b45309" };
+      return { label: "FINANCE PRESET (Bursar)", bg: "var(--status-warning-bg)", color: "var(--status-warning-text)" };
     }
     if (
       caps.length === 1 &&
       caps[0] === "MANAGE_STUDENTS"
     ) {
-      return { label: "REGISTRY PRESET", bg: "#dbeafe", color: "#1d4ed8" };
+      return { label: "REGISTRY PRESET", bg: "var(--status-info-bg)", color: "var(--status-info-text)" };
     }
-    return { label: `SCOPED (${caps.length}/14 Caps)`, bg: "#f3f4f6", color: "#374151" };
+    return { label: `SCOPED (${caps.length}/14 Caps)`, bg: "var(--bg-tertiary)", color: "var(--text-secondary)" };
   };
 
   return (
@@ -209,8 +209,9 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
       {error && (
         <div
           style={{
-            background: "#fee2e2",
-            color: "#b91c1c",
+            background: "var(--status-error-bg)",
+            color: "var(--status-error-text)",
+            border: "1px solid var(--status-error-border)",
             padding: "1rem",
             borderRadius: "var(--radius-md)",
             marginBottom: "1.5rem",
@@ -223,8 +224,9 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
       {success && (
         <div
           style={{
-            background: "#dcfce7",
-            color: "#15803d",
+            background: "var(--status-success-bg)",
+            color: "var(--status-success-text)",
+            border: "1px solid var(--status-success-border)",
             padding: "1rem",
             borderRadius: "var(--radius-md)",
             marginBottom: "1.5rem",
@@ -324,8 +326,8 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                   <tr
                     key={user.UserID}
                     style={{
-                      borderBottom: "1px solid var(--color-gray-200)",
-                      opacity: user.IsActive ? 1 : 0.6,
+                      borderBottom: "1px solid var(--border-subtle)",
+                      background: user.IsActive ? "transparent" : "var(--bg-secondary)",
                     }}
                   >
                     <td
@@ -343,16 +345,16 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                           fontWeight: "bold",
                           background:
                             user.Role?.RoleName === "Admin"
-                              ? "#fee2e2"
+                              ? "var(--status-error-bg)"
                               : user.Role?.RoleName === "Teacher"
-                              ? "#dbeafe"
-                              : "#dcfce7",
+                              ? "var(--status-info-bg)"
+                              : "var(--status-success-bg)",
                           color:
                             user.Role?.RoleName === "Admin"
-                              ? "#b91c1c"
+                              ? "var(--status-error-text)"
                               : user.Role?.RoleName === "Teacher"
-                              ? "#1e40af"
-                              : "#15803d",
+                              ? "var(--status-info-text)"
+                              : "var(--status-success-text)",
                         }}
                       >
                         {user.Role?.RoleName}
@@ -406,7 +408,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                       {user.IsActive ? (
                         <span
                           style={{
-                            color: "#16a34a",
+                            color: "var(--status-success-text)",
                             fontSize: "0.85rem",
                             fontWeight: "bold",
                             display: "inline-flex",
@@ -419,7 +421,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                       ) : (
                         <span
                           style={{
-                            color: "#dc2626",
+                            color: "var(--status-error-text)",
                             fontSize: "0.85rem",
                             fontWeight: "bold",
                             display: "inline-flex",
@@ -444,8 +446,8 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                               display: "inline-flex",
                               alignItems: "center",
                               gap: "0.25rem",
-                              borderColor: "#6d28d9",
-                              color: "#6d28d9",
+                              borderColor: "var(--status-purple-border)",
+                              color: "var(--status-purple-text)",
                             }}
                             title="Configure Section B.2 Capabilities & Presets"
                           >
@@ -479,9 +481,9 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                           style={{
                             padding: "0.4rem 0.8rem",
                             fontSize: "0.85rem",
-                            background: user.IsActive ? "#fee2e2" : "#dcfce7",
-                            color: user.IsActive ? "#b91c1c" : "#15803d",
-                            border: "none",
+                            background: user.IsActive ? "var(--status-error-bg)" : "var(--status-success-bg)",
+                            color: user.IsActive ? "var(--status-error-text)" : "var(--status-success-text)",
+                            border: `1px solid ${user.IsActive ? "var(--status-error-border)" : "var(--status-success-border)"}`,
                           }}
                         >
                           {user.IsActive ? "Deactivate" : "Activate"}
@@ -498,18 +500,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
 
       {/* Section B.2 Capabilities & Presets Modal */}
       {showCapModal && capTargetUser && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-          }}
-        >
+        <div className="portal-modal-overlay">
           <div
             className="modal-content"
             style={{
@@ -536,7 +527,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                 type="button"
                 onClick={() => applyPreset("FULL")}
                 className="btn btn-outline"
-                style={{ fontSize: "0.8rem", padding: "0.4rem 0.75rem", borderColor: "#6d28d9", color: "#6d28d9" }}
+                style={{ fontSize: "0.8rem", padding: "0.4rem 0.75rem", borderColor: "var(--status-purple-border)", color: "var(--status-purple-text)" }}
               >
                 Apply FULL Preset (Principal / ICT Lead - All 14)
               </button>
@@ -544,7 +535,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                 type="button"
                 onClick={() => applyPreset("FINANCE")}
                 className="btn btn-outline"
-                style={{ fontSize: "0.8rem", padding: "0.4rem 0.75rem", borderColor: "#b45309", color: "#b45309" }}
+                style={{ fontSize: "0.8rem", padding: "0.4rem 0.75rem", borderColor: "var(--status-warning-border)", color: "var(--status-warning-text)" }}
               >
                 Apply FINANCE Preset (Bursar - 3)
               </button>
@@ -552,7 +543,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                 type="button"
                 onClick={() => applyPreset("REGISTRY")}
                 className="btn btn-outline"
-                style={{ fontSize: "0.8rem", padding: "0.4rem 0.75rem", borderColor: "#1d4ed8", color: "#1d4ed8" }}
+                style={{ fontSize: "0.8rem", padding: "0.4rem 0.75rem", borderColor: "var(--status-info-border)", color: "var(--status-info-text)" }}
               >
                 Apply REGISTRY Preset (Admissions - 1)
               </button>
@@ -579,8 +570,8 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                         gap: "0.6rem",
                         padding: "0.65rem",
                         borderRadius: "var(--radius-md)",
-                        border: checked ? "1.5px solid var(--color-primary-green)" : "1px solid var(--color-gray-200)",
-                        background: checked ? "#f0fdf4" : "var(--color-white)",
+                        border: checked ? "1.5px solid var(--brand-primary)" : "1px solid var(--border-primary)",
+                        background: checked ? "var(--status-success-bg)" : "var(--bg-card)",
                         cursor: "pointer",
                       }}
                     >
@@ -591,15 +582,15 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                         style={{ marginTop: "0.2rem" }}
                       />
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: "0.82rem", color: "var(--color-navy-blue)" }}>
+                        <div style={{ fontWeight: 700, fontSize: "0.82rem", color: "var(--text-heading)" }}>
                           {cap}{" "}
                           {meta.requiresStepUpTotp && (
-                            <span style={{ fontSize: "0.7rem", color: "#b45309", fontWeight: 600 }}>
+                            <span style={{ fontSize: "0.7rem", color: "var(--status-warning-text)", fontWeight: 600 }}>
                               (Step-up TOTP)
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--color-gray-600)" }}>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                           {meta.description}
                         </div>
                       </div>
@@ -635,27 +626,12 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
 
       {/* Provision User Modal */}
       {showCreateModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-          }}
-        >
+        <div className="portal-modal-overlay">
           <div
-            className="modal-content"
+            className="modal-content portal-modal-card"
             style={{
-              background: "var(--color-white)",
-              borderRadius: "var(--radius-lg)",
               padding: "2rem",
-              width: "100%",
               maxWidth: "480px",
-              boxShadow: "var(--shadow-floating)",
             }}
           >
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Provision New User Account</h3>
@@ -717,27 +693,12 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
 
       {/* Reset Password Modal */}
       {showResetModal && resetTargetUser && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-          }}
-        >
+        <div className="portal-modal-overlay">
           <div
-            className="modal-content"
+            className="modal-content portal-modal-card"
             style={{
-              background: "var(--color-white)",
-              borderRadius: "var(--radius-lg)",
               padding: "2rem",
-              width: "100%",
               maxWidth: "480px",
-              boxShadow: "var(--shadow-floating)",
             }}
           >
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>Reset Password</h3>

@@ -102,38 +102,38 @@ export default function CardsClient({
 
   return (
     <div>
-      {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
-      {success && <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
+      {error && <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
+      {success && <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
 
       {/* Stats Cards */}
       <div className="responsive-grid" style={{ marginBottom: "2rem" }}>
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid var(--color-navy-blue)" }}>
-          <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Total Cards Generated</p>
-          <h2 style={{ color: "var(--color-navy-blue)", margin: 0 }}>{stats.total.toLocaleString()}</h2>
+        <div style={{ background: "var(--bg-card)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--color-navy-blue)" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Total Cards Generated</p>
+          <h2 style={{ color: "var(--text-heading)", margin: 0 }}>{stats.total.toLocaleString()}</h2>
         </div>
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid #22c55e" }}>
-          <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Unused / In Stock</p>
-          <h2 style={{ color: "#16a34a", margin: 0 }}>{stats.unused.toLocaleString()}</h2>
+        <div style={{ background: "var(--bg-card)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--status-success-border)" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Unused / In Stock</p>
+          <h2 style={{ color: "var(--status-success-text)", margin: 0 }}>{stats.unused.toLocaleString()}</h2>
         </div>
-        <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", borderLeft: "4px solid #3b82f6" }}>
-          <p style={{ color: "var(--color-gray-500)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Claimed / In Use</p>
-          <h2 style={{ color: "#2563eb", margin: 0 }}>{stats.used.toLocaleString()}</h2>
+        <div style={{ background: "var(--bg-card)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--status-info-border)" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>Claimed / In Use</p>
+          <h2 style={{ color: "var(--status-info-text)", margin: 0 }}>{stats.used.toLocaleString()}</h2>
         </div>
       </div>
 
       {/* Generated Batch Print Preview Section */}
       {generatedBatch && (
         <div style={{
-          background: "var(--color-white)",
+          background: "var(--bg-card)",
           padding: "2rem",
           borderRadius: "var(--radius-lg)",
           marginBottom: "2.5rem",
-          border: "2px solid #22c55e",
+          border: "2px solid var(--status-success-border)",
           boxShadow: "var(--shadow-md)"
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
             <div>
-              <span style={{ background: "#dcfce7", color: "#15803d", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
+              <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
                 NEW BATCH GENERATED ({generatedBatch.length} CARDS)
               </span>
               <h3 style={{ color: "var(--color-navy-blue)", margin: "0.5rem 0 0 0" }}>
@@ -194,7 +194,7 @@ export default function CardsClient({
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.2)", paddingBottom: "0.5rem", marginBottom: "0.75rem" }}>
-                  <span style={{ fontSize: "0.75rem", fontWeight: "bold", letterSpacing: "0.05em", color: "#4ade80" }}>
+                  <span style={{ fontSize: "0.75rem", fontWeight: "bold", letterSpacing: "0.05em", color: "#86efac" }}>
                     WORD OF FAITH SCHOOLS
                   </span>
                   <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>
@@ -319,32 +319,32 @@ export default function CardsClient({
                   </td>
                   <td data-label="Status" style={{ padding: "1rem", textAlign: "center" }}>
                     {card.UsedBy === null ? (
-                      <span style={{ background: "#dcfce7", color: "#15803d", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
+                      <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
                         Unused
                       </span>
                     ) : card.UsageCount >= card.MaxUsage ? (
-                      <span style={{ background: "#fee2e2", color: "#b91c1c", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
+                      <span style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
                         Exhausted
                       </span>
                     ) : (
-                      <span style={{ background: "#dbeafe", color: "#1e40af", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
+                      <span style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", border: "1px solid var(--status-info-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
                         Active
                       </span>
                     )}
                   </td>
-                  <td data-label="Usage Count" style={{ padding: "1rem", textAlign: "center", fontWeight: "bold", color: "var(--color-gray-800)" }}>
+                  <td data-label="Usage Count" style={{ padding: "1rem", textAlign: "center", fontWeight: "bold", color: "var(--text-primary)" }}>
                     {card.UsageCount} / {card.MaxUsage}
                   </td>
                   <td data-label="Bound Student" style={{ padding: "1rem", fontSize: "0.9rem" }}>
                     {card.Student ? (
                       <div>
                         <strong>{card.Student.PreferredName}</strong>
-                        <div style={{ color: "var(--color-gray-500)", fontSize: "0.8rem" }}>
+                        <div style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
                           {card.Student.AdmissionNo} ({card.Student.Class?.ClassName})
                         </div>
                       </div>
                     ) : (
-                      <span style={{ color: "var(--color-gray-400)", fontStyle: "italic" }}>Not yet claimed</span>
+                      <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Not yet claimed</span>
                     )}
                   </td>
                 </tr>
@@ -356,8 +356,8 @@ export default function CardsClient({
 
       {/* Generate Batch Modal */}
       {showGenerateModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-          <div className="modal-content" style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "2rem", width: "100%", maxWidth: "480px", boxShadow: "var(--shadow-floating)" }}>
+        <div className="portal-modal-overlay">
+          <div className="modal-content portal-modal-card" style={{ maxWidth: "480px" }}>
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Generate Scratch Card Batch</h3>
             <form onSubmit={handleGenerateBatch}>
               <div className="form-group">

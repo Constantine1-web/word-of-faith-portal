@@ -142,10 +142,10 @@ export default function FeeStatusPage() {
                 gap: "1rem",
                 borderLeft: `4px solid ${
                   p.status === "Approved" || p.status === "Successful"
-                    ? "var(--color-primary-green)"
+                    ? "var(--brand-accent)"
                     : p.status === "Rejected"
-                    ? "red"
-                    : "orange"
+                    ? "var(--accent-red)"
+                    : "var(--accent-amber)"
                 }`,
               }}
             >
@@ -155,10 +155,10 @@ export default function FeeStatusPage() {
                     fontSize: "2rem",
                     color:
                       p.status === "Approved" || p.status === "Successful"
-                        ? "var(--color-primary-green)"
+                        ? "var(--brand-accent)"
                         : p.status === "Rejected"
-                        ? "red"
-                        : "orange",
+                        ? "var(--accent-red)"
+                        : "var(--accent-amber)",
                   }}
                 >
                   {p.status === "Approved" || p.status === "Successful" ? (
@@ -170,10 +170,10 @@ export default function FeeStatusPage() {
                   )}
                 </div>
                 <div>
-                  <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.25rem", fontSize: "1.2rem" }}>
+                  <h3 style={{ color: "var(--text-heading)", marginBottom: "0.25rem", fontSize: "1.2rem" }}>
                     {p.description}
                   </h3>
-                  <p style={{ color: "var(--color-gray-600)", fontSize: "0.9rem", margin: 0 }}>
+                  <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0 }}>
                     Reference: {p.reference || `TXN-${p.id.toString().padStart(6, "0")}`} •{" "}
                     {new Date(p.date).toLocaleDateString("en-NG", {
                       day: "2-digit",
@@ -187,17 +187,17 @@ export default function FeeStatusPage() {
 
               <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", marginLeft: "auto" }}>
                 <div style={{ textAlign: "right" }}>
-                  <p style={{ fontSize: "1.5rem", fontWeight: "bold", color: "var(--color-gray-900)", margin: 0 }}>
+                  <p style={{ fontSize: "1.5rem", fontWeight: "bold", color: "var(--text-primary)", margin: 0 }}>
                     ₦{Number(p.amount).toLocaleString()}
                   </p>
                   <p
                     style={{
                       color:
                         p.status === "Approved" || p.status === "Successful"
-                          ? "var(--color-primary-green)"
+                          ? "var(--status-success-text)"
                           : p.status === "Rejected"
-                          ? "red"
-                          : "orange",
+                          ? "var(--status-error-text)"
+                          : "var(--status-warning-text)",
                       fontWeight: 600,
                       fontSize: "0.85rem",
                       margin: 0,
@@ -211,8 +211,8 @@ export default function FeeStatusPage() {
                   type="button"
                   onClick={() => handleDownloadReceipt(p)}
                   style={{
-                    background: "#0A2540",
-                    color: "white",
+                    background: "var(--brand-secondary)",
+                    color: "var(--brand-secondary-text)",
                     border: "none",
                     borderRadius: "8px",
                     padding: "0.55rem 0.95rem",

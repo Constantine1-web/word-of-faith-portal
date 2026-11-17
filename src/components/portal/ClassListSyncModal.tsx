@@ -151,7 +151,7 @@ export default function ClassListSyncModal({
         {/* Body */}
         <div className={styles.body}>
           {error && (
-            <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "0.75rem 1rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.9rem" }}>
+            <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "0.75rem 1rem", borderRadius: "8px", marginBottom: "1rem", fontSize: "0.9rem" }}>
               {error}
             </div>
           )}
@@ -159,19 +159,19 @@ export default function ClassListSyncModal({
           {/* Scope Banner: guarantees class-arm isolation */}
           <div className={styles.scopeBanner}>
             <div>
-              <span style={{ fontSize: "0.8rem", color: "#166534", display: "block" }}>Target Class Arm (Isolated Roster):</span>
-              <strong style={{ fontSize: "1.05rem", color: "#143424" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--status-success-text)", display: "block" }}>Target Class Arm (Isolated Roster):</span>
+              <strong style={{ fontSize: "1.05rem", color: "var(--text-heading)" }}>
                 {classInfo?.name || currentClass?.ClassName || "Select Class Arm"}
               </strong>
             </div>
 
             {step === 1 && classes.length > 1 && (
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={{ fontSize: "0.85rem", color: "#4b5563" }}>Change Class:</span>
+                <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Change Class:</span>
                 <select
                   value={selectedClassId}
                   onChange={(e) => setSelectedClassId(parseInt(e.target.value))}
-                  style={{ padding: "0.4rem 0.6rem", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+                  style={{ padding: "0.4rem 0.6rem", borderRadius: "6px", border: "1px solid var(--input-outline)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: "0.85rem" }}
                 >
                   {classes.map((c) => (
                     <option key={c.ClassID} value={c.ClassID}>
@@ -192,11 +192,11 @@ export default function ClassListSyncModal({
                 className={styles.dropzone}
                 onClick={() => document.getElementById("pdfInput")?.click()}
               >
-                <FiUploadCloud style={{ fontSize: "3rem", color: "#143424", marginBottom: "0.75rem" }} />
-                <h3 style={{ margin: "0 0 0.5rem 0", color: "#143424" }}>
+                <FiUploadCloud style={{ fontSize: "3rem", color: "var(--brand-accent)", marginBottom: "0.75rem" }} />
+                <h3 style={{ margin: "0 0 0.5rem 0", color: "var(--text-heading)" }}>
                   {file ? file.name : "Select or Drop Class List PDF"}
                 </h3>
-                <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>
+                <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "0.85rem" }}>
                   Upload a PDF roster for <strong>{currentClass?.ClassName}</strong>. The system will extract names and automatically match existing registration numbers.
                 </p>
                 <input
@@ -227,10 +227,10 @@ export default function ClassListSyncModal({
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
                 <div>
-                  <h4 style={{ margin: "0 0 0.25rem 0", color: "#143424" }}>
+                  <h4 style={{ margin: "0 0 0.25rem 0", color: "var(--text-heading)" }}>
                     Review Matched Pupils ({activeSelectedCount} selected)
                   </h4>
-                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#6b7280" }}>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)" }}>
                     Verify names and registration numbers before committing to {classInfo?.name}.
                   </p>
                 </div>
@@ -258,7 +258,7 @@ export default function ClassListSyncModal({
                   </thead>
                   <tbody>
                     {parsedRows.map((row) => (
-                      <tr key={row.tempId} style={{ opacity: row.selected ? 1 : 0.5, background: row.selected ? "transparent" : "#f9fafb" }}>
+                      <tr key={row.tempId} style={{ opacity: row.selected ? 1 : 0.55, background: row.selected ? "transparent" : "var(--bg-secondary)" }}>
                         <td style={{ textAlign: "center" }}>
                           <input
                             type="checkbox"
@@ -288,17 +288,17 @@ export default function ClassListSyncModal({
                           )}
                         </td>
                         <td>
-                          <strong style={{ fontFamily: "monospace", color: row.isExisting ? "#15803d" : "#1e40af" }}>
+                          <strong style={{ fontFamily: "monospace", color: row.isExisting ? "var(--status-success-text)" : "var(--status-info-text)" }}>
                             {row.admissionNo}
                           </strong>
                         </td>
                         <td>
                           {row.claimCode ? (
-                            <span style={{ fontFamily: "monospace", background: "#fef3c7", color: "#92400e", padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.85rem" }}>
+                            <span style={{ fontFamily: "monospace", background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)", padding: "0.2rem 0.5rem", borderRadius: "4px", fontSize: "0.85rem" }}>
                               {row.claimCode}
                             </span>
                           ) : (
-                            <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>Account Active / Linked</span>
+                            <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>Account Active / Linked</span>
                           )}
                         </td>
                       </tr>
@@ -313,13 +313,13 @@ export default function ClassListSyncModal({
           {step === 3 && syncSummary && (
             <div>
               <div style={{ textAlign: "center", padding: "1rem 0 1.5rem" }}>
-                <div style={{ width: "64px", height: "64px", background: "#dcfce7", color: "#166534", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", margin: "0 auto 1rem" }}>
+                <div style={{ width: "64px", height: "64px", background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", margin: "0 auto 1rem" }}>
                   <FiCheckCircle />
                 </div>
-                <h3 style={{ margin: "0 0 0.5rem 0", color: "#143424" }}>
+                <h3 style={{ margin: "0 0 0.5rem 0", color: "var(--text-heading)" }}>
                   Class List Synchronized Successfully!
                 </h3>
-                <p style={{ margin: 0, color: "#4b5563" }}>
+                <p style={{ margin: 0, color: "var(--text-secondary)" }}>
                   Enrolled <strong>{syncSummary.totalProcessed} pupils</strong> into <strong>{syncSummary.className}</strong>.
                   ({syncSummary.matchedCount} existing students updated · {syncSummary.newPupilsCount} new pupils registered).
                 </p>
@@ -327,10 +327,10 @@ export default function ClassListSyncModal({
 
               {syncSummary.claimSlips?.length > 0 ? (
                 <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #e5e7eb", paddingTop: "1rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border-subtle)", paddingTop: "1rem" }}>
                     <div>
-                      <h4 style={{ margin: 0, color: "#143424" }}>One-Time Claim Slips for New Pupils</h4>
-                      <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.85rem", color: "#6b7280" }}>
+                      <h4 style={{ margin: 0, color: "var(--text-heading)" }}>One-Time Claim Slips for New Pupils</h4>
+                      <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
                         Give these codes to parents so students can claim their portal accounts.
                       </p>
                     </div>
@@ -358,15 +358,15 @@ export default function ClassListSyncModal({
                   <div className={styles.slipGrid}>
                     {syncSummary.claimSlips.map((slip: any, idx: number) => (
                       <div key={idx} className={styles.slipCard}>
-                        <div style={{ fontSize: "0.75rem", color: "#166534", textTransform: "uppercase", fontWeight: "bold" }}>
+                        <div style={{ fontSize: "0.75rem", color: "var(--status-success-text)", textTransform: "uppercase", fontWeight: "bold" }}>
                           {slip.className}
                         </div>
-                        <h4 style={{ margin: "0.25rem 0", color: "#111827", fontSize: "1rem" }}>{slip.name}</h4>
-                        <div style={{ fontSize: "0.85rem", color: "#4b5563" }}>
+                        <h4 style={{ margin: "0.25rem 0", color: "var(--text-primary)", fontSize: "1rem" }}>{slip.name}</h4>
+                        <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
                           Reg: <strong>{slip.admissionNo}</strong>
                         </div>
                         <div className={styles.slipCode}>{slip.claimCode}</div>
-                        <div style={{ fontSize: "0.75rem", color: "#059669" }}>
+                        <div style={{ fontSize: "0.75rem", color: "var(--status-success-text)" }}>
                           Register at: <code>/portal/register</code>
                         </div>
                       </div>
@@ -374,7 +374,7 @@ export default function ClassListSyncModal({
                   </div>
                 </div>
               ) : (
-                <div style={{ background: "#f0fdf4", padding: "1rem", borderRadius: "8px", textAlign: "center", color: "#15803d", fontSize: "0.95rem" }}>
+                <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "8px", textAlign: "center", color: "var(--status-success-text)", fontSize: "0.95rem" }}>
                   All pupils in this list were matched to existing accounts. No new claim slips needed.
                 </div>
               )}
@@ -389,7 +389,7 @@ export default function ClassListSyncModal({
               <button type="button" onClick={onClose} className="btn btn-outline" style={{ padding: "0.5rem 1rem" }}>
                 Cancel
               </button>
-              <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>Supported format: PDF documents</span>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Supported format: PDF documents</span>
             </>
           )}
 

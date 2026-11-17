@@ -631,8 +631,8 @@ export default function TeacherDashboard({
 
   return (
     <div>
-      {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
-      {success && <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
+      {error && <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
+      {success && <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{success}</div>}
 
       {/* Active Academic Term Clock Banner */}
       <div style={{
@@ -650,11 +650,11 @@ export default function TeacherDashboard({
       }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-            <span style={{ background: "rgba(34, 197, 94, 0.2)", color: "#4ade80", border: "1px solid #4ade80", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
+            <span style={{ background: "rgba(0, 0, 0, 0.35)", color: "#86efac", border: "1px solid #4ade80", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold" }}>
               TEACHER ACADEMIC SUITE
             </span>
             {isTermLocked && (
-              <span style={{ background: "rgba(239, 68, 68, 0.2)", color: "#f87171", border: "1px solid #f87171", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+              <span style={{ background: "rgba(0, 0, 0, 0.35)", color: "#fecaca", border: "1px solid #f87171", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.8rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <FiLock /> SCORE ENTRY LOCKED BY ADMIN
               </span>
             )}
@@ -668,8 +668,8 @@ export default function TeacherDashboard({
         </div>
 
         {dashboardData?.isFormMaster && (
-          <div style={{ background: "rgba(255, 255, 255, 0.15)", padding: "0.5rem 1rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(255, 255, 255, 0.3)" }}>
-            <span style={{ color: "#4ade80", fontWeight: "bold", fontSize: "0.85rem" }}>⭐ DESIGNATED FORM MASTER</span>
+          <div style={{ background: "rgba(0, 0, 0, 0.35)", padding: "0.5rem 1rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(255, 255, 255, 0.3)" }}>
+            <span style={{ color: "#86efac", fontWeight: "bold", fontSize: "0.85rem" }}>⭐ DESIGNATED FORM MASTER</span>
             <div style={{ fontSize: "0.9rem", color: "white", fontWeight: "bold" }}>
               {dashboardData.formMasterClasses.map((c: any) => c.ClassName).join(", ")}
             </div>
@@ -787,23 +787,23 @@ export default function TeacherDashboard({
               Loading enrolled students & score sheets...
             </div>
           ) : !selectedAllocation ? (
-            <div style={{ background: "var(--color-white)", padding: "3rem", borderRadius: "var(--radius-lg)", textAlign: "center", color: "var(--color-gray-500)" }}>
+            <div style={{ background: "var(--bg-card)", padding: "3rem", borderRadius: "var(--radius-lg)", textAlign: "center", color: "var(--text-muted)", border: "1px solid var(--border-subtle)" }}>
               No subject allocations found for your account. Please contact School Admin.
             </div>
           ) : (
-            <div style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "1.5rem", border: "1px solid var(--color-gray-200)", boxShadow: "var(--shadow-sm)" }}>
+            <div style={{ background: "var(--bg-card)", borderRadius: "var(--radius-lg)", padding: "1.5rem", border: "1px solid var(--border-primary)", boxShadow: "var(--shadow-sm)" }}>
               {/* Header Bar */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid var(--color-gray-100)", paddingBottom: "1rem", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid var(--border-subtle)", paddingBottom: "1rem", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <h3 style={{ color: "var(--color-navy-blue)", margin: 0 }}>
+                    <h3 style={{ color: "var(--text-heading)", margin: 0 }}>
                       {selectedAllocation.Subject?.SubjectName}
                     </h3>
-                    <span style={{ background: "#dbeafe", color: "#1e40af", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
+                    <span style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", border: "1px solid var(--status-info-border)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
                       {selectedAllocation.Class?.ClassName}
                     </span>
                   </div>
-                  <p style={{ color: "var(--color-gray-500)", fontSize: "0.85rem", margin: "0.25rem 0 0 0" }}>
+                  <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", margin: "0.25rem 0 0 0" }}>
                     Form Master for this Class: <strong>{selectedAllocation.Class?.FormMaster?.Email || "Not yet assigned"}</strong>
                   </p>
                 </div>
@@ -845,11 +845,11 @@ export default function TeacherDashboard({
                   )}
 
                   {isSubjectSubmitted ? (
-                    <span style={{ background: "#dcfce7", color: "#15803d", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                    <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                       <FiCheckCircle /> Submitted to Form Master
                     </span>
                   ) : (
-                    <span style={{ background: "#fef3c7", color: "#b45309", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                    <span style={{ background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                       <FiClock /> Draft in Progress
                     </span>
                   )}
@@ -860,8 +860,8 @@ export default function TeacherDashboard({
               {stagedBatch && (
                 <div
                   style={{
-                    background: "#f8fafc",
-                    border: "1.5px solid #3b82f6",
+                    background: "var(--bg-secondary)",
+                    border: "1.5px solid var(--status-info-border)",
                     borderRadius: "var(--radius-md)",
                     padding: "1.25rem",
                     marginBottom: "1.5rem",
@@ -869,11 +869,11 @@ export default function TeacherDashboard({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
                     <div>
-                      <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>
+                      <h4 style={{ margin: 0, color: "var(--text-heading)" }}>
                         Staged Import Preview — {stagedBatch.rowCount} Row(s) · {stagedBatch.errorCount} Error(s)
                       </h4>
                       {isStaleImportTemplate && (
-                        <div style={{ color: "#b45309", fontSize: "0.82rem", fontWeight: 700, marginTop: "0.2rem" }}>
+                        <div style={{ color: "var(--status-warning-text)", fontSize: "0.82rem", fontWeight: 700, marginTop: "0.2rem" }}>
                           ⚠️ Stale Template Warning: This file was exported from an older sheet version. Please review carefully before committing.
                         </div>
                       )}
@@ -904,7 +904,7 @@ export default function TeacherDashboard({
                   <div style={{ overflowX: "auto", maxHeight: "260px" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
                       <thead>
-                        <tr style={{ background: "#e2e8f0" }}>
+                        <tr style={{ background: "var(--bg-tertiary)", color: "var(--text-heading)" }}>
                           <th style={{ padding: "0.5rem", textAlign: "left" }}>Row</th>
                           <th style={{ padding: "0.5rem", textAlign: "left" }}>Admission No</th>
                           <th style={{ padding: "0.5rem", textAlign: "center" }}>Incoming CA</th>
@@ -916,16 +916,16 @@ export default function TeacherDashboard({
                       </thead>
                       <tbody>
                         {(stagedBatch.rows || []).map((r: any) => (
-                          <tr key={r.id} style={{ borderBottom: "1px solid #cbd5e1", background: r.error ? "#fef2f2" : "white" }}>
+                          <tr key={r.id} style={{ borderBottom: "1px solid var(--border-primary)", background: r.error ? "var(--status-error-bg)" : "var(--bg-card)" }}>
                             <td style={{ padding: "0.5rem" }}>#{r.rowNumber}</td>
                             <td style={{ padding: "0.5rem", fontFamily: "monospace", fontWeight: 700 }}>{r.admissionNo}</td>
                             <td style={{ padding: "0.5rem", textAlign: "center" }}>{r.caTenths !== null ? r.caTenths / 10 : "—"}</td>
                             <td style={{ padding: "0.5rem", textAlign: "center" }}>{r.examTenths !== null ? r.examTenths / 10 : "—"}</td>
                             <td style={{ padding: "0.5rem", textAlign: "center", fontWeight: 600 }}>{r.status}</td>
-                            <td style={{ padding: "0.5rem", textAlign: "center", color: r.changes ? "#2563eb" : "#64748b", fontWeight: 600 }}>
+                            <td style={{ padding: "0.5rem", textAlign: "center", color: r.changes ? "var(--status-info-text)" : "var(--text-muted)", fontWeight: 600 }}>
                               {r.changes ? "Changed" : "Unchanged"}
                             </td>
-                            <td style={{ padding: "0.5rem", color: r.error ? "#b91c1c" : "#15803d", fontWeight: 600 }}>
+                            <td style={{ padding: "0.5rem", color: r.error ? "var(--status-error-text)" : "var(--status-success-text)", fontWeight: 600 }}>
                               {r.error || "✓ Valid"}
                             </td>
                           </tr>
@@ -1007,13 +1007,13 @@ export default function TeacherDashboard({
                                 borderRadius: "var(--radius-full)",
                                 fontSize: "0.85rem",
                                 fontWeight: "bold",
-                                background: grade.startsWith("A") || grade.startsWith("B") ? "#dcfce7" : grade.startsWith("C") ? "#dbeafe" : grade.startsWith("D") || grade.startsWith("E") ? "#fef3c7" : "#fee2e2",
-                                color: grade.startsWith("A") || grade.startsWith("B") ? "#15803d" : grade.startsWith("C") ? "#1e40af" : grade.startsWith("D") || grade.startsWith("E") ? "#b45309" : "#b91c1c"
+                                background: grade.startsWith("A") || grade.startsWith("B") ? "var(--status-success-bg)" : grade.startsWith("C") ? "var(--status-info-bg)" : grade.startsWith("D") || grade.startsWith("E") ? "var(--status-warning-bg)" : "var(--status-error-bg)",
+                                color: grade.startsWith("A") || grade.startsWith("B") ? "var(--status-success-text)" : grade.startsWith("C") ? "var(--status-info-text)" : grade.startsWith("D") || grade.startsWith("E") ? "var(--status-warning-text)" : "var(--status-error-text)"
                               }}>
                                 {grade}
                               </span>
                             </td>
-                            <td data-label="Remark" style={{ padding: "1rem", fontSize: "0.85rem", color: "var(--color-gray-600)" }}>
+                            <td data-label="Remark" style={{ padding: "1rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
                               {remark}
                             </td>
                           </tr>
@@ -1025,8 +1025,8 @@ export default function TeacherDashboard({
               )}
 
               {/* Action Buttons */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", borderTop: "2px solid var(--color-gray-100)", paddingTop: "1.5rem" }}>
-                <div style={{ color: "var(--color-gray-500)", fontSize: "0.85rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", borderTop: "2px solid var(--border-subtle)", paddingTop: "1.5rem" }}>
+                <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
                   {isTermLocked ? "⚠️ Score entry is locked by administration." : "Auto-calculated grades match WAEC / Nigerian grading standards."}
                 </div>
 
@@ -1036,7 +1036,7 @@ export default function TeacherDashboard({
                       onClick={handleRequestUnlock}
                       disabled={savingScores}
                       className="btn btn-outline"
-                      style={{ display: "flex", alignItems: "center", gap: "0.5rem", borderColor: "#f59e0b", color: "#b45309" }}
+                      style={{ display: "flex", alignItems: "center", gap: "0.5rem", borderColor: "var(--status-warning-border)", color: "var(--status-warning-text)" }}
                     >
                       <FiLock /> Request Sheet Unlock (2-Person Rule)
                     </button>
@@ -1094,7 +1094,7 @@ export default function TeacherDashboard({
                       <h2 style={{ color: "var(--color-navy-blue)", margin: 0 }}>
                         {cls.ClassName} — Form Master Review
                       </h2>
-                      <span style={{ background: "#dcfce7", color: "#15803d", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
+                      <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
                         {cls.Students?.length || 0} Students Enrolled
                       </span>
                     </div>
@@ -1115,9 +1115,9 @@ export default function TeacherDashboard({
                         display: "flex",
                         alignItems: "center",
                         gap: "0.5rem",
-                        background: "#f0fdf4",
-                        color: "#166534",
-                        border: "1px solid #bbf7d0",
+                        background: "var(--status-success-bg)",
+                        color: "var(--status-success-text)",
+                        border: "1px solid var(--status-success-border)",
                       }}
                       title={`Upload PDF class list specifically for ${cls.ClassName}`}
                     >
@@ -1145,17 +1145,17 @@ export default function TeacherDashboard({
                 </div>
 
                 {/* Subject Submission Checklist Tracker */}
-                <div style={{ background: "var(--color-gray-50)", padding: "1.25rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", border: "1px solid var(--color-gray-200)" }}>
+                <div style={{ background: "var(--bg-secondary)", padding: "1.25rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", border: "1px solid var(--border-primary)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                    <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>
+                    <h4 style={{ margin: 0, color: "var(--text-heading)" }}>
                       Subject Score Submission Status ({submittedSubjects}/{totalAssignedSubjects})
                     </h4>
                     {isAllSubmitted ? (
-                      <span style={{ color: "#16a34a", fontWeight: "bold", fontSize: "0.85rem" }}>
+                      <span style={{ color: "var(--status-success-text)", fontWeight: "bold", fontSize: "0.85rem" }}>
                         ✅ All Subjects Submitted!
                       </span>
                     ) : (
-                      <span style={{ color: "#d97706", fontSize: "0.85rem" }}>
+                      <span style={{ color: "var(--status-warning-text)", fontSize: "0.85rem" }}>
                         ⏳ Awaiting Remaining Subjects
                       </span>
                     )}
@@ -1168,8 +1168,8 @@ export default function TeacherDashboard({
                         <div
                           key={map.id}
                           style={{
-                            background: "var(--color-white)",
-                            border: `1px solid ${isSub ? "#86efac" : "#fed7aa"}`,
+                            background: "var(--bg-card)",
+                            border: `1px solid ${isSub ? "var(--status-success-border)" : "var(--status-warning-border)"}`,
                             borderRadius: "var(--radius-sm)",
                             padding: "0.5rem 0.75rem",
                             display: "flex",
@@ -1180,14 +1180,14 @@ export default function TeacherDashboard({
                         >
                           <div>
                             <strong>{map.Subject?.SubjectName}</strong>
-                            <div style={{ color: "var(--color-gray-500)", fontSize: "0.75rem" }}>
+                            <div style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>
                               {map.Teacher?.Email?.split('@')[0]}
                             </div>
                           </div>
                           <span style={{
                             fontSize: "0.75rem",
                             fontWeight: "bold",
-                            color: isSub ? "#15803d" : "#b45309"
+                            color: isSub ? "var(--status-success-text)" : "var(--status-warning-text)"
                           }}>
                             {isSub ? "Submitted" : "Pending"}
                           </span>
@@ -1298,7 +1298,7 @@ export default function TeacherDashboard({
 
             <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
               <div>
-                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: "0.2rem" }}>
+                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-label)", textTransform: "uppercase", marginBottom: "0.2rem" }}>
                   Class Arm
                 </label>
                 <select
@@ -1316,7 +1316,7 @@ export default function TeacherDashboard({
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: "0.2rem" }}>
+                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 700, color: "var(--text-label)", textTransform: "uppercase", marginBottom: "0.2rem" }}>
                   Attendance Date
                 </label>
                 <input
@@ -1331,11 +1331,11 @@ export default function TeacherDashboard({
           </div>
 
           {loadingAttendance || loadingStudents ? (
-            <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)" }}>
+            <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
               Loading class attendance roster...
             </div>
           ) : subjectStudents.length === 0 ? (
-            <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)" }}>
+            <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
               No students enrolled in this class arm.
             </div>
           ) : (
@@ -1343,7 +1343,7 @@ export default function TeacherDashboard({
               <div style={{ overflowX: "auto" }}>
                 <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", marginBottom: "1.5rem" }}>
                   <thead>
-                    <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
+                    <tr style={{ background: "var(--bg-secondary)", borderBottom: "2px solid var(--border-primary)" }}>
                       <th style={{ padding: "0.85rem", textAlign: "left" }}>Admission No</th>
                       <th style={{ padding: "0.85rem", textAlign: "left" }}>Student Name</th>
                       <th style={{ padding: "0.85rem", textAlign: "center", width: "200px" }}>Roll Call Status</th>
@@ -1355,8 +1355,8 @@ export default function TeacherDashboard({
                       const currentStatus = attendanceMap[st.StudentID]?.status || "Present";
                       const currentNotes = attendanceMap[st.StudentID]?.notes || "";
                       return (
-                        <tr key={st.StudentID} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
-                          <td style={{ padding: "0.85rem", fontFamily: "monospace", fontWeight: 700, color: "var(--color-navy-blue)" }}>
+                        <tr key={st.StudentID} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                          <td style={{ padding: "0.85rem", fontFamily: "monospace", fontWeight: 700, color: "var(--text-heading)" }}>
                             {st.AdmissionNo}
                           </td>
                           <td style={{ padding: "0.85rem", fontWeight: 600 }}>
@@ -1378,19 +1378,25 @@ export default function TeacherDashboard({
                                 padding: "0.45rem 0.75rem",
                                 borderRadius: "8px",
                                 fontWeight: 700,
-                                border: "1px solid #cbd5e1",
+                                border: `1px solid ${
+                                  currentStatus === "Present"
+                                    ? "var(--status-success-border)"
+                                    : currentStatus === "Absent"
+                                    ? "var(--status-error-border)"
+                                    : "var(--status-warning-border)"
+                                }`,
                                 background:
                                   currentStatus === "Present"
-                                    ? "#dcfce7"
+                                    ? "var(--status-success-bg)"
                                     : currentStatus === "Absent"
-                                    ? "#fee2e2"
-                                    : "#fef3c7",
+                                    ? "var(--status-error-bg)"
+                                    : "var(--status-warning-bg)",
                                 color:
                                   currentStatus === "Present"
-                                    ? "#15803d"
+                                    ? "var(--status-success-text)"
                                     : currentStatus === "Absent"
-                                    ? "#b91c1c"
-                                    : "#b45309",
+                                    ? "var(--status-error-text)"
+                                    : "var(--status-warning-text)",
                               }}
                             >
                               <option value="Present">Present</option>
@@ -1465,7 +1471,7 @@ export default function TeacherDashboard({
               <h3 style={{ color: "var(--color-navy-blue)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <FiCpu color="var(--color-primary-green)" /> Custom CBT Question Authoring
               </h3>
-              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "#dcfce7", color: "#15803d", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
+              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
                 {customQuestions.length} School Questions
               </span>
             </div>
@@ -1568,12 +1574,12 @@ export default function TeacherDashboard({
             </form>
 
             {/* Recent Custom Questions List */}
-            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e2e8f0", paddingTop: "1rem" }}>
-              <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "var(--color-navy-blue)" }}>
+            <div style={{ marginTop: "1.5rem", borderTop: "1px solid var(--border-primary)", paddingTop: "1rem" }}>
+              <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "var(--text-heading)" }}>
                 Published Internal CBT Questions ({customQuestions.length})
               </h4>
               {customQuestions.length === 0 ? (
-                <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>
+                <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)" }}>
                   No custom questions authored yet. Create your first class quiz question above!
                 </p>
               ) : (
@@ -1584,8 +1590,8 @@ export default function TeacherDashboard({
                       style={{
                         padding: "0.75rem",
                         borderRadius: "8px",
-                        background: "#f8fafc",
-                        border: "1px solid #e2e8f0",
+                        background: "var(--bg-secondary)",
+                        border: "1px solid var(--border-primary)",
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "flex-start",
@@ -1593,10 +1599,10 @@ export default function TeacherDashboard({
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#15803d", textTransform: "uppercase" }}>
+                        <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--status-success-text)", textTransform: "uppercase" }}>
                           {q.subjectCode} · {q.examBody} {q.topic ? `· ${q.topic}` : ""} (Ans: {q.correctKey})
                         </div>
-                        <div style={{ fontSize: "0.84rem", color: "#0A2540", fontWeight: 600, marginTop: "0.2rem" }}>
+                        <div style={{ fontSize: "0.84rem", color: "var(--text-heading)", fontWeight: 600, marginTop: "0.2rem" }}>
                           {q.stem}
                         </div>
                       </div>
@@ -1604,9 +1610,9 @@ export default function TeacherDashboard({
                         type="button"
                         onClick={() => handleDeleteCustomQuestion(q.id)}
                         style={{
-                          background: "#fee2e2",
-                          color: "#b91c1c",
-                          border: "none",
+                          background: "var(--status-error-bg)",
+                          color: "var(--status-error-text)",
+                          border: "1px solid var(--status-error-border)",
                           borderRadius: "6px",
                           padding: "0.35rem 0.5rem",
                           cursor: "pointer",
@@ -1636,7 +1642,7 @@ export default function TeacherDashboard({
               <h3 style={{ color: "var(--color-navy-blue)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <FiFileText color="var(--color-primary-green)" /> Lesson Notes &amp; Homework Publisher
               </h3>
-              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
+              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "var(--status-info-bg)", color: "var(--status-info-text)", border: "1px solid var(--status-info-border)", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
                 {courseMaterials.length} Active Resources
               </span>
             </div>
@@ -1739,8 +1745,8 @@ export default function TeacherDashboard({
             </form>
 
             {/* Published Course Materials List */}
-            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #e2e8f0", paddingTop: "1rem" }}>
-              <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "var(--color-navy-blue)" }}>
+            <div style={{ marginTop: "1.5rem", borderTop: "1px solid var(--border-primary)", paddingTop: "1rem" }}>
+              <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "var(--text-heading)" }}>
                 Published Lesson Notes &amp; Assignments ({courseMaterials.length})
               </h4>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", maxHeight: "280px", overflowY: "auto" }}>
@@ -1750,8 +1756,8 @@ export default function TeacherDashboard({
                     style={{
                       padding: "0.75rem",
                       borderRadius: "8px",
-                      background: "#f8fafc",
-                      border: "1px solid #e2e8f0",
+                      background: "var(--bg-secondary)",
+                      border: "1px solid var(--border-primary)",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "flex-start",
@@ -1759,13 +1765,13 @@ export default function TeacherDashboard({
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "#1d4ed8", textTransform: "uppercase" }}>
+                      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--status-info-text)", textTransform: "uppercase" }}>
                         {mat.category} · {mat.subjectName} · {mat.weekLabel}
                       </div>
-                      <div style={{ fontSize: "0.86rem", color: "#0A2540", fontWeight: 700, marginTop: "0.15rem" }}>
+                      <div style={{ fontSize: "0.86rem", color: "var(--text-heading)", fontWeight: 700, marginTop: "0.15rem" }}>
                         {mat.title}
                       </div>
-                      <div style={{ fontSize: "0.76rem", color: "#64748b", marginTop: "0.15rem" }}>
+                      <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
                         Target: {mat.className} {mat.dueDate ? `· Due: ${mat.dueDate}` : ""}
                       </div>
                     </div>
@@ -1774,9 +1780,9 @@ export default function TeacherDashboard({
                         type="button"
                         onClick={() => handleDeleteMaterial(mat.id)}
                         style={{
-                          background: "#fee2e2",
-                          color: "#b91c1c",
-                          border: "none",
+                          background: "var(--status-error-bg)",
+                          color: "var(--status-error-text)",
+                          border: "1px solid var(--status-error-border)",
                           borderRadius: "6px",
                           padding: "0.35rem 0.5rem",
                           cursor: "pointer",
@@ -1836,12 +1842,12 @@ export default function TeacherDashboard({
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))", gap: "0.65rem" }}>
                   {Object.entries(affectiveTraits).map(([trait, rating]) => (
-                    <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--color-gray-50)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid #e2e8f0" }}>
+                    <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-secondary)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-primary)" }}>
                       <span style={{ fontSize: "0.84rem", textTransform: "capitalize", fontWeight: 600 }}>{trait}:</span>
                       <select
                         value={rating}
                         onChange={(e) => setAffectiveTraits(prev => ({ ...prev, [trait]: parseInt(e.target.value) }))}
-                        style={{ padding: "0.2rem 0.4rem", borderRadius: "4px", border: "1px solid var(--color-gray-300)", fontWeight: 600 }}
+                        style={{ padding: "0.2rem 0.4rem", borderRadius: "4px", border: "1px solid var(--input-outline)", fontWeight: 600 }}
                       >
                         <option value={5}>5 - Excellent</option>
                         <option value={4}>4 - Good</option>
@@ -1856,17 +1862,17 @@ export default function TeacherDashboard({
 
               {/* Psychomotor Domain Ratings */}
               <div style={{ marginTop: "1.25rem", marginBottom: "1.5rem" }}>
-                <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "0.65rem", fontSize: "0.92rem" }}>
+                <h4 style={{ color: "var(--text-heading)", marginBottom: "0.65rem", fontSize: "0.92rem" }}>
                   2. Psychomotor &amp; Practical Skills Domain (Rate 1 to 5)
                 </h4>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))", gap: "0.65rem" }}>
                   {Object.entries(psychomotorTraits).map(([trait, rating]) => (
-                    <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f0fdf4", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid #bbf7d0" }}>
-                      <span style={{ fontSize: "0.84rem", textTransform: "capitalize", fontWeight: 600 }}>{trait}:</span>
+                    <div key={trait} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--status-success-bg)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--status-success-border)" }}>
+                      <span style={{ fontSize: "0.84rem", textTransform: "capitalize", fontWeight: 600, color: "var(--text-primary)" }}>{trait}:</span>
                       <select
                         value={rating}
                         onChange={(e) => setPsychomotorTraits(prev => ({ ...prev, [trait]: parseInt(e.target.value) }))}
-                        style={{ padding: "0.2rem 0.4rem", borderRadius: "4px", border: "1px solid #86efac", fontWeight: 600 }}
+                        style={{ padding: "0.2rem 0.4rem", borderRadius: "4px", border: "1px solid var(--status-success-border)", fontWeight: 600 }}
                       >
                         <option value={5}>5 - Excellent</option>
                         <option value={4}>4 - Good</option>

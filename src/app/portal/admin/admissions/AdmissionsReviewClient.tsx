@@ -132,13 +132,13 @@ export default function AdmissionsReviewClient({
 
   return (
     <div>
-      {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
+      {error && <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold" }}>{error}</div>}
       {success && (
-        <div style={{ background: "#dcfce7", color: "#15803d", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold", display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+        <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: "bold", display: "flex", flexDirection: "column", gap: "0.65rem" }}>
           <div>{success}</div>
           {lastNotificationLinks && (lastNotificationLinks.whatsappUrl || lastNotificationLinks.smsUrl) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.65rem", alignItems: "center", fontSize: "0.85rem" }}>
-              <span style={{ color: "#166534" }}>
+              <span style={{ color: "var(--status-success-text)" }}>
                 Also notify applicant phone ({lastNotificationLinks.recipientPhone}):
               </span>
               {lastNotificationLinks.whatsappUrl && (
@@ -146,7 +146,7 @@ export default function AdmissionsReviewClient({
                   href={lastNotificationLinks.whatsappUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ background: "#15803d", color: "white", padding: "0.35rem 0.75rem", borderRadius: "6px", textDecoration: "none", fontWeight: 700 }}
+                  style={{ background: "var(--brand-primary)", color: "var(--brand-primary-text)", padding: "0.35rem 0.75rem", borderRadius: "6px", textDecoration: "none", fontWeight: 700 }}
                 >
                   Send via WhatsApp
                 </a>
@@ -154,7 +154,7 @@ export default function AdmissionsReviewClient({
               {lastNotificationLinks.smsUrl && (
                 <a
                   href={lastNotificationLinks.smsUrl}
-                  style={{ background: "white", color: "#15803d", border: "1px solid #15803d", padding: "0.35rem 0.75rem", borderRadius: "6px", textDecoration: "none", fontWeight: 700 }}
+                  style={{ background: "var(--bg-card)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.35rem 0.75rem", borderRadius: "6px", textDecoration: "none", fontWeight: 700 }}
                 >
                   Send via SMS
                 </a>
@@ -249,8 +249,8 @@ export default function AdmissionsReviewClient({
                       borderRadius: "var(--radius-full)",
                       fontSize: "0.85rem",
                       fontWeight: "bold",
-                      background: app.status === "Approved" ? "#dcfce7" : app.status === "Pending" ? "#fef3c7" : "#fee2e2",
-                      color: app.status === "Approved" ? "#15803d" : app.status === "Pending" ? "#b45309" : "#b91c1c"
+                      background: app.status === "Approved" ? "var(--status-success-bg)" : app.status === "Pending" ? "var(--status-warning-bg)" : "var(--status-error-bg)",
+                      color: app.status === "Approved" ? "var(--status-success-text)" : app.status === "Pending" ? "var(--status-warning-text)" : "var(--status-error-text)"
                     }}>
                       {app.status}
                     </span>
@@ -273,7 +273,7 @@ export default function AdmissionsReviewClient({
                           onClick={() => handleReject(app.id, `${app.childFirstName} ${app.childLastName}`)}
                           disabled={loading}
                           className="btn"
-                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "#fee2e2", color: "#b91c1c", border: "none" }}
+                          style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)" }}
                         >
                           Reject
                         </button>
@@ -289,8 +289,8 @@ export default function AdmissionsReviewClient({
 
       {/* Enrollment Modal */}
       {showEnrollModal && selectedApp && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
-          <div className="modal-content" style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "2rem", width: "100%", maxWidth: "520px", boxShadow: "var(--shadow-floating)" }}>
+        <div className="portal-modal-overlay">
+          <div className="modal-content portal-modal-card" style={{ maxWidth: "520px" }}>
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>
               Enroll Student & Assign Class Arm
             </h3>

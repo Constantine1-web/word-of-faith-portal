@@ -86,7 +86,7 @@ export default function AdmissionsPage() {
         <div className="responsive-grid" style={{ gap: "clamp(1.5rem, 4vw, 4rem)", alignItems: "start" }}>
           
           {/* Multi-Step Form */}
-          <div style={{ background: "var(--color-white)", padding: "clamp(1.25rem, 4vw, 3rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)" }}>
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", padding: "clamp(1.25rem, 4vw, 3rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)" }}>
             <h2 style={{ color: "var(--color-navy-blue)", fontSize: "clamp(1.4rem, 4vw, 2rem)", marginBottom: "2rem" }}>Admission Application</h2>
             
             {success ? (
@@ -107,7 +107,7 @@ export default function AdmissionsPage() {
                   ))}
                 </div>
 
-                {error && <div style={{ background: "#fee2e2", color: "#b91c1c", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem" }}>{error}</div>}
+                {error && <div style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "1rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", fontWeight: 600 }}>{error}</div>}
 
                 {/* Step 1: Student Details */}
                 {step === 1 && (
@@ -221,9 +221,9 @@ export default function AdmissionsPage() {
               ))}
             </div>
             
-            <div style={{ marginTop: "3rem", background: "white", padding: "1.5rem", borderRadius: "var(--radius-md)", borderLeft: "4px solid var(--color-primary-green)", boxShadow: "var(--shadow-sm)" }}>
+            <div style={{ marginTop: "3rem", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", padding: "1.5rem", borderRadius: "var(--radius-md)", borderLeft: "4px solid var(--color-primary-green)", boxShadow: "var(--shadow-sm)" }}>
               <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>Need Help?</h4>
-              <p style={{ color: "var(--color-gray-600)", fontSize: "0.9rem", margin: 0 }}>Call our admission desk at <strong>+234 800 000 0000</strong> or email <strong>admissions@wof.edu.ng</strong></p>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0 }}>Call our admission desk at <strong>+234 800 000 0000</strong> or email <strong>admissions@wof.edu.ng</strong></p>
             </div>
           </div>
 

@@ -1,25 +1,16 @@
 .navbar {
   background-color: var(--nav-bg);
-  box-shadow: var(--shadow-md);
-  border-bottom: 2px solid var(--color-gray-300);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
   position: sticky;
   top: 0;
   z-index: 1000;
   padding: max(1rem, var(--sat)) 0 1rem 0;
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-theme), border-color var(--transition-theme);
 }
 
 .navbar::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-image: linear-gradient(var(--nav-bg-overlay), var(--nav-bg-overlay)), var(--nav-bg-img);
-  background-size: cover, 300px;
-  background-position: center, center;
-  background-repeat: no-repeat, repeat;
-  z-index: -1;
-  opacity: 1;
-  transition: all var(--transition-normal);
+  content: none;
 }
 
 .navContainer {
@@ -56,13 +47,13 @@
 }
 
 .navLinksDesktop a {
-  font-weight: 500;
-  color: var(--color-gray-800);
+  font-weight: 600;
+  color: var(--text-primary);
   transition: color var(--transition-fast);
 }
 
 .navLinksDesktop a:hover {
-  color: var(--color-primary-green);
+  color: var(--brand-accent);
 }
 
 .hamburgerBtn {
@@ -70,14 +61,14 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--color-gray-900);
+  color: var(--text-primary);
   padding: 0.25rem;
   border-radius: 8px;
   transition: background-color var(--transition-fast);
 }
 
 .hamburgerBtn:hover {
-  background-color: var(--color-gray-200);
+  background-color: var(--hover-bg);
 }
 
 .mobileMenuOverlay {
@@ -102,7 +93,6 @@
   opacity: 1;
   padding: 1rem 0 2rem 0;
   overflow-y: auto; /* Scrollable menu */
-  border-bottom: 2px solid var(--color-gray-300);
 }
 
 .mobileMenuContent {
@@ -117,17 +107,18 @@
   padding: 1rem 1.5rem;
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--color-gray-900);
+  color: var(--text-primary);
   text-decoration: none;
   border-radius: 12px;
-  border: 1px solid var(--color-gray-200);
-  background: var(--surface-subtle);
-  transition: background 0.2s, border-color 0.2s;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
 }
 
 .mobileNavLink:hover {
-  background: rgba(46, 220, 133, 0.1);
-  color: var(--color-primary-green);
+  background: var(--active-bg);
+  border-color: var(--active-border);
+  color: var(--brand-accent);
 }
 
 @media (max-width: 1023.98px) {
