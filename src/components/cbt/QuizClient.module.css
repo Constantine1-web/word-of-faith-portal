@@ -271,7 +271,8 @@
 }
 
 .navBtn:disabled {
-  opacity: 0.5;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 

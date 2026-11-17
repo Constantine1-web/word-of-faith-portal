@@ -662,7 +662,7 @@ export default function TeacherDashboard({
           <h2 style={{ color: "white", margin: "0.5rem 0 0 0", fontSize: "1.75rem" }}>
             {dashboardData?.activeTerm?.SessionName} — {dashboardData?.activeTerm?.TermName}
           </h2>
-          <p style={{ margin: "0.25rem 0 0 0", opacity: 0.85, fontSize: "0.9rem" }}>
+          <p style={{ margin: "0.25rem 0 0 0", color: "#f1f5f9", fontSize: "0.9rem" }}>
             Record Continuous Assessment (CA), Examination grades, Daily Attendance, and Form Master remarks.
           </p>
         </div>

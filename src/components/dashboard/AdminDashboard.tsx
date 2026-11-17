@@ -150,7 +150,7 @@ export default function AdminDashboard() {
           <h2 style={{ color: "white", margin: "0.5rem 0 0 0", fontSize: "1.75rem" }}>
             Word of Faith Schools Portal
           </h2>
-          <p style={{ margin: "0.25rem 0 0 0", opacity: 0.85, fontSize: "0.9rem" }}>
+          <p style={{ margin: "0.25rem 0 0 0", color: "#f1f5f9", fontSize: "0.9rem" }}>
             Active Academic Clock: <strong>{data.stats.activeTerm}</strong>
           </p>
         </div>

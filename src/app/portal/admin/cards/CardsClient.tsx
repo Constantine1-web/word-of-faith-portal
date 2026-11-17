@@ -197,13 +197,13 @@ export default function CardsClient({
                   <span style={{ fontSize: "0.75rem", fontWeight: "bold", letterSpacing: "0.05em", color: "#86efac" }}>
                     WORD OF FAITH SCHOOLS
                   </span>
-                  <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>
+                  <span style={{ fontSize: "0.7rem", color: "#e2e8f0", fontWeight: 600 }}>
                     RESULT CHECKER
                   </span>
                 </div>
 
                 <div style={{ marginBottom: "0.75rem" }}>
-                  <div style={{ fontSize: "0.7rem", opacity: 0.8, textTransform: "uppercase" }}>Serial Number:</div>
+                  <div style={{ fontSize: "0.7rem", color: "#e2e8f0", textTransform: "uppercase" }}>Serial Number:</div>
                   <div style={{ fontSize: "0.95rem", fontWeight: "bold", fontFamily: "monospace", color: "#93c5fd" }}>
                     {card.serialNumber}
                   </div>
@@ -217,7 +217,7 @@ export default function CardsClient({
                   textAlign: "center",
                   border: "1px dashed rgba(255, 255, 255, 0.4)"
                 }}>
-                  <div style={{ fontSize: "0.65rem", opacity: 0.9, textTransform: "uppercase", marginBottom: "0.2rem" }}>
+                  <div style={{ fontSize: "0.65rem", color: "#f1f5f9", textTransform: "uppercase", marginBottom: "0.2rem" }}>
                     SCRATCH PIN (12 DIGITS)
                   </div>
                   <div style={{ fontSize: "1.15rem", fontWeight: "900", letterSpacing: "2px", fontFamily: "monospace", color: "#ffffff" }}>
@@ -225,7 +225,7 @@ export default function CardsClient({
                   </div>
                 </div>
 
-                <div style={{ marginTop: "0.75rem", fontSize: "0.65rem", opacity: 0.7, textAlign: "center" }}>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.65rem", color: "#e2e8f0", textAlign: "center" }}>
                   Max {batchMaxUsage} Usages · Check results on the student portal
                 </div>
               </div>

@@ -122,7 +122,7 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
           <h2 style={{ color: "white", margin: 0, fontSize: "1.75rem" }}>
             {activeTerm ? `${activeTerm.SessionName} Academic Session — ${activeTerm.TermName}` : "No Active Term Set"}
           </h2>
-          <p style={{ margin: "0.5rem 0 0 0", opacity: 0.85, fontSize: "0.9rem" }}>
+          <p style={{ margin: "0.5rem 0 0 0", color: "#f1f5f9", fontSize: "0.9rem" }}>
             All teacher score inputs, scratch card verifications, and student broadsheets default to this active term.
           </p>
         </div>

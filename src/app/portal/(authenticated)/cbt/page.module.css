@@ -121,9 +121,8 @@
 
 .startBtn:disabled {
   background-color: var(--bg-tertiary);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   border: 1px solid var(--border-primary);
-  opacity: 0.75;
   cursor: not-allowed;
   box-shadow: none;
   transform: none;

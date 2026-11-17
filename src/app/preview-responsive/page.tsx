@@ -12,7 +12,7 @@ export default function PreviewResponsivePage() {
   const [activeTab, setActiveTab] = useState<"admin" | "teacher" | "student">("admin");
 
   return (
-    <div style={{ background: "var(--color-gray-50)", minHeight: "100vh" }}>
+    <div style={{ background: "var(--color-gray-50)", color: "var(--text-primary)", minHeight: "100vh" }}>
       {/* View Switcher Banner */}
       <div style={{
         background: "#07192C",

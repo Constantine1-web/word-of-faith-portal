@@ -452,7 +452,7 @@ a {
 
 /* Typography Overrides */
 h1, h2, h3, h4, h5, h6 {
-  color: var(--color-navy-blue);
+  color: var(--text-heading);
   line-height: 1.2;
   margin-bottom: 0.5rem;
   font-weight: 700;

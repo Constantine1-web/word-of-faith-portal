@@ -82,8 +82,9 @@
 }
 
 .button:disabled {
-  background-color: var(--text-disabled);
-  opacity: 0.65;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-primary);
   cursor: not-allowed;
   transform: none;
   box-shadow: none;

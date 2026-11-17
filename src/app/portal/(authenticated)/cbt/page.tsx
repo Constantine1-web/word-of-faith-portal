@@ -446,9 +446,8 @@ export default function CBTLandingPage() {
               !canClickStart
                 ? {
                     backgroundColor: "var(--bg-tertiary)",
-                    color: "var(--text-muted)",
+                    color: "var(--text-secondary)",
                     border: "1px solid var(--border-primary)",
-                    opacity: 0.75,
                     cursor: "not-allowed",
                     boxShadow: "none",
                   }

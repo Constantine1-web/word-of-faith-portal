@@ -129,7 +129,7 @@ export default function ParentDashboard({ session }: { session: any }) {
           <h1 style={{ color: "white", margin: "0.5rem 0 0 0", fontSize: "clamp(1.4rem, 4vw, 1.85rem)" }}>
             Welcome, {session?.user?.name || session?.user?.email?.split("@")[0]}
           </h1>
-          <p style={{ margin: "0.25rem 0 0 0", opacity: 0.85, fontSize: "0.9rem" }}>
+          <p style={{ margin: "0.25rem 0 0 0", color: "#f1f5f9", fontSize: "0.9rem" }}>
             Active Session / Term: <strong>{data.activeTerm}</strong>
           </p>
         </div>
