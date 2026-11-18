@@ -28,7 +28,7 @@ const SECURITY_HEADERS = [
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
       "connect-src 'self' https://api.paystack.co https://en.wikipedia.org",
-      "frame-src 'self' https://checkout.paystack.com",
+      "frame-src 'self' https://checkout.paystack.com https://www.google.com https://maps.google.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
