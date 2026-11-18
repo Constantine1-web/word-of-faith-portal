@@ -7,7 +7,7 @@ export default async function UnauthorizedPage({
   searchParams: Promise<{ zone?: string }>;
 }) {
   const resolvedParams = await searchParams;
-  const zone = resolvedParams?.zone === "admin" ? "Administrative Control Center" : "Educator & Faculty Workspace";
+  const zone = resolvedParams?.zone === "admin" ? "Administrative Control Center" : "Teachers' Workspace";
 
   return (
     <div
@@ -91,7 +91,7 @@ export default async function UnauthorizedPage({
           }}
         >
           This operational zone (<strong>{zone}</strong>) is strictly reserved for verified{" "}
-          <strong>Word of Faith Schools</strong> faculty and administrative officers. Visitors and unverified accounts cannot access this system.
+          <strong>Word of Faith Schools</strong> teachers and school administrators. Visitors and unverified accounts cannot access this system.
         </p>
 
         <div

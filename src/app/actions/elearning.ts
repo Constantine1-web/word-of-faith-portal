@@ -355,7 +355,7 @@ export async function publishCourseMaterial(data: {
     return { success: true, material: payload };
   } catch (error: any) {
     console.error("publishCourseMaterial error:", error);
-    return { success: false, error: error.message || "Failed to publish course material" };
+    return { success: false, error: error.message || "Failed to publish lesson note" };
   }
 }
 
@@ -378,7 +378,7 @@ export async function deleteCourseMaterial(materialId: string) {
     });
 
     if (!existing) {
-      return { success: false, error: "Course material not found." };
+      return { success: false, error: "Lesson note not found." };
     }
 
     const isSchoolAdmin =
@@ -389,7 +389,7 @@ export async function deleteCourseMaterial(materialId: string) {
     if (!isSchoolAdmin && existing.ActorID !== actor.UserID) {
       return {
         success: false,
-        error: "FORBIDDEN: You can only delete course materials that you published.",
+        error: "FORBIDDEN: You can only delete lesson notes that you published.",
       };
     }
 
@@ -411,7 +411,7 @@ export async function deleteCourseMaterial(materialId: string) {
     revalidatePath("/portal/courses");
     return { success: true };
   } catch (error: any) {
-    return { success: false, error: error.message || "Failed to delete course material" };
+    return { success: false, error: error.message || "Failed to delete lesson note" };
   }
 }
 
@@ -448,7 +448,7 @@ export async function getCourseMaterials(classId?: number, className?: string) {
 
     return { success: true, materials };
   } catch (error: any) {
-    return { success: false, error: error.message || "Failed to load course materials", materials: [] };
+    return { success: false, error: error.message || "Failed to load lesson notes", materials: [] };
   }
 }
 

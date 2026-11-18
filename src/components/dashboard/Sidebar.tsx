@@ -92,7 +92,7 @@ export default function Sidebar() {
             { name: "Result Broadsheets", href: "/portal/admin/results" },
             { name: "CBT & Day Locks", href: "/portal/admin/cbt" },
             { name: "CBT Portal", href: "/portal/cbt" },
-            { name: "Course Materials & Notes", href: "/portal/courses" },
+            { name: "Lesson Notes & Homework", href: "/portal/courses" },
           ]
         },
         { 
@@ -116,7 +116,7 @@ export default function Sidebar() {
             { name: "Score Entry & CA", href: "/portal/teacher" },
             { name: "Lesson Notes & Quiz Studio", href: "/portal/teacher?tab=elearning-studio" },
             { name: "Attendance Roll Call", href: "/portal/teacher?tab=attendance-hub" },
-            { name: "Course Library", href: "/portal/courses" },
+            { name: "Class Lesson Notes", href: "/portal/courses" },
             { name: "Form Master Hub", href: "/portal/teacher?tab=form-master-hub" },
             { name: "CBT Exams", href: "/portal/cbt" },
           ]
@@ -159,7 +159,7 @@ export default function Sidebar() {
         icon: <FiBookOpen />, 
         children: [
           { name: "Check Results", href: "/portal/results" },
-          { name: "Courses & Study Notes", href: "/portal/courses" },
+          { name: "Subjects & Lesson Notes", href: "/portal/courses" },
           { name: "CBT Practice", href: "/portal/cbt" },
         ]
       },

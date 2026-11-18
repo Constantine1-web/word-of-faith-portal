@@ -112,7 +112,7 @@ export default function ContactPage() {
                       fontWeight: 700,
                     }}
                   >
-                    Campus Address
+                    School Address
                   </h4>
                   <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6, margin: 0 }}>
                     No. 14 Enen Afaha Street, off Ikot Ekpene Road / Atiku Abubakar Road<br />
@@ -254,7 +254,7 @@ export default function ContactPage() {
                 allowFullScreen={true}
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"
-                title="Word of Faith Schools Uyo Campus Location"
+                title="Word of Faith Schools Uyo Location"
               />
             </div>
           </div>

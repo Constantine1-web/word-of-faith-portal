@@ -143,7 +143,7 @@ export default function TeacherNav({
           borderRadius: "0.5rem",
         }}
       >
-        <FiBookOpen /> Course Library
+        <FiBookOpen /> Class Lesson Notes
       </Link>
       <Link
         href="/portal/cbt"

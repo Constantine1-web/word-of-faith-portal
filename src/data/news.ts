@@ -39,7 +39,7 @@ export const newsItems = [
       <h3>Event Details:</h3>
       <ul>
         <li><strong>Date</strong>: September 10, 2026</li>
-        <li><strong>Venue</strong>: Main Campus Sports Complex</li>
+        <li><strong>Venue</strong>: School Sports Field</li>
         <li><strong>Kick-off</strong>: 9:00 AM</li>
       </ul>
       <p>Parents, alumni, and friends of the school are cordially invited to cheer on our talented student-athletes. Food and refreshments will be available.</p>
@@ -59,8 +59,8 @@ export const newsItems = [
       <h3>Agenda Highlights:</h3>
       <ul>
         <li>Review of academic performance from the previous session.</li>
-        <li>Introduction of new faculty members.</li>
-        <li>Updates on campus infrastructure improvements.</li>
+        <li>Introduction of new teaching staff.</li>
+        <li>Updates on school facilities and classroom improvements.</li>
         <li>Open floor Q&A with the School Administrator and Principal.</li>
       </ul>
       <h3>Meeting Details:</h3>

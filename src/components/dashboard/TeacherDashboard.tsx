@@ -233,7 +233,7 @@ export default function TeacherDashboard({
       content: mContent,
     });
     if (res.success) {
-      setSuccess(`✅ ${mCategory} published to the Student Courses Hub!`);
+      setSuccess(`✅ ${mCategory} published to the Student Lesson Notes & Homework Hub!`);
       setMTitle("");
       setMContent("");
       await loadElearningStudio();
@@ -1647,7 +1647,7 @@ export default function TeacherDashboard({
               </span>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-              Publish weekly study notes, revision summaries, and take-home assignments directly to the Student Courses &amp; Assignments Hub.
+              Publish weekly lesson notes, revision summaries, and take-home homework directly to your pupils and students.
             </p>
 
             <form onSubmit={handlePublishMaterial} style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>

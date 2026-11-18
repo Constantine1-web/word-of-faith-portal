@@ -17,7 +17,7 @@ export default function News() {
         <div className="container" style={{ maxWidth: "800px" }}>
           <h1 style={{ fontSize: "clamp(1.75rem, 5vw, 3.5rem)", marginBottom: "1rem", color: "white" }}>News & Events</h1>
           <p style={{ fontSize: "clamp(1rem, 3vw, 1.2rem)", color: "rgba(255, 255, 255, 0.9)" }}>
-            Stay updated with the latest happenings, announcements, and celebrations across our campuses.
+            Stay updated with the latest happenings, announcements, and celebrations across our school.
           </p>
         </div>
       </section>

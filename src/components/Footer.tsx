@@ -2,15 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  FiMapPin,
-  FiPhone,
-  FiMail,
-  FiClock,
-  FiArrowRight,
-  FiShield,
-  FiAward,
-} from "react-icons/fi";
+import { FiMapPin, FiPhone, FiMail, FiClock } from "react-icons/fi";
 
 export default function Footer() {
   const pathname = usePathname();
@@ -25,147 +17,88 @@ export default function Footer() {
         background: "var(--footer-bg)",
         color: "var(--footer-text)",
         borderTop: "3px solid var(--brand-primary)",
-        padding: "clamp(3rem, 6vw, 4.5rem) 1rem 1.5rem",
+        padding: "clamp(2.25rem, 4vw, 3rem) 1rem 1.25rem",
       }}
     >
-      <div className="container" style={{ maxWidth: "1200px", margin: "0 auto" }}>
+      <div className="container" style={{ maxWidth: "1100px", margin: "0 auto" }}>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 250px), 1fr))",
-            gap: "2.5rem",
-            marginBottom: "3rem",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))",
+            gap: "2rem",
+            marginBottom: "2rem",
           }}
         >
-          {/* Column 1: School Identity & Motto */}
+          {/* Column 1: School Identity */}
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
               <img
                 src="/logo.jpg"
                 alt="Word of Faith Schools"
-                style={{ width: "48px", height: "48px", borderRadius: "8px", objectFit: "contain", background: "white", padding: "2px" }}
+                style={{ width: "42px", height: "42px", borderRadius: "8px", objectFit: "contain", background: "white", padding: "2px" }}
               />
               <div>
-                <h3 style={{ margin: 0, color: "white", fontSize: "1.15rem", fontWeight: 800 }}>
+                <h3 style={{ margin: 0, color: "white", fontSize: "1.1rem", fontWeight: 800 }}>
                   Word of Faith Schools
                 </h3>
-                <span style={{ fontSize: "0.75rem", color: "#4ade80", fontWeight: 700, letterSpacing: "0.5px" }}>
-                  ESTABLISHED 2001 · UYO, NIGERIA
+                <span style={{ fontSize: "0.75rem", color: "#4ade80", fontWeight: 700 }}>
+                  Creche · Nursery · Primary · Secondary
                 </span>
               </div>
             </div>
-            <p style={{ color: "var(--footer-muted)", fontSize: "0.88rem", lineHeight: 1.6, margin: "0 0 1.25rem 0" }}>
-              A premier Christian institution committed to nurturing the total child—spirit, body, and soul. Raising leaders with academic brilliance, godly character, and practical excellence.
+            <p style={{ color: "var(--footer-muted)", fontSize: "0.86rem", lineHeight: 1.55, margin: 0 }}>
+              Nurturing the total child in spirit, body, and soul through sound moral values and academic excellence.
             </p>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", background: "rgba(34, 197, 94, 0.15)", padding: "0.4rem 0.8rem", borderRadius: "999px", border: "1px solid rgba(74, 222, 128, 0.3)" }}>
-              <FiShield color="#4ade80" size={14} />
-              <span style={{ fontSize: "0.76rem", color: "#86efac", fontWeight: 700 }}>
-                Ministry of Education Approved
-              </span>
-            </div>
           </div>
 
           {/* Column 2: Quick Links */}
           <div>
-            <h4 style={{ color: "#4ade80", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "1.25rem" }}>
-              Quick Navigation
+            <h4 style={{ color: "#4ade80", fontSize: "0.9rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.85rem" }}>
+              Quick Links
             </h4>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.65rem", fontSize: "0.88rem" }}>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem 1rem", fontSize: "0.86rem" }}>
               <li>
-                <Link href="/" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#4ade80" /> Home Overview
-                </Link>
+                <Link href="/" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>Home</Link>
               </li>
               <li>
-                <Link href="/about" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#4ade80" /> About Our Legacy &amp; Vision
-                </Link>
+                <Link href="/about" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>About Us</Link>
               </li>
               <li>
-                <Link href="/academics" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#4ade80" /> Academics &amp; Curriculum
-                </Link>
+                <Link href="/academics" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>Academics</Link>
               </li>
               <li>
-                <Link href="/admissions" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#4ade80" /> Online Admissions Application
-                </Link>
+                <Link href="/admissions" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>Admissions</Link>
               </li>
               <li>
-                <Link href="/news" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#4ade80" /> School News &amp; Events
-                </Link>
+                <Link href="/news" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>News &amp; Events</Link>
               </li>
               <li>
-                <Link href="/contact" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#4ade80" /> Contact &amp; Campus Location
-                </Link>
+                <Link href="/contact" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>Contact Us</Link>
               </li>
             </ul>
           </div>
 
-          {/* Column 3: Academic Portals */}
+          {/* Column 3: School Office & Contact */}
           <div>
-            <h4 style={{ color: "#4ade80", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "1.25rem" }}>
-              Student &amp; Staff Portals
+            <h4 style={{ color: "#4ade80", fontSize: "0.9rem", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: "0.85rem" }}>
+              School Office
             </h4>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.65rem", fontSize: "0.88rem" }}>
-              <li>
-                <Link href="/portal/login" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#38bdf8" /> Student &amp; Parent Portal Login
-                </Link>
-              </li>
-              <li>
-                <Link href="/portal/results" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#38bdf8" /> Check Terminal Examination Results
-                </Link>
-              </li>
-              <li>
-                <Link href="/portal/cbt" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#38bdf8" /> CBT Examination &amp; Practice Suite
-                </Link>
-              </li>
-              <li>
-                <Link href="/portal/courses" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#38bdf8" /> Lesson Notes &amp; Homework Hub
-                </Link>
-              </li>
-              <li>
-                <Link href="/portal/fees" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#38bdf8" /> Tuition &amp; Bursary Clearance
-                </Link>
-              </li>
-              <li>
-                <Link href="/portal/register" style={{ color: "var(--footer-muted)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FiArrowRight size={13} color="#38bdf8" /> New Student Scratch Card Activation
-                </Link>
-              </li>
-            </ul>
-          </div>
-
-          {/* Column 4: Contact & Campus Office */}
-          <div>
-            <h4 style={{ color: "#4ade80", fontSize: "0.95rem", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "1.25rem" }}>
-              Campus Information
-            </h4>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", fontSize: "0.86rem", color: "var(--footer-text)" }}>
-              <div style={{ display: "flex", gap: "0.65rem", alignItems: "flex-start" }}>
-                <FiMapPin color="#4ade80" size={17} style={{ flexShrink: 0, marginTop: "2px" }} />
-                <span>
-                  No. 14 Enen Afaha Street, off Ikot Ekpene Road or Atiku Abubakar Road, Uyo, Akwa Ibom State, Nigeria.
-                </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem", fontSize: "0.85rem", color: "var(--footer-text)" }}>
+              <div style={{ display: "flex", gap: "0.55rem", alignItems: "flex-start" }}>
+                <FiMapPin color="#4ade80" size={15} style={{ flexShrink: 0, marginTop: "3px" }} />
+                <span>No. 14 Enen Afaha Street, Uyo, Akwa Ibom State</span>
               </div>
-              <div style={{ display: "flex", gap: "0.65rem", alignItems: "center" }}>
-                <FiClock color="#4ade80" size={16} style={{ flexShrink: 0 }} />
-                <span>Monday – Friday: 7:30 AM – 3:30 PM</span>
+              <div style={{ display: "flex", gap: "0.55rem", alignItems: "center" }}>
+                <FiClock color="#4ade80" size={15} style={{ flexShrink: 0 }} />
+                <span>Mon – Fri: 7:30 AM – 3:30 PM</span>
               </div>
-              <div style={{ display: "flex", gap: "0.65rem", alignItems: "center" }}>
-                <FiMail color="#4ade80" size={16} style={{ flexShrink: 0 }} />
-                <span>info@wofs.vercel.app · admissions@wofs.edu.ng</span>
+              <div style={{ display: "flex", gap: "0.55rem", alignItems: "center" }}>
+                <FiPhone color="#4ade80" size={15} style={{ flexShrink: 0 }} />
+                <span>+234 802 345 6789</span>
               </div>
-              <div style={{ display: "flex", gap: "0.65rem", alignItems: "center" }}>
-                <FiPhone color="#4ade80" size={16} style={{ flexShrink: 0 }} />
-                <span>+234 802 345 6789 · +234 813 987 6543</span>
+              <div style={{ display: "flex", gap: "0.55rem", alignItems: "center" }}>
+                <FiMail color="#4ade80" size={15} style={{ flexShrink: 0 }} />
+                <span>info@wofs.vercel.app</span>
               </div>
             </div>
           </div>
@@ -175,30 +108,22 @@ export default function Footer() {
         <div
           style={{
             borderTop: "1px solid var(--footer-border)",
-            paddingTop: "1.5rem",
+            paddingTop: "1rem",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             flexWrap: "wrap",
-            gap: "1rem",
-            fontSize: "0.82rem",
+            gap: "0.75rem",
+            fontSize: "0.8rem",
             color: "var(--footer-muted)",
           }}
         >
           <div>
-            &copy; {new Date().getFullYear()} Word of Faith Schools. All Rights Reserved. Built with Academic &amp; Spiritual Excellence.
+            &copy; {new Date().getFullYear()} Word of Faith Schools. All Rights Reserved.
           </div>
-          <div style={{ display: "flex", gap: "1.25rem" }}>
-            <Link href="/about" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>
-              Privacy &amp; Honor Code
-            </Link>
-            <Link href="/contact" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>
-              Campus Directions
-            </Link>
-            <Link href="/portal/login" style={{ color: "#4ade80", textDecoration: "none", fontWeight: 700 }}>
-              Staff &amp; Student Portal
-            </Link>
-          </div>
+          <Link href="/portal/login" style={{ color: "#4ade80", textDecoration: "none", fontWeight: 700 }}>
+            School Portal Login &rarr;
+          </Link>
         </div>
       </div>
     </footer>

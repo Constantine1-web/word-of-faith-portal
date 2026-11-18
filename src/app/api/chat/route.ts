@@ -98,8 +98,8 @@ School fees can be paid seamlessly via Paystack in the portal, or bank teller re
         query.includes("assignment") ||
         query.includes("homework")
       ) {
-        fallbackReply = `📚 **Courses, Study Materials & Assignments:**
-You can access your class lesson notes, revision summaries, and take-home homework assignments under **My Courses & Study Materials** in the portal!`;
+        fallbackReply = `📚 **Subjects, Lesson Notes & Homework:**
+You can access your class lesson notes, revision summaries, and take-home homework assignments under **Subjects & Lesson Notes** in the portal!`;
       } else {
         fallbackReply += `\n\n💡 *Tip: For full AI-powered homework tutoring and step-by-step problem solving, please ensure the Google Gemini API key is configured in the environment settings.*`;
       }

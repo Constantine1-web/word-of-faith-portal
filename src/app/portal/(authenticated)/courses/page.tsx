@@ -89,7 +89,7 @@ export default function CoursesPage() {
   };
 
   if (loading) {
-    return <div style={{ padding: "2rem" }}>Loading courses, lesson notes, and study materials...</div>;
+    return <div style={{ padding: "2rem" }}>Loading subjects, lesson notes, and homework...</div>;
   }
 
   return (
@@ -108,7 +108,7 @@ export default function CoursesPage() {
       >
         <div>
           <h1 style={{ color: "var(--color-navy-blue)", margin: 0 }}>
-            My Courses, Lesson Notes &amp; Assignments
+            My Subjects, Lesson Notes &amp; Homework
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
             Registered subjects, weekly teacher lesson notes, revision summaries, and homework tasks for{" "}
@@ -343,7 +343,7 @@ export default function CoursesPage() {
               ) : (
                 <tr>
                   <td colSpan={4} style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)", fontStyle: "italic" }}>
-                    No courses registered for this session yet.
+                    No subjects assigned for this term yet.
                   </td>
                 </tr>
               )}

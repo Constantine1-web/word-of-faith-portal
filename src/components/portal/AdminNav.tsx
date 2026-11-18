@@ -223,7 +223,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             borderRadius: "0.5rem",
           }}
         >
-          <FiBookOpen /> Course Library & Notes
+          <FiBookOpen /> Lesson Notes &amp; Homework
         </Link>
         <Link
           href="/portal/admin/users"
