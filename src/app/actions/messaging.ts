@@ -57,6 +57,14 @@ export async function sendMessage(receiverId: number, content: string) {
   }
 
   const isStaff = STAFF_MESSAGING_ROLES.some((r) => actor.roles.has(r));
+  const isParent = actor.roles.has("PARENT") || actor.roles.has("Parent");
+
+  if (!isStaff && !isParent) {
+    return {
+      success: false,
+      error: "Direct student-to-teacher in-app messaging has been disabled. For any academic or administrative inquiries, please have a parent or guardian contact the school.",
+    };
+  }
 
   try {
     const recipient = await prisma.user.findUnique({
@@ -105,6 +113,16 @@ export async function getConversation(otherUserId: number) {
   }
 
   const currentUserId = actor.UserID;
+  const isStaff = STAFF_MESSAGING_ROLES.some((r) => actor.roles.has(r));
+  const isParent = actor.roles.has("PARENT") || actor.roles.has("Parent");
+
+  if (!isStaff && !isParent) {
+    return {
+      success: false,
+      error: "Direct student-to-teacher in-app messaging has been disabled.",
+    };
+  }
+
   const targetId = Number(otherUserId);
   if (!Number.isInteger(targetId) || targetId <= 0) {
     return { success: false, error: "Invalid user ID" };
@@ -148,6 +166,14 @@ export async function getMessageContacts() {
 
   const currentUserId = actor.UserID;
   const isStaff = STAFF_MESSAGING_ROLES.some((r) => actor.roles.has(r));
+  const isParent = actor.roles.has("PARENT") || actor.roles.has("Parent");
+
+  if (!isStaff && !isParent) {
+    return {
+      success: false,
+      error: "Direct student-to-teacher in-app messaging has been disabled. For any academic or administrative inquiries, please have a parent or guardian contact the school.",
+    };
+  }
 
   try {
     // Non-staff (Students/Parents) can only see active Staff/Admin contacts and never other students' PII

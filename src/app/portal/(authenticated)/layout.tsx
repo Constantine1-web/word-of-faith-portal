@@ -23,8 +23,22 @@ export default async function PortalLayout({
         <Sidebar />
         
         {/* Main Content Area */}
-        <main className={styles.mainContent}>
-          {children}
+        <main className={styles.mainContent} style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+          <div style={{ flex: 1 }}>
+            {children}
+          </div>
+          <footer
+            style={{
+              padding: "1.25rem 1.5rem",
+              textAlign: "center",
+              fontSize: "0.82rem",
+              color: "var(--text-muted)",
+              borderTop: "1px solid var(--border-subtle)",
+              marginTop: "auto",
+            }}
+          >
+            &copy; {new Date().getFullYear()} Word of Faith Schools. All Rights Reserved. · Academic &amp; Spiritual Excellence
+          </footer>
         </main>
       </div>
     </AuthProvider>
