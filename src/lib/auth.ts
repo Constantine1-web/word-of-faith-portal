@@ -101,7 +101,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Too many login attempts for this account. Please wait 5 minutes and try again.");
         }
 
-        // Find user case-insensitively to handle legacy seeded emails while enforcing normalized comparison
+        // Find user case-insensitively by Email, OR resolve by Student WOFS ID (e.g. WOFS-STU-2026-000001)
         let user: any = null;
         try {
           user = await prisma.user.findFirst({
@@ -116,6 +116,29 @@ export const authOptions: NextAuthOptions = {
               RoleAssignments: true,
             },
           });
+
+          if (!user && !normalizedEmail.includes("@")) {
+            const studentById = await prisma.student.findFirst({
+              where: {
+                AdmissionNo: {
+                  equals: normalizedEmail,
+                  mode: "insensitive",
+                },
+                UserID: { not: null },
+              },
+              include: {
+                User: {
+                  include: {
+                    Role: true,
+                    RoleAssignments: true,
+                  },
+                },
+              },
+            });
+            if (studentById?.User) {
+              user = studentById.User;
+            }
+          }
         } catch {
           user = await prisma.user.findFirst({
             where: {

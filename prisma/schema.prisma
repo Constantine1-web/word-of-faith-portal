@@ -229,6 +229,24 @@ model Student {
   PreferredName      String?
   HasPaidFees        Boolean   @default(false)
 
+  // ---- WOFS Student Identity (AdmissionNo holds the system-generated WOFS-STU-YYYY-NNNNNN ID) ----
+  MiddleName           String?
+  ParentName           String?
+  GuardianVerified     Boolean   @default(false)
+  // UNCLAIMED | INVITED | PENDING_OTP | PENDING_MANUAL_VERIFICATION | FLAGGED_DUPLICATE | CLAIMED | SUSPENDED
+  RegistrationStatus   String    @default("UNCLAIMED")
+  // ACTIVE | WITHDRAWN | GRADUATED | SUSPENDED (school enrolment status, independent of portal account)
+  EnrolmentStatus      String    @default("ACTIVE")
+  IdentityVerified     Boolean   @default(false)
+  IdentityVerifiedAt   DateTime?
+  IdentityVerifiedBy   Int?
+  SiblingExceptionNote String?
+  CreatedAt            DateTime  @default(now())
+  UpdatedAt            DateTime  @default(now()) @updatedAt
+
+  IdentityVerifications IdentityVerificationRecord[]
+  VerificationRequests  StudentVerificationRequest[]
+
   Results           Result[]
   ScratchCards      Scratch_Card[]
   PaymentRecords    Payment_Record[]
@@ -563,14 +581,108 @@ model StaffInvite {
   createdAt   DateTime  @default(now())
 }
 
+// Single-use registration invitation bound to exactly one Student record.
+// Only SHA-256 hashes of the secret code/token are stored; the plaintext is shown once at issue time.
 model StudentClaim {
-  id        String    @id @default(cuid())
-  studentId Int
-  student   Student   @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
-  codeHash  String
-  attempts  Int       @default(0)
-  expiresAt DateTime
-  usedAt    DateTime?
+  id           String    @id @default(cuid())
+  studentId    Int
+  student      Student   @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
+  codeHash     String
+  tokenHash    String?
+  maskedCode   String?
+  // ACTIVE | REDEEMED | REVOKED | EXPIRED
+  status       String    @default("ACTIVE")
+  channel      String?
+  attempts     Int       @default(0)
+  createdById  Int?
+  revokedById  Int?
+  revokedAt    DateTime?
+  revokeReason String?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime
+  usedAt       DateTime?
+
+  @@index([studentId, status])
+  @@index([codeHash])
+  @@index([tokenHash])
+}
+
+// Atomic per-year counter used to mint WOFS-STU-YYYY-NNNNNN identifiers.
+model StudentSequence {
+  year      Int      @id
+  lastValue Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// Manual registration pathway for students without reliable guardian contacts.
+model StudentVerificationRequest {
+  id                    String    @id @default(cuid())
+  referenceCode         String    @unique
+  studentId             Int?
+  student               Student?  @relation(fields: [studentId], references: [StudentID], onDelete: SetNull)
+  wofsStudentIdInput    String?
+  firstName             String
+  lastName              String
+  middleName            String?
+  dateOfBirth           DateTime
+  gender                String?
+  requestedClassId      Int?
+  guardianName          String?
+  guardianPhone         String?
+  contactEmail          String
+  contactPhone          String?
+  passwordHash          String?
+  verificationPhotoData String?
+  reasonForManual       String
+  // PENDING | IN_PERSON_REQUIRED | APPROVED | DECLINED
+  status                String    @default("PENDING")
+  reviewedById          Int?
+  reviewedAt            DateTime?
+  decisionReason        String?
+  ipHash                String?
+  createdAt             DateTime  @default(now())
+
+  @@index([status, createdAt])
+}
+
+// Restricted identity-verification evidence. Deliberately separate from Student.AvatarUrl so that
+// profile-picture changes can never alter verification state.
+model IdentityVerificationRecord {
+  id             String    @id @default(cuid())
+  studentId      Int
+  student        Student   @relation(fields: [studentId], references: [StudentID], onDelete: Cascade)
+  // CLAIM_PHOTO | IN_PERSON | DOCUMENT
+  method         String    @default("CLAIM_PHOTO")
+  captureDataUrl String?
+  perceptualHash String?
+  // PENDING_REVIEW | VERIFIED | FLAGGED | EXCEPTION_APPROVED | REJECTED
+  status         String    @default("VERIFIED")
+  reviewedById   Int?
+  reviewedAt     DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+
+  @@index([studentId, status])
+  @@index([perceptualHash])
+}
+
+// Investigation queue for possible duplicate identities (never auto-rejects).
+model DuplicateReviewCase {
+  id                    String    @id @default(cuid())
+  primaryStudentId      Int?
+  candidateStudentId    Int?
+  verificationRequestId String?
+  // NAME_DOB_MATCH | NAME_CLASS_MATCH | IMPORT_MATCH | BIOMETRIC_MATCH | CLAIM_CONFLICT
+  matchType             String
+  signalsJson           Json
+  // OPEN | CLEARED_TWIN_SIBLING | CLEARED_DISTINCT | CONFIRMED_DUPLICATE
+  status                String    @default("OPEN")
+  resolutionNote        String?
+  resolvedById          Int?
+  resolvedAt            DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@index([status, createdAt])
 }
 
 model WebhookEvent {

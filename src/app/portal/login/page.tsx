@@ -55,12 +55,12 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.25rem", textAlign: "left" }}>
           <div className={styles.formGroup}>
-            <label htmlFor="email" className={styles.label}>Email Address</label>
+            <label htmlFor="email" className={styles.label}>Email Address or WOFS Student ID</label>
             <input 
-              type="email" 
+              type="text" 
               id="email" 
               className={styles.input}
-              placeholder="Enter your email"
+              placeholder="e.g. student@example.com or WOFS-STU-2026-000001"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required 

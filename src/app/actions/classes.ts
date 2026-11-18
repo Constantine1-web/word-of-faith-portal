@@ -5,6 +5,10 @@ import { revalidatePath } from "next/cache";
 import crypto from "crypto";
 import { requireActiveUser, writeAuditLog } from "@/lib/authz";
 import { parseAndMatchClassList, ParsedClassListRow } from "@/lib/pdf-classlist";
+import {
+  generateNextWofsStudentId,
+  generateStudentInvitationSecrets,
+} from "@/lib/student-id";
 
 // Helper to check if actor is allowed to manage a class (Admin or Assigned Form Master)
 async function verifyClassPermission(actor: Awaited<ReturnType<typeof requireActiveUser>>, classId: number) {
@@ -166,27 +170,35 @@ export async function commitClassListSync(
 
           matchedCount++;
         } else {
-          const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-          const randBytes = crypto.randomBytes(6);
-          let generated = "WOF-";
-          for (let i = 0; i < 6; i++) generated += chars[randBytes[i] % chars.length];
-          const plainCode = row.claimCode || generated;
-          const codeHash = crypto.createHash("sha256").update(plainCode).digest("hex");
+          const secrets = generateStudentInvitationSecrets();
+          const plainCode = secrets.plainCode;
+          const codeHash = secrets.codeHash;
           const claimExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+          const wofsStudentId = await generateNextWofsStudentId(tx);
 
           const newStudent = await tx.student.create({
             data: {
-              AdmissionNo: String(row.admissionNo).trim().slice(0, 40),
+              Uuid: crypto.randomUUID(),
+              AdmissionNo: wofsStudentId,
               PreferredName: safeName,
+              FirstName: safeName.split(" ")[0] || safeName,
+              LastName: safeName.split(" ").slice(1).join(" ") || safeName,
               ClassID: classId,
-              DateOfBirth: new Date(),
+              DateOfBirth: new Date("2012-01-01"),
               ParentContact: "08000000000",
               HasPaidFees: false,
+              RegistrationStatus: "INVITED",
+              EnrolmentStatus: "ACTIVE",
               ClaimCodeHash: codeHash,
               ClaimCodeExpiresAt: claimExpiresAt,
               Claims: {
                 create: {
                   codeHash,
+                  tokenHash: secrets.tokenHash,
+                  maskedCode: secrets.maskedCode,
+                  status: "ACTIVE",
+                  channel: "SLIP",
+                  createdById: actor.UserID,
                   expiresAt: claimExpiresAt,
                 },
               },
@@ -205,7 +217,7 @@ export async function commitClassListSync(
 
           claimSlips.push({
             name: safeName,
-            admissionNo: row.admissionNo,
+            admissionNo: wofsStudentId,
             claimCode: plainCode,
             className: targetClass.ClassName,
           });

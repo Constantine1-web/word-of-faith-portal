@@ -33,6 +33,10 @@ import {
   timingSafeCompare,
   rateLimit,
 } from "@/lib/security";
+import {
+  generateNextWofsStudentId,
+  generateStudentInvitationSecrets,
+} from "@/lib/student-id";
 
 // Ensure the user holds an authorized administrative role in Layer 3
 async function requireAdmin() {
@@ -987,47 +991,49 @@ export async function enrollApplicantToStudent(data: {
       return { success: false, error: "Target class arm not found." };
     }
 
-    // Auto-generate formatted registration number if not provided
-    let admissionNo = data.admissionNo?.trim();
-    if (!admissionNo) {
-      const year = new Date().getFullYear();
-      const prefix = selectedClass.Level.toLowerCase().includes("primary") ? "PRY" : "SEC";
-      const count = await prisma.student.count();
-      const sequence = (count + 1).toString().padStart(3, "0");
-      admissionNo = `WOFS/${year}/${prefix}/${sequence}`;
-    }
+    // Auto-generate canonical WOFS-STU-YYYY-NNNNNN Student ID transactionally if not provided
+    const secrets = generateStudentInvitationSecrets();
+    const plainClaimCode = secrets.plainCode;
+    const claimCodeHash = secrets.codeHash;
+    const claimExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
 
-    // Generate a 6-char one-time Student Claim Code (Section B.6 & Section 4)
-    const rawClaimChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let plainClaimCode = "";
-    const randomBytes = crypto.randomBytes(6);
-    for (let i = 0; i < 6; i++) {
-      plainClaimCode += rawClaimChars[randomBytes[i] % rawClaimChars.length];
-    }
-    const claimCodeHash = crypto.createHash("sha256").update(plainClaimCode).digest("hex");
-    const claimExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const { student, admissionNo } = await prisma.$transaction(async (tx) => {
+      const resolvedId =
+        data.admissionNo?.trim() || (await generateNextWofsStudentId(tx));
 
-    // Create the student profile
-    const student = await prisma.student.create({
-      data: {
-        AdmissionNo: admissionNo,
-        ClaimCodeHash: claimCodeHash,
-        ClaimCodeExpiresAt: claimExpiresAt,
-        FirstName: app.childFirstName,
-        LastName: app.childLastName,
-        ClassID: data.classId,
-        DateOfBirth: app.dateOfBirth,
-        ParentContact: data.parentContact || app.parentPhone,
-        ParentEmail: data.parentEmail || app.parentEmail,
-        PreferredName: `${app.childFirstName} ${app.childLastName}`,
-        HasPaidFees: false,
-        Claims: {
-          create: {
-            codeHash: claimCodeHash,
-            expiresAt: claimExpiresAt,
+      const createdStudent = await tx.student.create({
+        data: {
+          Uuid: crypto.randomUUID(),
+          AdmissionNo: resolvedId,
+          ClaimCodeHash: claimCodeHash,
+          ClaimCodeExpiresAt: claimExpiresAt,
+          FirstName: app.childFirstName,
+          LastName: app.childLastName,
+          Gender: app.gender,
+          ClassID: data.classId,
+          DateOfBirth: app.dateOfBirth,
+          ParentName: app.parentName,
+          ParentContact: data.parentContact || app.parentPhone,
+          ParentEmail: data.parentEmail || app.parentEmail,
+          GuardianVerified: true,
+          RegistrationStatus: "INVITED",
+          EnrolmentStatus: "ACTIVE",
+          PreferredName: `${app.childFirstName} ${app.childLastName}`,
+          HasPaidFees: false,
+          Claims: {
+            create: {
+              codeHash: claimCodeHash,
+              tokenHash: secrets.tokenHash,
+              maskedCode: secrets.maskedCode,
+              status: "ACTIVE",
+              channel: "EMAIL",
+              expiresAt: claimExpiresAt,
+            },
           },
         },
-      },
+      });
+
+      return { student: createdStudent, admissionNo: resolvedId };
     });
 
     // Update application status
@@ -1120,45 +1126,63 @@ export async function rejectAdmissionApplication(applicationId: number, reason?:
 export async function addStudent(data: {
   firstName: string;
   lastName: string;
-  email: string;
-  admissionNo: string;
+  email?: string;
+  admissionNo?: string;
   classId: number;
   parentContact?: string;
   parentEmail?: string;
+  dateOfBirth?: string;
+  gender?: string;
 }) {
   await requireAdmin();
 
   try {
-    const defaultPassword = await bcrypt.hash("wofschools2026", 12);
-    
-    await prisma.$transaction(async (tx) => {
-      const studentRole = await tx.role.findUnique({ where: { RoleName: "Student" } });
-      if (!studentRole) throw new Error("Student role not found in database.");
+    const secrets = generateStudentInvitationSecrets();
+    const claimExpiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
-      const user = await tx.user.create({
+    const result = await prisma.$transaction(async (tx) => {
+      const wofsStudentId =
+        data.admissionNo?.trim() || (await generateNextWofsStudentId(tx));
+      const cleanEmail = (data.email || data.parentEmail || "").trim().toLowerCase() || null;
+
+      const createdStudent = await tx.student.create({
         data: {
-          Email: data.email.trim().toLowerCase(),
-          PasswordHash: defaultPassword,
-          RoleID: studentRole.RoleID,
-          IsActive: true
-        }
+          Uuid: crypto.randomUUID(),
+          AdmissionNo: wofsStudentId,
+          FirstName: data.firstName.trim(),
+          LastName: data.lastName.trim(),
+          Gender: data.gender || "Unspecified",
+          ClassID: Number(data.classId),
+          DateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : new Date("2012-01-01"),
+          ParentContact: data.parentContact?.trim() || "08000000000",
+          ParentEmail: cleanEmail,
+          PreferredName: `${data.firstName.trim()} ${data.lastName.trim()}`,
+          RegistrationStatus: "INVITED",
+          EnrolmentStatus: "ACTIVE",
+          ClaimCodeHash: secrets.codeHash,
+          ClaimCodeExpiresAt: claimExpiresAt,
+          Claims: {
+            create: {
+              codeHash: secrets.codeHash,
+              tokenHash: secrets.tokenHash,
+              maskedCode: secrets.maskedCode,
+              status: "ACTIVE",
+              channel: "SLIP",
+              expiresAt: claimExpiresAt,
+            },
+          },
+        },
       });
 
-      await tx.student.create({
-        data: {
-          UserID: user.UserID,
-          AdmissionNo: data.admissionNo.trim(),
-          ClassID: data.classId,
-          DateOfBirth: new Date(),
-          ParentContact: data.parentContact || "08000000000",
-          ParentEmail: data.parentEmail || data.email,
-          PreferredName: `${data.firstName} ${data.lastName}`
-        }
-      });
+      return { student: createdStudent, wofsStudentId };
     });
 
     revalidatePath("/portal/admin/students");
-    return { success: true };
+    return {
+      success: true,
+      wofsStudentId: result.wofsStudentId,
+      invitationCode: secrets.plainCode,
+    };
   } catch (error: any) {
     console.error("Add student error:", error);
     return { error: error.message || "Failed to add student." };

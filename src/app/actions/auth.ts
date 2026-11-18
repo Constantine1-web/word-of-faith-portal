@@ -14,6 +14,15 @@ import {
   incrementOtpAttemptAndCheckLocked,
   clearOtpAttempts,
 } from "@/lib/security";
+import { writeAuditLog } from "@/lib/authz";
+import {
+  normalizeWofsCode,
+  generateManualVerificationRef,
+} from "@/lib/student-id";
+import {
+  detectPotentialStudentDuplicates,
+  computeVerificationImageFingerprint,
+} from "@/lib/duplicate-detector";
 
 // Validate password strength: letters, numbers, and special characters, min 8 chars
 function validatePasswordStrength(password: string) {
@@ -568,3 +577,766 @@ export async function resetPassword(email: string, otp: string, newPassword: str
     return { success: false, error: "Internal server error" };
   }
 }
+
+// ============================================================================
+// INVITATION-BASED STUDENT ACCOUNT CLAIMING & MANUAL VERIFICATION WORKFLOW
+// ============================================================================
+
+function maskEmailAddress(email?: string | null): string | null {
+  if (!email || !email.includes("@")) return null;
+  const [local, domain] = email.trim().split("@");
+  if (local.length <= 2) return `${local[0] || "*"}***@${domain}`;
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+function maskPhoneNumber(phone?: string | null): string | null {
+  const digits = (phone || "").replace(/\D/g, "");
+  if (!digits || digits === "08000000000" || digits.length < 7) return null;
+  return `${digits.slice(0, 4)}****${digits.slice(-3)}`;
+}
+
+async function resolveActiveStudentInvitation(rawInviteInput: string) {
+  const trimmed = (rawInviteInput || "").trim();
+  if (!trimmed) return { error: "Please enter a valid registration invitation code." };
+
+  const normalizedCode = normalizeWofsCode(trimmed);
+  const codeHash = crypto.createHash("sha256").update(normalizedCode).digest("hex");
+  const tokenHash = crypto.createHash("sha256").update(trimmed).digest("hex");
+
+  let claim = await prisma.studentClaim.findFirst({
+    where: {
+      OR: [{ codeHash }, { tokenHash }],
+    },
+    include: {
+      student: {
+        include: {
+          Class: true,
+          User: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  // Fallback for legacy ClaimCodeHash on Student row
+  if (!claim) {
+    const legacyStudent = await prisma.student.findFirst({
+      where: { ClaimCodeHash: codeHash },
+      include: { Class: true, User: true },
+    });
+    if (legacyStudent) {
+      claim = await prisma.studentClaim.create({
+        data: {
+          studentId: legacyStudent.StudentID,
+          codeHash,
+          maskedCode: `WOFS-INV-****${normalizedCode.slice(-4)}`,
+          status: "ACTIVE",
+          expiresAt:
+            legacyStudent.ClaimCodeExpiresAt ||
+            new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+        include: {
+          student: {
+            include: { Class: true, User: true },
+          },
+        },
+      });
+    }
+  }
+
+  if (!claim || !claim.student) {
+    return {
+      error:
+        "Invalid registration invitation code. Please check your invitation slip or request manual verification.",
+    };
+  }
+
+  if (claim.status === "REVOKED" || claim.revokedAt) {
+    return {
+      error:
+        "This registration invitation has been revoked by the school administration. Please contact the school office for a new invitation.",
+    };
+  }
+
+  if (claim.usedAt || claim.status === "REDEEMED") {
+    return {
+      error:
+        "This single-use registration invitation has already been redeemed and cannot be used again.",
+    };
+  }
+
+  if (claim.expiresAt && new Date(claim.expiresAt) < new Date()) {
+    await prisma.studentClaim
+      .update({
+        where: { id: claim.id },
+        data: { status: "EXPIRED" },
+      })
+      .catch(() => {});
+    return {
+      error:
+        "This registration invitation has expired. Please contact the school office or submit a manual verification request.",
+    };
+  }
+
+  if (claim.attempts >= 5) {
+    return {
+      error:
+        "This invitation has been locked due to too many failed verification attempts. Please contact the school office.",
+    };
+  }
+
+  if (claim.student.UserID && claim.student.User?.IsActive) {
+    return {
+      error:
+        "This student record has already claimed an active portal account. Please sign in on the Login page.",
+    };
+  }
+
+  return { claim, student: claim.student };
+}
+
+export async function getPublicRegistrationClasses() {
+  try {
+    const classes = await prisma.class.findMany({
+      select: {
+        ClassID: true,
+        ClassName: true,
+        Level: true,
+        Arm: true,
+      },
+      orderBy: { ClassName: "asc" },
+    });
+    return { success: true, classes };
+  } catch {
+    return { success: false, classes: [] };
+  }
+}
+
+/**
+ * Step 1 of Invitation Claiming:
+ * Validates a single-use registration invitation and returns the locked school student record.
+ * The student cannot modify their assigned name, class, or WOFS Student ID.
+ */
+export async function validateRegistrationInvitation(inviteCodeOrToken: string) {
+  try {
+    const headersList = await headers();
+    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const rl = await rateLimit(`invite_validate:${ip}`, 10, 300);
+    if (!rl.success) {
+      return {
+        success: false,
+        error: "Too many invitation validation attempts. Please wait a few minutes.",
+      };
+    }
+
+    const resolved = await resolveActiveStudentInvitation(inviteCodeOrToken);
+    if ("error" in resolved) {
+      return { success: false, error: resolved.error };
+    }
+
+    const { claim, student } = resolved;
+    const fullName =
+      student.PreferredName ||
+      [student.FirstName, student.MiddleName, student.LastName].filter(Boolean).join(" ") ||
+      student.AdmissionNo;
+
+    const maskedEmail = maskEmailAddress(student.ParentEmail);
+    const maskedPhone = maskPhoneNumber(student.ParentContact);
+
+    return {
+      success: true,
+      invitation: {
+        claimId: claim.id,
+        expiresAt: claim.expiresAt.toISOString(),
+        student: {
+          wofsStudentId: student.AdmissionNo,
+          fullName,
+          firstName: student.FirstName || "",
+          lastName: student.LastName || "",
+          className: student.Class?.ClassName || "Assigned Class",
+          level: student.Class?.Level || "Secondary",
+          hasGuardianContact: Boolean(maskedEmail || maskedPhone),
+          maskedGuardianEmail: maskedEmail,
+          maskedGuardianPhone: maskedPhone,
+        },
+      },
+    };
+  } catch (error: any) {
+    console.error("validateRegistrationInvitation error:", error);
+    return { success: false, error: "Unable to validate invitation at this time." };
+  }
+}
+
+/**
+ * Step 2 of Invitation Claiming:
+ * Sends a 6-digit verification OTP to the guardian/student email address and binds it to the invitation.
+ */
+export async function sendInvitationGuardianOtp(params: {
+  inviteCodeOrToken: string;
+  email: string;
+  phone?: string;
+}) {
+  try {
+    const cleanEmail = (params.email || "").trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      return { success: false, error: "Please provide a valid email address to receive your verification code." };
+    }
+
+    const headersList = await headers();
+    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const rl = await rateLimit(`invite_otp:${ip}`, 5, 300);
+    if (!rl.success) {
+      return { success: false, error: "Too many OTP requests. Please wait a few minutes." };
+    }
+
+    const resolved = await resolveActiveStudentInvitation(params.inviteCodeOrToken);
+    if ("error" in resolved) {
+      return { success: false, error: resolved.error };
+    }
+
+    const { claim, student } = resolved;
+
+    // Ensure email is not already bound to another User account
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        Email: {
+          equals: cleanEmail,
+          mode: "insensitive",
+        },
+      },
+    });
+
+    if (existingUser && (!student.UserID || existingUser.UserID !== student.UserID)) {
+      return {
+        success: false,
+        error: "This email address is already linked to another portal account. Please use a unique email for this student.",
+      };
+    }
+
+    const otp = generateSecureOtp6();
+    const boundHash = hashTokenSha256(`INVITE:${claim.id}:${cleanEmail}:${otp}`);
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+
+    await prisma.verificationToken.deleteMany({
+      where: { email: cleanEmail, type: "EMAIL_VERIFICATION" },
+    });
+    await clearOtpAttempts(cleanEmail, "EMAIL_VERIFICATION");
+
+    await prisma.verificationToken.create({
+      data: {
+        email: cleanEmail,
+        token: boundHash,
+        type: "EMAIL_VERIFICATION",
+        expires,
+      },
+    });
+
+    await prisma.$transaction([
+      prisma.studentClaim.update({
+        where: { id: claim.id },
+        data: { status: "PENDING_OTP" },
+      }),
+      prisma.student.update({
+        where: { StudentID: student.StudentID },
+        data: { RegistrationStatus: "PENDING_OTP" },
+      }),
+    ]);
+
+    const studentDisplayName = escapeHtml(
+      student.PreferredName ||
+        `${student.FirstName || ""} ${student.LastName || ""}`.trim() ||
+        student.AdmissionNo
+    );
+
+    const emailRes = await sendEmail({
+      to: cleanEmail,
+      subject: `Word of Faith Schools — Verification Code for ${student.AdmissionNo}`,
+      html: `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 540px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #ffffff;">
+          <div style="background: #0A2540; color: #ffffff; padding: 20px 24px; border-bottom: 4px solid #16a34a;">
+            <h2 style="margin: 0; font-size: 19px; color: #ffffff;">Word of Faith Schools</h2>
+            <p style="margin: 4px 0 0; font-size: 13px; color: #86efac;">Student Account Claim Verification</p>
+          </div>
+          <div style="padding: 24px; color: #1f2937; line-height: 1.6;">
+            <p style="margin-top: 0;">You are claiming the student portal account for:</p>
+            <p style="margin: 0 0 12px 0;"><strong>${studentDisplayName}</strong> &middot; Permanent ID: <code>${escapeHtml(student.AdmissionNo)}</code></p>
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 18px; text-align: center; margin: 20px 0;">
+              <h1 style="letter-spacing: 8px; color: #14532D; margin: 8px 0; font-size: 32px; font-family: monospace;">${otp}</h1>
+              <span style="font-size: 12px; color: #64748b;">Valid for 15 minutes. Single-use only.</span>
+            </div>
+          </div>
+        </div>
+      `,
+    });
+
+    if (!emailRes.success) {
+      return {
+        success: false,
+        error: "Unable to send verification code to that email address right now. Please verify the address or try again.",
+      };
+    }
+
+    return {
+      success: true,
+      message: `A 6-digit verification code has been sent to ${cleanEmail}.`,
+    };
+  } catch (error: any) {
+    console.error("sendInvitationGuardianOtp error:", error);
+    return { success: false, error: "Failed to dispatch verification code." };
+  }
+}
+
+/**
+ * Step 3 of Invitation Claiming:
+ * Verifies the OTP, records identity verification evidence separately from AvatarUrl,
+ * checks for multi-signal or biometric duplicate collisions, activates the account,
+ * and permanently invalidates the single-use invitation.
+ */
+export async function completeInvitationClaim(params: {
+  inviteCodeOrToken: string;
+  email: string;
+  phone?: string;
+  preferredName?: string;
+  password: string;
+  otp: string;
+  verificationPhotoDataUrl?: string;
+}) {
+  try {
+    const cleanEmail = (params.email || "").trim().toLowerCase();
+    const cleanOtp = (params.otp || "").trim();
+    const cleanPhone = (params.phone || "").trim();
+
+    if (!validatePasswordStrength(params.password || "")) {
+      return {
+        success: false,
+        error:
+          "Password must be at least 8 characters and include letters, numbers, and a special character.",
+      };
+    }
+
+    const resolved = await resolveActiveStudentInvitation(params.inviteCodeOrToken);
+    if ("error" in resolved) {
+      return { success: false, error: resolved.error };
+    }
+
+    const { claim, student } = resolved;
+
+    const tokenRecord = await prisma.verificationToken.findFirst({
+      where: {
+        email: {
+          equals: cleanEmail,
+          mode: "insensitive",
+        },
+        type: "EMAIL_VERIFICATION",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!tokenRecord) {
+      return {
+        success: false,
+        error: "Verification code not found. Please request a new 6-digit code.",
+      };
+    }
+
+    if (new Date() > tokenRecord.expires) {
+      await prisma.verificationToken.delete({ where: { id: tokenRecord.id } }).catch(() => {});
+      return {
+        success: false,
+        error: "Your 6-digit verification code has expired. Please request a new code.",
+      };
+    }
+
+    const expectedHash = hashTokenSha256(`INVITE:${claim.id}:${cleanEmail}:${cleanOtp}`);
+    const isOtpValid = timingSafeCompare(tokenRecord.token, expectedHash);
+
+    if (!isOtpValid) {
+      await prisma.studentClaim.update({
+        where: { id: claim.id },
+        data: { attempts: { increment: 1 } },
+      });
+      const attemptState = await incrementOtpAttemptAndCheckLocked(
+        cleanEmail,
+        "EMAIL_VERIFICATION",
+        5,
+        900
+      );
+      if (attemptState.locked) {
+        await prisma.verificationToken.delete({ where: { id: tokenRecord.id } }).catch(() => {});
+        return {
+          success: false,
+          error:
+            "Too many invalid verification attempts. Please request a fresh verification code.",
+        };
+      }
+      return { success: false, error: "Invalid 6-digit verification code." };
+    }
+
+    // Check if email is already taken by another user
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        Email: {
+          equals: cleanEmail,
+          mode: "insensitive",
+        },
+      },
+    });
+    if (existingUser && (!student.UserID || existingUser.UserID !== student.UserID)) {
+      return {
+        success: false,
+        error: "This email address is already registered to another portal account.",
+      };
+    }
+
+    // Biometric / Verification Photo perceptual hash check (stored independently of AvatarUrl)
+    const photoHash = computeVerificationImageFingerprint(params.verificationPhotoDataUrl);
+    let flaggedBiometricDuplicateStudentId: number | null = null;
+    if (photoHash) {
+      const matchingVerification = await prisma.identityVerificationRecord.findFirst({
+        where: {
+          perceptualHash: photoHash,
+          studentId: { not: student.StudentID },
+        },
+      });
+      if (matchingVerification) {
+        flaggedBiometricDuplicateStudentId = matchingVerification.studentId;
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(params.password, 12);
+    const finalPreferredName =
+      params.preferredName?.trim() ||
+      student.PreferredName ||
+      [student.FirstName, student.MiddleName, student.LastName].filter(Boolean).join(" ") ||
+      student.AdmissionNo;
+    const finalPhone = cleanPhone || student.ParentContact || "08000000000";
+
+    await prisma.$transaction(async (tx) => {
+      // Double-check inside transaction that the invitation was not concurrently redeemed
+      const freshClaim = await tx.studentClaim.findUnique({ where: { id: claim.id } });
+      if (!freshClaim || freshClaim.usedAt || freshClaim.status === "REDEEMED" || freshClaim.status === "REVOKED") {
+        throw new Error("This invitation has already been redeemed or revoked.");
+      }
+
+      const studentRole = await tx.role.findUnique({ where: { RoleName: "Student" } });
+      if (!studentRole) throw new Error("Student role not found.");
+
+      let userId = student.UserID;
+      if (userId) {
+        await tx.user.update({
+          where: { UserID: userId },
+          data: {
+            Email: cleanEmail,
+            PasswordHash: hashedPassword,
+            IsActive: true,
+          },
+        });
+      } else {
+        const createdUser = await tx.user.create({
+          data: {
+            Email: cleanEmail,
+            PasswordHash: hashedPassword,
+            RoleID: studentRole.RoleID,
+            IsActive: true,
+          },
+        });
+        userId = createdUser.UserID;
+      }
+
+      await tx.student.update({
+        where: { StudentID: student.StudentID },
+        data: {
+          UserID: userId,
+          PreferredName: finalPreferredName,
+          ParentContact: finalPhone,
+          ParentEmail: student.ParentEmail || cleanEmail,
+          GuardianVerified: true,
+          RegistrationStatus: flaggedBiometricDuplicateStudentId ? "FLAGGED_DUPLICATE" : "CLAIMED",
+          IdentityVerified: !flaggedBiometricDuplicateStudentId,
+          IdentityVerifiedAt: flaggedBiometricDuplicateStudentId ? null : new Date(),
+          ClaimCodeHash: null,
+          ClaimCodeExpiresAt: null,
+        },
+      });
+
+      // Immediately invalidate single-use invitation
+      await tx.studentClaim.update({
+        where: { id: claim.id },
+        data: {
+          status: "REDEEMED",
+          usedAt: new Date(),
+        },
+      });
+
+      // Record identity verification evidence independently of Student.AvatarUrl
+      if (params.verificationPhotoDataUrl) {
+        await tx.identityVerificationRecord.create({
+          data: {
+            studentId: student.StudentID,
+            method: "CLAIM_PHOTO",
+            captureDataUrl: params.verificationPhotoDataUrl,
+            perceptualHash: photoHash,
+            status: flaggedBiometricDuplicateStudentId ? "FLAGGED" : "VERIFIED",
+            notes: flaggedBiometricDuplicateStudentId
+              ? `Flagged potential photo match with Student #${flaggedBiometricDuplicateStudentId}`
+              : "Captured during invitation claim verification",
+          },
+        });
+      }
+
+      if (flaggedBiometricDuplicateStudentId) {
+        await tx.duplicateReviewCase.create({
+          data: {
+            primaryStudentId: flaggedBiometricDuplicateStudentId,
+            candidateStudentId: student.StudentID,
+            matchType: "BIOMETRIC_MATCH",
+            signalsJson: {
+              perceptualHash: photoHash,
+              claimedEmail: cleanEmail,
+            },
+            status: "OPEN",
+          },
+        });
+      }
+
+      await writeAuditLog({
+        tx,
+        actorId: userId,
+        action: "STUDENT_INVITATION_REDEEMED",
+        entity: "Student",
+        entityId: student.StudentID,
+        newValue: {
+          wofsStudentId: student.AdmissionNo,
+          claimId: claim.id,
+          email: cleanEmail,
+          flaggedBiometricMatch: Boolean(flaggedBiometricDuplicateStudentId),
+        },
+      });
+    });
+
+    await prisma.verificationToken.delete({ where: { id: tokenRecord.id } }).catch(() => {});
+    await clearOtpAttempts(cleanEmail, "EMAIL_VERIFICATION");
+
+    await sendDirectStudentCommunication({
+      studentName: finalPreferredName,
+      admissionNo: student.AdmissionNo,
+      className: student.Class?.ClassName,
+      registrationEmail: cleanEmail,
+      studentPhone: finalPhone,
+      subject: `Portal Account Activated — ${student.AdmissionNo}`,
+      message: `Welcome to Word of Faith Schools! Your student portal account has been claimed and activated. Your permanent WOFS Student ID is ${student.AdmissionNo}. You may sign in using either ${cleanEmail} or ${student.AdmissionNo}.`,
+      senderName: "Portal Registration Desk",
+      channels: ["EMAIL"],
+    }).catch(() => null);
+
+    return {
+      success: true,
+      wofsStudentId: student.AdmissionNo,
+      studentName: finalPreferredName,
+      className: student.Class?.ClassName || "Assigned Class",
+      flaggedForReview: Boolean(flaggedBiometricDuplicateStudentId),
+      message: `Account activated! Your permanent WOFS Student ID is ${student.AdmissionNo}.`,
+    };
+  } catch (error: any) {
+    console.error("completeInvitationClaim error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to complete account claim.",
+    };
+  }
+}
+
+/**
+ * Alternative Registration Pathway (Requirement 4):
+ * Submits a Manual Registration Verification Request when a student does not have
+ * reliable guardian contact info on file or needs administrative verification.
+ */
+export async function submitManualVerificationRequest(params: {
+  wofsStudentIdInput?: string;
+  firstName: string;
+  lastName: string;
+  middleName?: string;
+  dateOfBirth: string;
+  gender?: string;
+  requestedClassId: number;
+  guardianName?: string;
+  guardianPhone?: string;
+  contactEmail: string;
+  contactPhone?: string;
+  password: string;
+  reasonForManual: string;
+  verificationPhotoDataUrl?: string;
+}) {
+  try {
+    const headersList = await headers();
+    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const rl = await rateLimit(`manual_verify_req:${ip}`, 5, 900);
+    if (!rl.success) {
+      return {
+        success: false,
+        error: "Too many verification requests from this network. Please wait 15 minutes.",
+      };
+    }
+
+    const firstName = (params.firstName || "").trim();
+    const lastName = (params.lastName || "").trim();
+    const middleName = (params.middleName || "").trim() || null;
+    const contactEmail = (params.contactEmail || "").trim().toLowerCase();
+    const reasonForManual = (params.reasonForManual || "").trim();
+    const requestedClassId = Number(params.requestedClassId) || null;
+
+    if (!firstName || !lastName || !contactEmail || !contactEmail.includes("@") || !reasonForManual) {
+      return {
+        success: false,
+        error: "First Name, Last Name, Contact Email, Class, and Reason for Manual Verification are required.",
+      };
+    }
+
+    if (!validatePasswordStrength(params.password || "")) {
+      return {
+        success: false,
+        error:
+          "Password must be at least 8 characters and include letters, numbers, and a special character.",
+      };
+    }
+
+    const parsedDob = new Date(params.dateOfBirth);
+    if (Number.isNaN(parsedDob.getTime())) {
+      return { success: false, error: "Please enter a valid Date of Birth." };
+    }
+
+    // Check if contactEmail is already registered
+    const existingEmailUser = await prisma.user.findFirst({
+      where: {
+        Email: {
+          equals: contactEmail,
+          mode: "insensitive",
+        },
+      },
+    });
+    if (existingEmailUser) {
+      return {
+        success: false,
+        error: "This email address is already registered to an active portal account.",
+      };
+    }
+
+    // Check if an unclaimed Student record matches wofsStudentIdInput or name+DOB
+    let matchedStudentId: number | null = null;
+    const cleanWofsInput = (params.wofsStudentIdInput || "").trim().toUpperCase();
+    if (cleanWofsInput) {
+      const byId = await prisma.student.findFirst({
+        where: {
+          AdmissionNo: {
+            equals: cleanWofsInput,
+            mode: "insensitive",
+          },
+        },
+      });
+      if (byId) {
+        if (byId.UserID) {
+          return {
+            success: false,
+            error: "That WOFS Student ID has already been claimed. Please use the Login or Forgot Password page.",
+          };
+        }
+        matchedStudentId = byId.StudentID;
+      }
+    }
+
+    const dupCheck = await detectPotentialStudentDuplicates({
+      firstName,
+      lastName,
+      middleName,
+      dateOfBirth: parsedDob,
+      classId: requestedClassId,
+      parentContact: params.guardianPhone || params.contactPhone,
+      parentEmail: contactEmail,
+      verificationPhotoDataUrl: params.verificationPhotoDataUrl,
+    });
+
+    if (!matchedStudentId && dupCheck.matches.length > 0 && !dupCheck.matches[0].hasClaimedAccount) {
+      matchedStudentId = dupCheck.matches[0].studentId;
+    }
+
+    const passwordHash = await bcrypt.hash(params.password, 12);
+    const referenceCode = generateManualVerificationRef();
+    const ipHash = crypto.createHash("sha256").update(ip).digest("hex").slice(0, 16);
+
+    const createdReq = await prisma.$transaction(async (tx) => {
+      const reqRow = await tx.studentVerificationRequest.create({
+        data: {
+          referenceCode,
+          studentId: matchedStudentId,
+          wofsStudentIdInput: cleanWofsInput || null,
+          firstName,
+          lastName,
+          middleName,
+          dateOfBirth: parsedDob,
+          gender: (params.gender || "Unspecified").trim(),
+          requestedClassId,
+          guardianName: (params.guardianName || "").trim() || null,
+          guardianPhone: (params.guardianPhone || "").trim() || null,
+          contactEmail,
+          contactPhone: (params.contactPhone || "").trim() || null,
+          passwordHash,
+          verificationPhotoData: params.verificationPhotoDataUrl || null,
+          reasonForManual,
+          status: "PENDING",
+          ipHash,
+        },
+      });
+
+      if (matchedStudentId) {
+        await tx.student.update({
+          where: { StudentID: matchedStudentId },
+          data: { RegistrationStatus: "PENDING_MANUAL_VERIFICATION" },
+        });
+      }
+
+      if (dupCheck.matches.some((m) => m.hasClaimedAccount)) {
+        const claimedMatch = dupCheck.matches.find((m) => m.hasClaimedAccount)!;
+        await tx.duplicateReviewCase.create({
+          data: {
+            primaryStudentId: claimedMatch.studentId,
+            verificationRequestId: reqRow.id,
+            matchType: claimedMatch.matchType,
+            signalsJson: claimedMatch.signals as any,
+            status: "OPEN",
+          },
+        });
+      }
+
+      await writeAuditLog({
+        tx,
+        actorId: null,
+        action: "MANUAL_VERIFICATION_REQUEST_SUBMITTED",
+        entity: "StudentVerificationRequest",
+        entityId: reqRow.id,
+        newValue: {
+          referenceCode,
+          firstName,
+          lastName,
+          contactEmail,
+          matchedStudentId,
+        },
+      });
+
+      return reqRow;
+    });
+
+    return {
+      success: true,
+      referenceCode: createdReq.referenceCode,
+      message:
+        "Your registration request has been placed in the school's verification queue. An administrator will verify your details against school records and notify you by email.",
+    };
+  } catch (error: any) {
+    console.error("submitManualVerificationRequest error:", error);
+    return {
+      success: false,
+      error: "Failed to submit manual verification request. Please try again.",
+    };
+  }
+}
+
