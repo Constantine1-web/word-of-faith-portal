@@ -1,22 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { approvePaymentRecord, rejectPaymentRecord, getAdminPaymentAuditList } from "@/app/actions/payments";
-import { FiCheck, FiX, FiSearch, FiDollarSign, FiClock, FiFileText, FiImage } from "react-icons/fi";
+import {
+  approvePaymentRecord,
+  rejectPaymentRecord,
+  getAdminPaymentAuditList,
+  updateFeeSchedule,
+} from "@/app/actions/payments";
+import { FiCheck, FiX, FiSearch, FiDollarSign, FiClock, FiFileText, FiImage, FiSliders, FiSave } from "react-icons/fi";
 
 export default function PaymentsClient({
   initialPayments,
   terms,
   activeTerm,
-  initialStats
+  initialStats,
+  initialSchedules = [],
 }: {
   initialPayments: any[];
   terms: any[];
   activeTerm: any;
   initialStats: { pendingCount: number; totalRevenue: number };
+  initialSchedules?: any[];
 }) {
   const [payments, setPayments] = useState(initialPayments);
   const [stats, setStats] = useState(initialStats);
+  const [schedules, setSchedules] = useState<any[]>(initialSchedules);
+  const [showScheduleEditor, setShowScheduleEditor] = useState(false);
+  const [savingScheduleId, setSavingScheduleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -146,6 +156,30 @@ export default function PaymentsClient({
     setLoading(false);
   };
 
+  const handleSaveSchedule = async (sched: any) => {
+    setSavingScheduleId(sched.levelGroup);
+    setError("");
+    setSuccess("");
+    const res = await updateFeeSchedule({
+      levelGroup: sched.levelGroup,
+      displayName: sched.displayName,
+      tuitionNaira: Number(sched.tuitionNaira) || 0,
+      leviesNaira: Number(sched.leviesNaira) || 0,
+      maintenanceFeeNaira: Number(sched.maintenanceFeeNaira) || 0,
+    });
+    setSavingScheduleId(null);
+    if (res.success && res.schedule) {
+      setSchedules((prev) =>
+        prev.map((s) => (s.levelGroup === sched.levelGroup ? { ...s, ...res.schedule } : s))
+      );
+      setSuccess(
+        `Saved ${res.schedule.displayName} schedule (Total: ₦${res.schedule.totalNaira.toLocaleString()}, incl. ₦${res.schedule.maintenanceFeeNaira.toLocaleString()} ICT Fee).`
+      );
+    } else {
+      setError(res.error || "Failed to update fee schedule.");
+    }
+  };
+
   const handleFilter = async () => {
     setLoading(true);
     const termId = termFilter ? parseInt(termFilter) : undefined;
@@ -236,6 +270,14 @@ export default function PaymentsClient({
           </label>
           <button
             type="button"
+            onClick={() => setShowScheduleEditor((v) => !v)}
+            className="btn btn-outline"
+            style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem", minHeight: "38px" }}
+          >
+            <FiSliders /> {showScheduleEditor ? "Hide Fee Schedules" : "Configure Class Fee Schedules"}
+          </button>
+          <button
+            type="button"
             onClick={handleExportReconciliationCsv}
             className="btn btn-primary"
             style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem", minHeight: "38px" }}
@@ -244,6 +286,132 @@ export default function PaymentsClient({
           </button>
         </div>
       </div>
+
+      {/* Per-Class Level Termly Fee Schedule Builder (Option C) */}
+      {showScheduleEditor && schedules.length > 0 && (
+        <div
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border-primary)",
+            borderRadius: "var(--radius-md)",
+            padding: "1.25rem",
+            marginBottom: "1.75rem",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <div style={{ marginBottom: "1rem" }}>
+            <h3 style={{ margin: 0, color: "var(--text-heading)", fontSize: "1.08rem" }}>
+              Per-Level School Fee Schedule &amp; Portal Maintenance / ICT Fee
+            </h3>
+            <p style={{ margin: "0.25rem 0 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+              Customize Tuition, Levies, and the separate Portal Maintenance / ICT Fee (80% Provider / 20% School) for each school section. Unpaid fee orders update automatically.
+            </p>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", minWidth: "700px" }}>
+              <thead>
+                <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-primary)" }}>
+                  <th style={{ padding: "0.7rem", textAlign: "left" }}>School Section</th>
+                  <th style={{ padding: "0.7rem", textAlign: "left" }}>Tuition (₦)</th>
+                  <th style={{ padding: "0.7rem", textAlign: "left" }}>Books / Levies (₦)</th>
+                  <th style={{ padding: "0.7rem", textAlign: "left" }}>Maintenance / ICT Fee (₦)</th>
+                  <th style={{ padding: "0.7rem", textAlign: "right" }}>Total Billed (₦)</th>
+                  <th style={{ padding: "0.7rem", textAlign: "right" }}>Save</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedules.map((s) => {
+                  const rowTotal =
+                    (Number(s.tuitionNaira) || 0) +
+                    (Number(s.leviesNaira) || 0) +
+                    (Number(s.maintenanceFeeNaira) || 0);
+                  return (
+                    <tr key={s.levelGroup} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                      <td style={{ padding: "0.7rem", fontWeight: 700, color: "var(--text-heading)" }}>
+                        {s.displayName}
+                      </td>
+                      <td style={{ padding: "0.55rem 0.7rem" }}>
+                        <input
+                          type="number"
+                          min={0}
+                          step={500}
+                          className="form-input"
+                          style={{ width: "120px", padding: "0.35rem 0.5rem" }}
+                          value={s.tuitionNaira}
+                          onChange={(e) =>
+                            setSchedules((prev) =>
+                              prev.map((item) =>
+                                item.levelGroup === s.levelGroup
+                                  ? { ...item, tuitionNaira: parseInt(e.target.value, 10) || 0 }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                      </td>
+                      <td style={{ padding: "0.55rem 0.7rem" }}>
+                        <input
+                          type="number"
+                          min={0}
+                          step={500}
+                          className="form-input"
+                          style={{ width: "115px", padding: "0.35rem 0.5rem" }}
+                          value={s.leviesNaira}
+                          onChange={(e) =>
+                            setSchedules((prev) =>
+                              prev.map((item) =>
+                                item.levelGroup === s.levelGroup
+                                  ? { ...item, leviesNaira: parseInt(e.target.value, 10) || 0 }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                      </td>
+                      <td style={{ padding: "0.55rem 0.7rem" }}>
+                        <input
+                          type="number"
+                          min={0}
+                          step={100}
+                          className="form-input"
+                          style={{ width: "110px", padding: "0.35rem 0.5rem" }}
+                          value={s.maintenanceFeeNaira}
+                          onChange={(e) =>
+                            setSchedules((prev) =>
+                              prev.map((item) =>
+                                item.levelGroup === s.levelGroup
+                                  ? {
+                                      ...item,
+                                      maintenanceFeeNaira: parseInt(e.target.value, 10) || 0,
+                                    }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                      </td>
+                      <td style={{ padding: "0.7rem", textAlign: "right", fontWeight: 800, color: "var(--status-success-text)" }}>
+                        ₦{rowTotal.toLocaleString()}
+                      </td>
+                      <td style={{ padding: "0.7rem", textAlign: "right" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveSchedule(s)}
+                          disabled={savingScheduleId === s.levelGroup}
+                          className="btn btn-primary"
+                          style={{ padding: "0.35rem 0.75rem", fontSize: "0.78rem", minHeight: "34px" }}
+                        >
+                          <FiSave /> {savingScheduleId === s.levelGroup ? "Saving..." : "Save"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Control & Filter Bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>

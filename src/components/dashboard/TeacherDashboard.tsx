@@ -13,6 +13,7 @@ import {
   generateScoreSheetTemplateCsv,
   stageScoreSheetImportCsv,
   commitScoreSheetImportBatch,
+  previewCbtScoresForSubjectCa,
 } from "@/app/actions/results";
 import { getAttendanceForClass, markClassAttendanceBatch } from "@/app/actions/attendance";
 import {
@@ -97,6 +98,12 @@ export default function TeacherDashboard({
   // Section B.4.3 Import Staging State
   const [stagedBatch, setStagedBatch] = useState<any>(null);
   const [isStaleImportTemplate, setIsStaleImportTemplate] = useState(false);
+
+  // CBT -> CA Sync Preview State (Option C)
+  const [showCbtSyncModal, setShowCbtSyncModal] = useState(false);
+  const [cbtSyncWeight, setCbtSyncWeight] = useState<number>(20);
+  const [cbtSyncPreview, setCbtSyncPreview] = useState<any | null>(null);
+  const [loadingCbtSync, setLoadingCbtSync] = useState(false);
 
   // Form Master Remark State
   const [selectedStudentForRemark, setSelectedStudentForRemark] = useState<any>(null);
@@ -461,6 +468,48 @@ export default function TeacherDashboard({
       setError(res.error || "Failed to commit import batch.");
     }
     setSavingScores(false);
+  };
+
+  const handleOpenCbtSyncModal = async (overrideWeight?: number) => {
+    if (!selectedAllocation || !dashboardData?.activeTerm) return;
+    const weightToUse = overrideWeight ?? cbtSyncWeight;
+    setShowCbtSyncModal(true);
+    setLoadingCbtSync(true);
+    setError("");
+    const res = await previewCbtScoresForSubjectCa({
+      classId: selectedAllocation.ClassID,
+      subjectId: selectedAllocation.SubjectID,
+      termId: dashboardData.activeTerm.TermID,
+      maxCaWeight: weightToUse,
+    });
+    setLoadingCbtSync(false);
+    if (res.success) {
+      setCbtSyncPreview(res);
+    } else {
+      setError(res.error || "Failed to fetch CBT scores.");
+    }
+  };
+
+  const handleApplyCbtScoresToCaGrid = () => {
+    if (!cbtSyncPreview?.items) return;
+    let updatedCount = 0;
+    setScoreInputs((prev) => {
+      const next = { ...prev };
+      for (const item of cbtSyncPreview.items) {
+        if (item.hasAttempt && item.scaledCa !== null) {
+          next[item.studentId] = {
+            ca: String(item.scaledCa),
+            exam: next[item.studentId]?.exam ?? "",
+          };
+          updatedCount++;
+        }
+      }
+      return next;
+    });
+    setShowCbtSyncModal(false);
+    setSuccess(
+      `✅ Populated CA scores for ${updatedCount} student(s) from completed CBT tests (scaled out of ${cbtSyncPreview.maxCaWeight}). Review and click "Save Draft" or "Submit to Form Master".`
+    );
   };
 
   const handleSubmitToFormMaster = async () => {
@@ -842,6 +891,25 @@ export default function TeacherDashboard({
                         disabled={savingScores}
                       />
                     </label>
+                  )}
+
+                  {!isSubjectSubmitted && !isTermLocked && subjectStudents.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCbtSyncModal()}
+                      disabled={savingScores}
+                      className="btn btn-outline"
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        fontSize: "0.82rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
+                      }}
+                      title="Import students' completed CBT quiz scores into Continuous Assessment (CA)"
+                    >
+                      <FiCpu /> Import CBT Scores &rarr; CA
+                    </button>
                   )}
 
                   {isSubjectSubmitted ? (
@@ -1892,6 +1960,129 @@ export default function TeacherDashboard({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CBT Score -> CA Gradebook Sync Modal (Option C) */}
+      {showCbtSyncModal && (
+        <div
+          className="portal-modal-overlay"
+          style={{ zIndex: 1150 }}
+          onClick={() => setShowCbtSyncModal(false)}
+        >
+          <div
+            className="portal-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "680px", padding: "1.75rem", maxHeight: "90vh", overflowY: "auto" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "0.75rem" }}>
+              <div>
+                <h3 style={{ margin: 0, color: "var(--text-heading)" }}>
+                  Import CBT Quiz Scores into CA Sheet
+                </h3>
+                <p style={{ margin: "0.2rem 0 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+                  {selectedAllocation?.Subject?.SubjectName} &middot; {selectedAllocation?.Class?.ClassName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCbtSyncModal(false)}
+                className="btn btn-outline"
+                style={{ padding: "0.3rem 0.65rem", minHeight: "34px" }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", background: "var(--bg-secondary)", padding: "0.85rem 1rem", borderRadius: "var(--radius-sm)", marginBottom: "1rem", border: "1px solid var(--border-subtle)" }}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-label)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                Scale Best CBT % to CA Max Weight:
+                <select
+                  className="form-input"
+                  style={{ width: "auto", padding: "0.35rem 0.6rem" }}
+                  value={cbtSyncWeight}
+                  onChange={(e) => {
+                    const nextW = parseInt(e.target.value, 10);
+                    setCbtSyncWeight(nextW);
+                    handleOpenCbtSyncModal(nextW);
+                  }}
+                >
+                  <option value={10}>10 Marks (Quiz Component)</option>
+                  <option value={20}>20 Marks (Half CA Weight)</option>
+                  <option value={30}>30 Marks (3/4 CA Weight)</option>
+                  <option value={40}>40 Marks (Full CA Weight)</option>
+                </select>
+              </label>
+
+              {cbtSyncPreview && (
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--status-info-text)" }}>
+                  {cbtSyncPreview.matchedCount} of {cbtSyncPreview.totalStudents} student(s) have CBT attempts
+                </span>
+              )}
+            </div>
+
+            {loadingCbtSync ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
+                Fetching completed CBT attempts for this class...
+              </div>
+            ) : !cbtSyncPreview ? null : (
+              <>
+                <div style={{ overflowX: "auto", maxHeight: "340px", marginBottom: "1rem" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
+                    <thead>
+                      <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-primary)" }}>
+                        <th style={{ padding: "0.55rem", textAlign: "left" }}>Student</th>
+                        <th style={{ padding: "0.55rem", textAlign: "center" }}>Attempts</th>
+                        <th style={{ padding: "0.55rem", textAlign: "center" }}>Best CBT %</th>
+                        <th style={{ padding: "0.55rem", textAlign: "center" }}>Current CA</th>
+                        <th style={{ padding: "0.55rem", textAlign: "center" }}>Scaled CA (/{cbtSyncPreview.maxCaWeight})</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cbtSyncPreview.items.map((item: any) => (
+                        <tr key={item.studentId} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                          <td style={{ padding: "0.55rem" }}>
+                            <div style={{ fontWeight: 700, color: "var(--text-heading)" }}>{item.studentName}</div>
+                            <div style={{ fontSize: "0.75rem", fontFamily: "monospace", color: "var(--text-muted)" }}>{item.admissionNo}</div>
+                          </td>
+                          <td style={{ padding: "0.55rem", textAlign: "center" }}>
+                            {item.hasAttempt ? `${item.attemptCount} (${item.attemptMode})` : "—"}
+                          </td>
+                          <td style={{ padding: "0.55rem", textAlign: "center", fontWeight: 700 }}>
+                            {item.bestPercent !== null ? `${item.bestPercent}%` : "No attempt"}
+                          </td>
+                          <td style={{ padding: "0.55rem", textAlign: "center", color: "var(--text-muted)" }}>
+                            {item.currentCaScore !== null ? item.currentCaScore : "—"}
+                          </td>
+                          <td style={{ padding: "0.55rem", textAlign: "center", fontWeight: 800, color: item.hasAttempt ? "var(--status-success-text)" : "var(--text-muted)" }}>
+                            {item.scaledCa !== null ? item.scaledCa : "Unchanged"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowCbtSyncModal(false)}
+                    className="btn btn-outline"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={cbtSyncPreview.matchedCount === 0}
+                    onClick={handleApplyCbtScoresToCaGrid}
+                    className="btn btn-primary"
+                  >
+                    Apply {cbtSyncPreview.matchedCount} CBT Score(s) to CA Draft Grid
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

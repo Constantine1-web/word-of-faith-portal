@@ -70,6 +70,9 @@ export default function Footer() {
                 <Link href="/admissions" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>Admissions</Link>
               </li>
               <li>
+                <Link href="/gallery" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>Photo Gallery</Link>
+              </li>
+              <li>
                 <Link href="/news" style={{ color: "var(--footer-muted)", textDecoration: "none" }}>News &amp; Events</Link>
               </li>
               <li>

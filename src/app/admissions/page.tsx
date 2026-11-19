@@ -7,6 +7,7 @@ export default function AdmissionsPage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [submittedApplication, setSubmittedApplication] = useState<any>(null);
   const [error, setError] = useState("");
 
   const [formData, setFormData] = useState({
@@ -43,6 +44,8 @@ export default function AdmissionsPage() {
       });
 
       if (res.ok) {
+        const data = await res.json();
+        setSubmittedApplication(data.application || null);
         setSuccess(true);
       } else {
         const data = await res.json();
@@ -90,13 +93,48 @@ export default function AdmissionsPage() {
             <h2 style={{ color: "var(--color-navy-blue)", fontSize: "clamp(1.4rem, 4vw, 2rem)", marginBottom: "2rem" }}>Admission Application</h2>
             
             {success ? (
-              <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
-                <FiCheckCircle style={{ color: "var(--color-primary-green)", fontSize: "5rem", margin: "0 auto 1rem" }} />
-                <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.8rem", marginBottom: "1rem" }}>Application Submitted!</h3>
-                <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6 }}>
-                  Thank you for applying. Your application has been received and is pending review by the admin. We will contact you shortly via email.
+              <div style={{ textAlign: "center", padding: "2rem 1rem" }}>
+                <FiCheckCircle style={{ color: "var(--color-primary-green)", fontSize: "4.5rem", margin: "0 auto 1rem" }} />
+                <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.65rem", marginBottom: "0.65rem" }}>
+                  Application Submitted!
+                </h3>
+                {submittedApplication?.id && (
+                  <div
+                    style={{
+                      display: "inline-block",
+                      background: "var(--bg-secondary)",
+                      border: "1px solid var(--border-primary)",
+                      borderRadius: "8px",
+                      padding: "0.5rem 1rem",
+                      fontFamily: "monospace",
+                      fontWeight: 800,
+                      color: "var(--text-heading)",
+                      marginBottom: "1rem",
+                    }}
+                  >
+                    Application Ref: WOF-ADM-{String(submittedApplication.id).padStart(5, "0")}
+                  </div>
+                )}
+                <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6, marginBottom: "1.5rem" }}>
+                  Thank you, <strong>{formData.parentName}</strong>! Your admission application for{" "}
+                  <strong>{formData.childFirstName} {formData.childLastName}</strong> (<strong>{formData.applyingClass}</strong>) has been received and is pending review. Upon approval, a permanent <strong>WOFS-STU</strong> ID and portal invitation code will be dispatched to <strong>{formData.parentEmail}</strong>.
                 </p>
-                <button className="btn btn-primary" style={{ marginTop: "2rem" }} onClick={() => window.location.reload()}>Submit Another</button>
+                <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={() => window.print()}
+                  >
+                    Print Confirmation Slip
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => window.location.reload()}
+                  >
+                    Submit Another
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={step === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }}>
@@ -159,10 +197,28 @@ export default function AdmissionsPage() {
                       <label className="form-label">Applying For Class</label>
                       <select name="applyingClass" className="form-input" value={formData.applyingClass} onChange={handleChange} required>
                         <option value="">Select Class</option>
-                        <option value="Nursery 1">Nursery 1</option>
-                        <option value="Primary 1">Primary 1</option>
-                        <option value="JSS 1">JSS 1</option>
-                        <option value="SS 1">SS 1</option>
+                        <optgroup label="Early Years">
+                          <option value="Creche">Creche</option>
+                          <option value="Pre-Nursery">Pre-Nursery</option>
+                          <option value="Nursery 1">Nursery 1</option>
+                          <option value="Nursery 2">Nursery 2</option>
+                        </optgroup>
+                        <optgroup label="Primary School">
+                          <option value="Primary 1">Primary 1</option>
+                          <option value="Primary 2">Primary 2</option>
+                          <option value="Primary 3">Primary 3</option>
+                          <option value="Primary 4">Primary 4</option>
+                          <option value="Primary 5">Primary 5</option>
+                        </optgroup>
+                        <optgroup label="Junior Secondary (JSS)">
+                          <option value="JSS 1">JSS 1</option>
+                          <option value="JSS 2">JSS 2</option>
+                          <option value="JSS 3">JSS 3</option>
+                        </optgroup>
+                        <optgroup label="Senior Secondary (SSS)">
+                          <option value="SS 1">SS 1</option>
+                          <option value="SS 2">SS 2</option>
+                        </optgroup>
                       </select>
                     </div>
                     <div className="form-group">
@@ -223,7 +279,7 @@ export default function AdmissionsPage() {
             
             <div style={{ marginTop: "3rem", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", padding: "1.5rem", borderRadius: "var(--radius-md)", borderLeft: "4px solid var(--color-primary-green)", boxShadow: "var(--shadow-sm)" }}>
               <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>Need Help?</h4>
-              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0 }}>Call our admission desk at <strong>+234 800 000 0000</strong> or email <strong>admissions@wof.edu.ng</strong></p>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0 }}>Call our admission desk at <strong>+234 802 345 6789</strong> or email <strong>admissions@wofs.edu.ng</strong></p>
             </div>
           </div>
 

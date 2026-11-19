@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { enrollApplicantToStudent, rejectAdmissionApplication } from "@/app/actions/admin";
-import { FiCheckCircle, FiXCircle, FiSearch, FiUserPlus, FiMail, FiPhone, FiCalendar } from "react-icons/fi";
+import { FiCheckCircle, FiXCircle, FiSearch, FiUserPlus, FiMail, FiPhone, FiCalendar, FiPrinter } from "react-icons/fi";
 
 export default function AdmissionsReviewClient({
   initialApplications,
@@ -20,7 +20,51 @@ export default function AdmissionsReviewClient({
     smsUrl?: string | null;
     recipientPhone?: string;
     recipientEmail?: string;
+    wofsStudentId?: string;
+    claimCode?: string;
+    studentName?: string;
   } | null>(null);
+
+  const handlePrintAdmissionSlip = (info: {
+    studentName: string;
+    wofsStudentId: string;
+    claimCode: string;
+  }) => {
+    const win = window.open("", "_blank", "width=720,height=600");
+    if (!win) return;
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Registration Slip — ${info.wofsStudentId}</title>
+          <style>
+            body { font-family: 'Segoe UI', Arial, sans-serif; padding: 32px; color: #0f172a; }
+            .slip { border: 2px solid #0A2540; border-radius: 12px; padding: 28px; max-width: 580px; margin: 0 auto; }
+            .header { border-bottom: 3px double #15803d; padding-bottom: 12px; margin-bottom: 18px; text-align: center; }
+            .box { background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin: 16px 0; }
+            .code { font-family: monospace; font-size: 20px; font-weight: 900; color: #15803d; letter-spacing: 1.5px; }
+          </style>
+        </head>
+        <body>
+          <div class="slip">
+            <div class="header">
+              <h2 style="margin:0;color:#0A2540;">WORD OF FAITH SCHOOLS</h2>
+              <p style="margin:4px 0 0;font-size:12px;color:#15803d;font-weight:700;">ADMISSION ENROLMENT &amp; PORTAL INVITATION SLIP</p>
+            </div>
+            <p><strong>Student Name:</strong> ${info.studentName}</p>
+            <p><strong>Permanent WOFS Student ID:</strong> <code style="font-size:16px;font-weight:bold;">${info.wofsStudentId}</code></p>
+            <div class="box">
+              <div style="font-size:12px;font-weight:bold;color:#166534;">SINGLE-USE REGISTRATION INVITATION CODE</div>
+              <div class="code">${info.claimCode}</div>
+              <div style="font-size:12px;color:#475569;margin-top:6px;">Visit <strong>/portal/register</strong> to claim the student portal account.</div>
+            </div>
+          </div>
+          <script>window.onload = () => window.print();</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -54,12 +98,8 @@ export default function AdmissionsReviewClient({
       setTargetClassId(matchingClass.ClassID.toString());
     }
 
-    // Auto-generate suggested registration number
-    const year = new Date().getFullYear();
-    const isPry = app.applyingClass?.toLowerCase().includes("primary") || app.applyingClass?.toLowerCase().includes("basic") || app.applyingClass?.toLowerCase().includes("nursery");
-    const prefix = isPry ? "PRY" : "SEC";
-    const seq = Math.floor(Math.random() * 900 + 100).toString();
-    setCustomAdmissionNo(`WOFS/${year}/${prefix}/${seq}`);
+    // Leave customAdmissionNo blank by default so backend automatically generates WOFS-STU-YYYY-NNNNNN
+    setCustomAdmissionNo("");
 
     setShowEnrollModal(true);
   };
@@ -83,17 +123,20 @@ export default function AdmissionsReviewClient({
     if (res.success) {
       setApplications(prev => prev.map(a => a.id === selectedApp.id ? { ...a, status: "Approved" } : a));
       const claimNotice = (res as any).claimCode
-        ? ` | One-Time Portal Claim Code (valid 7 days): ${(res as any).claimCode}`
+        ? ` | Single-Use Invitation Code: ${(res as any).claimCode}`
         : "";
       const emailStatus = (res as any).emailSent
         ? ` | Confirmation email sent to ${(res as any).recipientEmail}`
         : ` | Notification prepared for ${(res as any).recipientEmail}`;
-      setSuccess(`Student ${selectedApp.childFirstName} ${selectedApp.childLastName} enrolled with Reg No: ${res.admissionNo}${claimNotice}${emailStatus}`);
+      setSuccess(`Student ${selectedApp.childFirstName} ${selectedApp.childLastName} enrolled with Permanent WOFS ID: ${res.admissionNo}${claimNotice}${emailStatus}`);
       setLastNotificationLinks({
         whatsappUrl: (res as any).whatsappUrl,
         smsUrl: (res as any).smsUrl,
         recipientPhone: (res as any).recipientPhone,
         recipientEmail: (res as any).recipientEmail,
+        wofsStudentId: res.admissionNo,
+        claimCode: (res as any).claimCode,
+        studentName: `${selectedApp.childFirstName} ${selectedApp.childLastName}`,
       });
       setShowEnrollModal(false);
       setSelectedApp(null);
@@ -158,6 +201,21 @@ export default function AdmissionsReviewClient({
                 >
                   Send via SMS
                 </a>
+              )}
+              {lastNotificationLinks.wofsStudentId && lastNotificationLinks.claimCode && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handlePrintAdmissionSlip({
+                      studentName: lastNotificationLinks.studentName || "New Student",
+                      wofsStudentId: lastNotificationLinks.wofsStudentId!,
+                      claimCode: lastNotificationLinks.claimCode!,
+                    })
+                  }
+                  style={{ background: "var(--bg-card)", color: "var(--text-heading)", border: "1px solid var(--border-primary)", padding: "0.35rem 0.75rem", borderRadius: "6px", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+                >
+                  <FiPrinter size={13} /> Print Invitation Slip
+                </button>
               )}
             </div>
           )}
@@ -300,16 +358,16 @@ export default function AdmissionsReviewClient({
 
             <form onSubmit={handleEnroll}>
               <div className="form-group">
-                <label className="form-label">Auto-Generated Registration Number</label>
+                <label className="form-label">Permanent WOFS Student ID (Auto-Generated)</label>
                 <input
                   type="text"
                   className="form-input"
+                  placeholder={`Leave blank to auto-generate (e.g. WOFS-STU-${new Date().getFullYear()}-XXXXXX)`}
                   value={customAdmissionNo}
                   onChange={(e) => setCustomAdmissionNo(e.target.value)}
-                  required
                 />
                 <small style={{ color: "var(--color-gray-500)", marginTop: "0.25rem", display: "block" }}>
-                  Students and parents use this number to claim portal accounts and check terminal results.
+                  Leave blank so the system transactionally mints a permanent <strong>WOFS-STU-{new Date().getFullYear()}-XXXXXX</strong> ID and single-use invitation code.
                 </small>
               </div>
 

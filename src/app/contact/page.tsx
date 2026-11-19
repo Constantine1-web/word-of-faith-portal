@@ -10,16 +10,36 @@ export default function ContactPage() {
     subject: "",
     message: "",
   });
-  const [status, setStatus] = useState<"idle" | "submitting" | "success">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.email || !formData.message) return;
     setStatus("submitting");
-    setTimeout(() => {
-      setStatus("success");
-      setFormData({ name: "", email: "", subject: "", message: "" });
-    }, 600);
+    setFeedbackMessage("");
+
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatus("success");
+        setFeedbackMessage(
+          data.message || "Thank you for reaching out. We will get back to you shortly."
+        );
+        setFormData({ name: "", email: "", subject: "", message: "" });
+      } else {
+        setStatus("error");
+        setFeedbackMessage(data.error || "Unable to send your message. Please try again.");
+      }
+    } catch {
+      setStatus("error");
+      setFeedbackMessage("Connection error while sending your message. Please try again.");
+    }
   };
 
   return (
@@ -153,8 +173,8 @@ export default function ContactPage() {
                     Phone Lines
                   </h4>
                   <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6, margin: 0 }}>
-                    +234 803 000 0000<br />
-                    +234 802 000 0000
+                    +234 802 345 6789<br />
+                    +234 813 987 6543
                   </p>
                 </div>
               </div>
@@ -191,8 +211,8 @@ export default function ContactPage() {
                     Email Inquiries
                   </h4>
                   <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6, margin: 0 }}>
-                    contact@wofs.sch.ng<br />
-                    admissions@wofs.sch.ng
+                    info@wofs.vercel.app<br />
+                    admissions@wofs.edu.ng
                   </p>
                 </div>
               </div>
@@ -300,9 +320,25 @@ export default function ContactPage() {
                 <div>
                   <strong style={{ display: "block" }}>Message Received!</strong>
                   <span style={{ fontSize: "0.9rem" }}>
-                    Thank you for reaching out. We will get back to you shortly.
+                    {feedbackMessage}
                   </span>
                 </div>
+              </div>
+            )}
+
+            {status === "error" && (
+              <div
+                style={{
+                  background: "var(--status-error-bg)",
+                  border: "1px solid var(--status-error-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "1rem 1.25rem",
+                  marginBottom: "1.5rem",
+                  color: "var(--status-error-text)",
+                  fontWeight: 600,
+                }}
+              >
+                {feedbackMessage}
               </div>
             )}
 

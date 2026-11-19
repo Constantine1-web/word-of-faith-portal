@@ -58,6 +58,7 @@ export default function Navbar() {
             <Link href="/about">About Us</Link>
             <Link href="/academics">Academics</Link>
             <Link href="/admissions">Admissions</Link>
+            <Link href="/gallery">Gallery</Link>
             <Link href="/news">News</Link>
             <Link href="/contact">Contact</Link>
           </div>
@@ -84,6 +85,7 @@ export default function Navbar() {
           <Link href="/about" onClick={closeMenu} className={styles.mobileNavLink}>About Us</Link>
           <Link href="/academics" onClick={closeMenu} className={styles.mobileNavLink}>Academics</Link>
           <Link href="/admissions" onClick={closeMenu} className={styles.mobileNavLink}>Admissions</Link>
+          <Link href="/gallery" onClick={closeMenu} className={styles.mobileNavLink}>Gallery</Link>
           <Link href="/news" onClick={closeMenu} className={styles.mobileNavLink}>News</Link>
           <Link href="/contact" onClick={closeMenu} className={styles.mobileNavLink}>Contact</Link>
         </div>

@@ -942,3 +942,16 @@ model Admission_Application {
   createdAt         DateTime @default(now())
   enrolledStudentId Int?
 }
+
+// Per-level configurable school fee schedule + Portal Maintenance / ICT Fee (stored in kobo)
+model FeeSchedule {
+  id                 String   @id @default(cuid())
+  levelGroup         String   @unique // CRECHE_NURSERY | PRIMARY | JSS | SSS
+  displayName        String
+  tuitionKobo        BigInt
+  leviesKobo         BigInt   @default(0)
+  maintenanceFeeKobo BigInt   @default(100000) // Default ₦1,000 Portal Maintenance / ICT Fee
+  isActive           Boolean  @default(true)
+  updatedById        Int?
+  updatedAt          DateTime @default(now()) @updatedAt
+}

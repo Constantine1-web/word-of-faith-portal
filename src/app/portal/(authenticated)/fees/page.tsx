@@ -272,10 +272,14 @@ export default function PayFeesPage() {
               CONSOLIDATED SCHOOL FEES
             </span>
             <h2 style={{ fontSize: "1.4rem", margin: "0 0 0.25rem 0", color: "#ffffff" }}>
-              Comprehensive Term Fee
+              {feeOrder?.feeBreakdown?.levelDisplayName
+                ? `${feeOrder.feeBreakdown.levelDisplayName} Term Fee`
+                : "Comprehensive Term Fee"}
             </h2>
             <p style={{ margin: 0, color: "#d1fae5", fontSize: "0.85rem" }}>
-              Includes Tuition, Educational Supplies, PTA, and Standard School Levies.
+              {feeOrder?.feeBreakdown
+                ? `Tuition: ₦${feeOrder.feeBreakdown.tuitionNaira.toLocaleString()} · Levies: ₦${feeOrder.feeBreakdown.leviesNaira.toLocaleString()} · Portal Maintenance / ICT Fee: ₦${feeOrder.feeBreakdown.maintenanceFeeNaira.toLocaleString()}`
+                : "Includes Tuition, Educational Supplies, PTA, and Standard School Levies."}
             </p>
           </div>
 

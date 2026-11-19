@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PaymentsClient from "./PaymentsClient";
+import { ensureAndListFeeSchedules } from "@/lib/fee-schedule";
 
 export default async function AdminPaymentsPage() {
   const session = await getServerSession(authOptions);
@@ -50,6 +51,7 @@ export default async function AdminPaymentsPage() {
     where: { Status: "Approved" },
     _sum: { AmountPaid: true },
   });
+  const schedules = (await ensureAndListFeeSchedules()).map(({ totalKobo, ...rest }) => rest);
 
   return (
     <div>
@@ -80,6 +82,7 @@ export default async function AdminPaymentsPage() {
         terms={terms}
         activeTerm={activeTerm}
         initialStats={{ pendingCount, totalRevenue: approvedTotal._sum.AmountPaid || 0 }}
+        initialSchedules={schedules}
       />
     </div>
   );

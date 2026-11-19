@@ -1996,3 +1996,147 @@ export async function uploadBulkResults(csvData: string) {
     return { error: error.message || "Failed to process bulk upload." };
   }
 }
+
+// ==========================================================================
+// 1-CLICK CBT QUIZ SCORE -> CONTINUOUS ASSESSMENT (CA) SYNC (Option C)
+// ==========================================================================
+
+function mapSubjectNameToCbtCodes(subjectName?: string | null): string[] {
+  const s = (subjectName || "").trim().toLowerCase();
+  const codes = new Set<string>();
+  if (!s) return [];
+
+  if (s.includes("math")) codes.add("mathematics");
+  if (s.includes("english")) codes.add("english");
+  if (s.includes("lit")) codes.add("englishlit");
+  if (s.includes("bio") || s.includes("basic science")) codes.add("biology");
+  if (s.includes("chem")) codes.add("chemistry");
+  if (s.includes("phys")) codes.add("physics");
+  if (s.includes("civic")) codes.add("civiledu");
+  if (s.includes("christian") || s.includes("crk") || s.includes("crs")) codes.add("crk");
+  if (s.includes("islamic") || s.includes("irk") || s.includes("irs")) codes.add("irk");
+  if (s.includes("econ")) codes.add("economics");
+  if (s.includes("gov")) codes.add("government");
+  if (s.includes("geo")) codes.add("geography");
+  if (s.includes("comm")) codes.add("commerce");
+  if (s.includes("account")) codes.add("accounting");
+  if (s.includes("hist")) codes.add("history");
+  if (s.includes("insur")) codes.add("insurance");
+  if (s.includes("current")) codes.add("currentaffairs");
+
+  // Also include raw slug for custom school CBT banks
+  codes.add(s.replace(/[^a-z0-9]/g, ""));
+  return Array.from(codes).filter(Boolean);
+}
+
+export async function previewCbtScoresForSubjectCa(params: {
+  classId: number;
+  subjectId: number;
+  termId: number;
+  maxCaWeight?: number;
+}) {
+  try {
+    const classId = Number(params.classId);
+    const subjectId = Number(params.subjectId);
+    const termId = Number(params.termId);
+    const weight = Math.min(40, Math.max(5, Math.round(Number(params.maxCaWeight) || 20)));
+
+    await requireClassTeacherOrAdmin(classId);
+
+    const [subject, students] = await Promise.all([
+      prisma.subject.findUnique({ where: { SubjectID: subjectId } }),
+      prisma.student.findMany({
+        where: { ClassID: classId },
+        include: {
+          Results: { where: { SubjectID: subjectId, TermID: termId } },
+          User: { select: { Email: true } },
+        },
+        orderBy: { AdmissionNo: "asc" },
+      }),
+    ]);
+
+    if (!subject) {
+      return { success: false, error: "Selected subject not found." };
+    }
+
+    const cbtCodes = mapSubjectNameToCbtCodes(subject.SubjectName);
+    const studentIds = students.map((s) => s.StudentID);
+
+    const attempts = studentIds.length
+      ? await prisma.cbtAttempt.findMany({
+          where: {
+            studentId: { in: studentIds },
+            status: { in: ["SUBMITTED", "EXPIRED"] },
+            scoreTenths: { not: null },
+            subjectCode: { in: cbtCodes },
+          },
+          orderBy: { scoreTenths: "desc" },
+        })
+      : [];
+
+    const bestByStudent = new Map<
+      number,
+      { bestScoreTenths: number; attemptCount: number; mode: string; latestDate: Date }
+    >();
+
+    for (const att of attempts) {
+      const existing = bestByStudent.get(att.studentId);
+      const scoreTenths = att.scoreTenths ?? 0;
+      if (!existing) {
+        bestByStudent.set(att.studentId, {
+          bestScoreTenths: scoreTenths,
+          attemptCount: 1,
+          mode: att.mode,
+          latestDate: att.submittedAt || att.startedAt,
+        });
+      } else {
+        existing.attemptCount += 1;
+        if (scoreTenths > existing.bestScoreTenths) {
+          existing.bestScoreTenths = scoreTenths;
+          existing.mode = att.mode;
+          existing.latestDate = att.submittedAt || att.startedAt;
+        }
+      }
+    }
+
+    const items = students.map((st) => {
+      const match = bestByStudent.get(st.StudentID);
+      const bestPercent = match ? Number((match.bestScoreTenths / 10).toFixed(1)) : null;
+      const scaledCa =
+        bestPercent !== null ? Math.min(40, Math.round((bestPercent / 100) * weight)) : null;
+      return {
+        studentId: st.StudentID,
+        admissionNo: st.AdmissionNo,
+        studentName:
+          st.PreferredName ||
+          `${st.FirstName || ""} ${st.LastName || ""}`.trim() ||
+          st.User?.Email ||
+          st.AdmissionNo,
+        hasAttempt: Boolean(match),
+        attemptCount: match?.attemptCount || 0,
+        attemptMode: match?.mode || null,
+        bestPercent,
+        scaledCa,
+        currentCaScore: st.Results?.[0]?.CAScore ?? null,
+      };
+    });
+
+    const matchedCount = items.filter((i) => i.hasAttempt).length;
+
+    return {
+      success: true,
+      subjectName: subject.SubjectName,
+      matchedCbtCodes: cbtCodes,
+      maxCaWeight: weight,
+      matchedCount,
+      totalStudents: items.length,
+      items,
+    };
+  } catch (error: any) {
+    console.error("previewCbtScoresForSubjectCa error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to fetch CBT scores for CA sync.",
+    };
+  }
+}

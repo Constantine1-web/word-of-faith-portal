@@ -12,6 +12,12 @@ import {
   writeAuditLog,
 } from "@/lib/authz";
 import { SAFE_USER_SELECT } from "@/lib/security";
+import {
+  ensureAndListFeeSchedules,
+  getFeeScheduleForClass,
+  resolveFeeLevelGroup,
+  type FeeLevelGroup,
+} from "@/lib/fee-schedule";
 
 function getPaystackSecretKey(): string {
   const key = process.env.PAYSTACK_SECRET_KEY?.trim();
@@ -50,6 +56,87 @@ function computePaymentAllocationBreakdown(
 // ADMIN / BURSAR: AUDIT QUEUE & FEE CLEARANCE
 // ==========================================
 
+export async function getFeeSchedules() {
+  try {
+    await requireActiveUser();
+    const schedules = await ensureAndListFeeSchedules();
+    return {
+      success: true,
+      schedules: schedules.map(({ totalKobo, ...rest }) => rest),
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to load fee schedules", schedules: [] };
+  }
+}
+
+export async function updateFeeSchedule(data: {
+  levelGroup: FeeLevelGroup;
+  displayName?: string;
+  tuitionNaira: number;
+  leviesNaira: number;
+  maintenanceFeeNaira: number;
+}) {
+  const actor = await requirePaymentManager();
+
+  const tuition = Math.max(0, Math.round(Number(data.tuitionNaira) || 0));
+  const levies = Math.max(0, Math.round(Number(data.leviesNaira) || 0));
+  const maintenance = Math.max(0, Math.round(Number(data.maintenanceFeeNaira) || 0));
+
+  try {
+    const updated = await prisma.feeSchedule.upsert({
+      where: { levelGroup: data.levelGroup },
+      create: {
+        levelGroup: data.levelGroup,
+        displayName: data.displayName || data.levelGroup,
+        tuitionKobo: BigInt(tuition * 100),
+        leviesKobo: BigInt(levies * 100),
+        maintenanceFeeKobo: BigInt(maintenance * 100),
+        updatedById: actor.UserID,
+      },
+      update: {
+        ...(data.displayName ? { displayName: data.displayName } : {}),
+        tuitionKobo: BigInt(tuition * 100),
+        leviesKobo: BigInt(levies * 100),
+        maintenanceFeeKobo: BigInt(maintenance * 100),
+        updatedById: actor.UserID,
+      },
+    });
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "FEE_SCHEDULE_UPDATED",
+      entity: "FeeSchedule",
+      entityId: updated.id,
+      newValue: {
+        levelGroup: data.levelGroup,
+        tuitionNaira: tuition,
+        leviesNaira: levies,
+        maintenanceFeeNaira: maintenance,
+        totalNaira: tuition + levies + maintenance,
+      },
+    });
+
+    revalidatePath("/portal/admin/payments");
+    revalidatePath("/portal/fees");
+
+    return {
+      success: true,
+      schedule: {
+        id: updated.id,
+        levelGroup: updated.levelGroup,
+        displayName: updated.displayName,
+        tuitionNaira: tuition,
+        leviesNaira: levies,
+        maintenanceFeeNaira: maintenance,
+        totalNaira: tuition + levies + maintenance,
+      },
+    };
+  } catch (error: any) {
+    console.error("updateFeeSchedule error:", error);
+    return { success: false, error: error.message || "Failed to update fee schedule." };
+  }
+}
+
 export async function getAdminPaymentAuditList(filters?: {
   status?: string;
   termId?: number;
@@ -86,12 +173,19 @@ export async function getAdminPaymentAuditList(filters?: {
       orderBy: { PaymentDate: "desc" },
     });
 
+    const schedules = await ensureAndListFeeSchedules();
+    const scheduleByGroup = new Map(schedules.map((s) => [s.levelGroup, s]));
+
     // Convert BigInt AmountKobo to Number for React Server Action JSON serialization
-    const payments = rawPayments.map((p: any) => ({
-      ...p,
-      AmountKobo: Number(p.AmountKobo || 0),
-      allocation: computePaymentAllocationBreakdown(p.AmountPaid),
-    }));
+    const payments = rawPayments.map((p: any) => {
+      const grp = resolveFeeLevelGroup(p.Student?.Class?.ClassName, p.Student?.Class?.Level);
+      const maintRate = scheduleByGroup.get(grp)?.maintenanceFeeNaira ?? DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA;
+      return {
+        ...p,
+        AmountKobo: Number(p.AmountKobo || 0),
+        allocation: computePaymentAllocationBreakdown(p.AmountPaid, maintRate),
+      };
+    });
 
     const pendingCount = await prisma.payment_Record.count({ where: { Status: "Pending" } });
     const approvedTotal = await prisma.payment_Record.aggregate({
@@ -295,6 +389,16 @@ export async function getOrCreateStudentFeeOrder() {
       return { success: false, error: "Active academic term not found." };
     }
 
+    // Resolve class-specific fee schedule (Tuition + School Levies + Portal Maintenance / ICT Fee)
+    const schedule = await getFeeScheduleForClass(student.Class?.ClassName, student.Class?.Level);
+    const feeBreakdown = {
+      levelDisplayName: schedule.displayName,
+      tuitionNaira: schedule.tuitionNaira,
+      leviesNaira: schedule.leviesNaira,
+      maintenanceFeeNaira: schedule.maintenanceFeeNaira,
+      totalNaira: schedule.totalNaira,
+    };
+
     // 1. Check if student already has an APPROVED payment for this term
     const approvedPayment = await prisma.payment_Record.findFirst({
       where: {
@@ -312,6 +416,7 @@ export async function getOrCreateStudentFeeOrder() {
         status: "Approved",
         trackingId: approvedPayment.Reference,
         amount: approvedPayment.AmountPaid,
+        feeBreakdown,
         term: activeTerm,
         student,
         paymentRecord: {
@@ -332,26 +437,42 @@ export async function getOrCreateStudentFeeOrder() {
     });
 
     if (pendingPayment && pendingPayment.Reference) {
+      let currentAmount = pendingPayment.AmountPaid;
+      // Sync unpaid placeholder order if Bursar updated the class fee schedule before receipt upload
+      if (!pendingPayment.ReceiptUrl && Number(pendingPayment.AmountKobo || 0) !== Number(schedule.totalKobo)) {
+        await prisma.payment_Record.update({
+          where: { PaymentID: pendingPayment.PaymentID },
+          data: {
+            AmountPaid: schedule.totalNaira,
+            AmountKobo: schedule.totalKobo,
+            Description: `${schedule.displayName} Term Fees + Portal Maintenance / ICT Fee (${activeTerm.SessionName} - ${activeTerm.TermName})`,
+          },
+        });
+        currentAmount = schedule.totalNaira;
+      }
+
       return {
         success: true,
         isCleared: false,
         status: "Pending",
         trackingId: pendingPayment.Reference,
-        amount: pendingPayment.AmountPaid,
+        amount: currentAmount,
+        feeBreakdown,
         hasUploadedReceipt: Boolean(pendingPayment.ReceiptUrl),
         term: activeTerm,
         student,
         paymentRecord: {
           ...pendingPayment,
-          AmountKobo: Number(pendingPayment.AmountKobo || 0),
+          AmountPaid: currentAmount,
+          AmountKobo: Number(schedule.totalKobo),
         },
       };
     }
 
-    // 3. Create a fresh consolidated School Fees order with a unique Tracking ID
+    // 3. Create a fresh consolidated School Fees order billed from the student's class FeeSchedule
     const trackingId = await generateOrderTrackingId(activeTerm.TermName, activeTerm.SessionName);
-    const defaultAmount = 65000; // Comprehensive School Fees
-    const defaultAmountKobo = BigInt(defaultAmount * 100);
+    const defaultAmount = schedule.totalNaira;
+    const defaultAmountKobo = schedule.totalKobo;
 
     const newPayment = await prisma.payment_Record.create({
       data: {
@@ -360,7 +481,7 @@ export async function getOrCreateStudentFeeOrder() {
         AmountPaid: defaultAmount,
         AmountKobo: defaultAmountKobo,
         Channel: "BANK_TELLER",
-        Description: `Consolidated School Fees (${activeTerm.SessionName} - ${activeTerm.TermName})`,
+        Description: `${schedule.displayName} Term Fees + Portal Maintenance / ICT Fee (${activeTerm.SessionName} - ${activeTerm.TermName})`,
         Reference: trackingId,
         Status: "Pending",
       },
@@ -372,6 +493,7 @@ export async function getOrCreateStudentFeeOrder() {
       status: "Pending",
       trackingId,
       amount: defaultAmount,
+      feeBreakdown,
       hasUploadedReceipt: false,
       term: activeTerm,
       student,
@@ -559,10 +681,12 @@ export async function initializePayment(data: { amount: number; description: str
         return { error: "This fee order has already been paid and approved." };
       }
       // Never allow client-supplied data.amount to reduce the server-authoritative order amount
+      const classSchedule = await getFeeScheduleForClass(student.Class?.ClassName, student.Class?.Level);
+      const minExpectedNaira = classSchedule.totalNaira;
       const existingKobo =
         existing.AmountKobo > BigInt(0)
           ? existing.AmountKobo
-          : BigInt(Math.round(Math.max(existing.AmountPaid || MINIMUM_TERM_FEE_NAIRA, MINIMUM_TERM_FEE_NAIRA) * 100));
+          : BigInt(Math.round(Math.max(existing.AmountPaid || minExpectedNaira, minExpectedNaira) * 100));
       authoritativeKobo = existingKobo;
       authoritativeNaira = Number(existingKobo) / 100;
 
@@ -575,7 +699,8 @@ export async function initializePayment(data: { amount: number; description: str
         },
       });
     } else {
-      authoritativeNaira = Math.max(Number(data.amount) || MINIMUM_TERM_FEE_NAIRA, MINIMUM_TERM_FEE_NAIRA);
+      const classSchedule = await getFeeScheduleForClass(student.Class?.ClassName, student.Class?.Level);
+      authoritativeNaira = Math.max(Number(data.amount) || classSchedule.totalNaira, classSchedule.totalNaira);
       authoritativeKobo = BigInt(Math.round(authoritativeNaira * 100));
 
       await prisma.payment_Record.create({
