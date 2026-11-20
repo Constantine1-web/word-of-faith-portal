@@ -8,10 +8,41 @@ import InspirationSlideshow from "./InspirationSlideshow";
 import NoticeBoard from "./NoticeBoard";
 import QuickLinkCard from "./QuickLinkCard";
 
+interface StudentDashboardOverview {
+  termLabel: string;
+  attendance: {
+    totalMarked: number;
+    present: number;
+    late: number;
+    absent: number;
+    excused: number;
+    attendanceRatePct: number | null;
+  };
+  fees: {
+    expectedNaira: number;
+    paidNaira: number;
+    balanceNaira: number;
+    isCleared: boolean;
+  };
+  cbt: {
+    completedAttempts: number;
+    averageScorePct: number;
+    bestScorePct: number;
+    subjectTrends: Array<{
+      subjectCode: string;
+      subjectLabel: string;
+      attempts: number;
+      averageScorePct: number;
+      bestScorePct: number;
+    }>;
+  };
+}
+
 export default function StudentDashboard({ session }: { session: any }) {
   const [profile, setProfile] = useState<any>(null);
   const [academics, setAcademics] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [overview, setOverview] = useState<StudentDashboardOverview | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,6 +54,7 @@ export default function StudentDashboard({ session }: { session: any }) {
           setProfile(res.student);
           setAcademics(res.academics || []);
           setPayments(res.payments || []);
+          setOverview(res.overview || null);
         }
       }
       setLoading(false);
@@ -68,6 +100,201 @@ export default function StudentDashboard({ session }: { session: any }) {
       </div>
 
       <InspirationSlideshow />
+
+      {overview && (
+        <section style={{ marginBottom: "2rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.85rem" }}>
+            <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--color-navy-blue)", margin: 0 }}>
+              Term Overview
+            </h2>
+            <span style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 600 }}>
+              {overview.termLabel}
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
+              gap: "1rem",
+              marginBottom: "1rem",
+            }}
+          >
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "var(--radius-md)",
+                padding: "1.1rem 1.25rem",
+              }}
+            >
+              <div style={{ fontSize: "0.74rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)" }}>
+                Term Attendance
+              </div>
+              <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--color-navy-blue)", fontVariantNumeric: "tabular-nums", marginTop: "0.2rem" }}>
+                {overview.attendance?.attendanceRatePct !== null && overview.attendance?.attendanceRatePct !== undefined
+                  ? `${overview.attendance.attendanceRatePct}%`
+                  : "—"}
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                {overview.attendance?.totalMarked > 0
+                  ? `${overview.attendance.present} Present · ${overview.attendance.late} Late · ${overview.attendance.absent} Absent`
+                  : "No daily roll-call recorded yet"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "var(--radius-md)",
+                padding: "1.1rem 1.25rem",
+              }}
+            >
+              <div style={{ fontSize: "0.74rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)" }}>
+                Fee Clearance
+              </div>
+              <div
+                style={{
+                  fontSize: "1.65rem",
+                  fontWeight: 800,
+                  color: overview.fees?.isCleared ? "var(--color-primary-green)" : "var(--color-navy-blue)",
+                  fontVariantNumeric: "tabular-nums",
+                  marginTop: "0.2rem",
+                }}
+              >
+                {overview.fees?.isCleared
+                  ? "Cleared"
+                  : `₦${Number(overview.fees?.balanceNaira || 0).toLocaleString("en-NG")} Due`}
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Paid ₦{Number(overview.fees?.paidNaira || 0).toLocaleString("en-NG")} of ₦{Number(overview.fees?.expectedNaira || 0).toLocaleString("en-NG")}
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "var(--radius-md)",
+                padding: "1.1rem 1.25rem",
+              }}
+            >
+              <div style={{ fontSize: "0.74rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)" }}>
+                CBT Practice Standing
+              </div>
+              <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--color-navy-blue)", fontVariantNumeric: "tabular-nums", marginTop: "0.2rem" }}>
+                {overview.cbt?.completedAttempts > 0 ? `${overview.cbt.averageScorePct}%` : "—"}
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                {overview.cbt?.completedAttempts > 0
+                  ? `${overview.cbt.completedAttempts} test(s) · Highest ${overview.cbt.bestScorePct}%`
+                  : "Complete a practice test in CBT Exam Hall"}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
+              gap: "1rem",
+            }}
+          >
+            {/* Enrolled Class Subjects Ledger */}
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "var(--radius-md)",
+                padding: "1.15rem 1.25rem",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <h3 style={{ margin: 0, fontSize: "0.95rem", color: "var(--color-navy-blue)" }}>
+                  Registered Class Subjects ({academics.length})
+                </h3>
+                <Link href="/portal/courses" style={{ fontSize: "0.8rem", color: "var(--color-primary-green)", fontWeight: 600, textDecoration: "none" }}>
+                  Study Library →
+                </Link>
+              </div>
+              {academics.length === 0 ? (
+                <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
+                  No subjects mapped to your class arm yet.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+                  {academics.slice(0, 6).map((subj, idx) => (
+                    <div
+                      key={`${subj.SubjectName}-${idx}`}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "0.42rem 0",
+                        borderBottom: idx < Math.min(academics.length, 6) - 1 ? "1px solid var(--border-subtle)" : "none",
+                        fontSize: "0.85rem",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, color: "var(--text-heading)" }}>{subj.SubjectName}</span>
+                      <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>{subj.TeacherName}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* CBT Subject Progress Bars */}
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-primary)",
+                borderRadius: "var(--radius-md)",
+                padding: "1.15rem 1.25rem",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <h3 style={{ margin: 0, fontSize: "0.95rem", color: "var(--color-navy-blue)" }}>
+                  CBT Subject Progress
+                </h3>
+                <Link href="/portal/cbt" style={{ fontSize: "0.8rem", color: "var(--color-primary-green)", fontWeight: 600, textDecoration: "none" }}>
+                  CBT Hall →
+                </Link>
+              </div>
+              {!overview.cbt?.subjectTrends?.length ? (
+                <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)", lineHeight: 1.55 }}>
+                  Your subject averages appear here as soon as you finish timed or practice sessions in the CBT Exam Hall.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+                  {overview.cbt.subjectTrends.map((t: { subjectCode: string; subjectLabel: string; averageScorePct: number; attempts: number }) => (
+                    <div key={t.subjectCode}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.83rem", marginBottom: "0.25rem" }}>
+                        <span style={{ fontWeight: 600, color: "var(--text-heading)" }}>
+                          {t.subjectLabel} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>({t.attempts}x)</span>
+                        </span>
+                        <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: "var(--color-navy-blue)" }}>
+                          {t.averageScorePct}%
+                        </span>
+                      </div>
+                      <div style={{ height: "5px", width: "100%", background: "var(--bg-secondary)", borderRadius: "3px", overflow: "hidden" }}>
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${Math.min(100, Math.max(0, t.averageScorePct))}%`,
+                            background: t.averageScorePct >= 50 ? "var(--color-primary-green)" : "var(--color-navy-blue)",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="responsive-grid" style={{ marginBottom: "2rem" }}>
         

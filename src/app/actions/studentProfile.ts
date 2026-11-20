@@ -9,6 +9,9 @@ import {
   writeAuditLog,
 } from "@/lib/authz";
 import { SAFE_USER_SELECT } from "@/lib/security";
+import { summarizeStudentAttendance } from "@/lib/attendance-summary";
+import { getFeeScheduleForClass } from "@/lib/fee-schedule";
+import { formatCbtSubjectLabel } from "@/lib/cbt-constants";
 
 export async function getStudentProfile(userId: number) {
   let actor;
@@ -155,8 +158,78 @@ export async function getStudentProfile(userId: number) {
 
     const activeTerm = await prisma.academic_Term.findFirst({
       where: { IsActive: true },
-      select: { SessionName: true },
+      select: { TermID: true, SessionName: true, TermName: true },
     });
+
+    const [attendanceRows, submittedAttempts, classFeeSchedule] = await Promise.all([
+      prisma.attendance.findMany({
+        where: {
+          StudentID: student.StudentID,
+          ...(activeTerm ? { TermID: activeTerm.TermID } : {}),
+        },
+        select: { Status: true },
+      }),
+      prisma.cbtAttempt.findMany({
+        where: {
+          studentId: student.StudentID,
+          status: "SUBMITTED",
+          scoreTenths: { not: null },
+        },
+        select: {
+          subjectCode: true,
+          scoreTenths: true,
+          submittedAt: true,
+        },
+        orderBy: { submittedAt: "desc" },
+        take: 60,
+      }),
+      getFeeScheduleForClass(student.Class.ClassName, student.Class.Level).catch(() => null),
+    ]);
+
+    const attendanceSummary = summarizeStudentAttendance(attendanceRows);
+
+    const expectedNaira = classFeeSchedule ? Number(classFeeSchedule.totalNaira || 0) : 0;
+    const paidNaira = payments
+      .filter(
+        (p) =>
+          (p.Status === "Approved" || p.Status === "Successful") &&
+          (!activeTerm || p.TermID === activeTerm.TermID)
+      )
+      .reduce((acc, p) => acc + Math.max(0, Number(p.AmountPaid) || 0), 0);
+    const balanceNaira = student.HasPaidFees ? 0 : Math.max(0, expectedNaira - paidNaira);
+
+    const scoresPct = submittedAttempts.map((a) =>
+      Number(((a.scoreTenths || 0) / 10).toFixed(1))
+    );
+    const completedAttempts = scoresPct.length;
+    const averageScorePct =
+      completedAttempts > 0
+        ? Number((scoresPct.reduce((sum, v) => sum + v, 0) / completedAttempts).toFixed(1))
+        : 0;
+    const bestScorePct = completedAttempts > 0 ? Math.max(...scoresPct) : 0;
+
+    const bySubj = new Map<
+      string,
+      { subjectCode: string; scores: number[] }
+    >();
+    for (const att of submittedAttempts) {
+      const score = Number(((att.scoreTenths || 0) / 10).toFixed(1));
+      const existing = bySubj.get(att.subjectCode);
+      if (existing) existing.scores.push(score);
+      else bySubj.set(att.subjectCode, { subjectCode: att.subjectCode, scores: [score] });
+    }
+    const subjectTrends = Array.from(bySubj.values())
+      .map((entry) => ({
+        subjectCode: entry.subjectCode,
+        subjectLabel: formatCbtSubjectLabel(entry.subjectCode),
+        attempts: entry.scores.length,
+        averageScorePct: Number(
+          (entry.scores.reduce((s, v) => s + v, 0) / entry.scores.length).toFixed(1)
+        ),
+        bestScorePct: Math.max(...entry.scores),
+      }))
+      .sort((a, b) => b.attempts - a.attempts)
+      .slice(0, 6);
 
     const fullName =
       student.PreferredName ||
@@ -200,6 +273,24 @@ export async function getStudentProfile(userId: number) {
         date: p.PaymentDate,
         reviewedAt: p.ReviewedAt,
       })),
+      overview: {
+        termLabel: activeTerm
+          ? `${activeTerm.SessionName} · ${activeTerm.TermName}`
+          : "Current Academic Session",
+        attendance: attendanceSummary,
+        fees: {
+          expectedNaira,
+          paidNaira,
+          balanceNaira,
+          isCleared: student.HasPaidFees || (expectedNaira > 0 && balanceNaira <= 0),
+        },
+        cbt: {
+          completedAttempts,
+          averageScorePct,
+          bestScorePct,
+          subjectTrends,
+        },
+      },
     };
 
     await setCachedData(cacheKey, finalResponse, 300);

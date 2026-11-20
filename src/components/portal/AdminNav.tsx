@@ -12,6 +12,7 @@ import {
   FiShield,
   FiBookOpen,
   FiInbox,
+  FiImage,
 } from "react-icons/fi";
 
 /** Admin Control Center sidebar contents (presentational; auth is enforced by the layout). */
@@ -199,6 +200,20 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
           <FiFileText /> Broadsheet & Results
         </Link>
         <Link
+          href="/portal/admin/attendance"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.85rem",
+            padding: "0.7rem 1rem",
+            color: "var(--sidebar-muted)",
+            textDecoration: "none",
+            borderRadius: "0.5rem",
+          }}
+        >
+          <FiCalendar /> Attendance Register
+        </Link>
+        <Link
           href="/portal/admin/cbt"
           style={{
             display: "flex",
@@ -281,6 +296,20 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
           }}
         >
           <FiFileText /> Public News &amp; Events
+        </Link>
+        <Link
+          href="/portal/admin/gallery"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.85rem",
+            padding: "0.7rem 1rem",
+            color: "var(--sidebar-muted)",
+            textDecoration: "none",
+            borderRadius: "0.5rem",
+          }}
+        >
+          <FiImage /> Public Photo Gallery
         </Link>
         <Link
           href="/portal/messages"

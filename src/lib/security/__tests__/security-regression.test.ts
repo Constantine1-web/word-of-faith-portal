@@ -25,6 +25,13 @@ import { computeCumulativeBroadsheet } from "../../cumulative-broadsheet";
 import { encodeQrMatrix, generateQrSvgMarkup } from "../../qr";
 import { normalizeCbtSubjectCode, parseSchoolCbtQuestionsCsv } from "../../cbt-csv";
 import { formatNewsBodyToSafeHtml, slugifyNewsTitle, validateNewsImageUrl } from "../../news-cms";
+import { sanitizeGallerySpan, slugifyGalleryId, validateGalleryImageSrc } from "../../gallery-cms";
+import { formatAdmissionReference, parseAdmissionReference } from "../../admissions-lookup";
+import {
+  isAttendanceAtRisk,
+  normalizeAttendanceDateKey,
+  summarizeStudentAttendance,
+} from "../../attendance-summary";
 
 async function runSecurityRegressionSuite() {
   let passed = 0;
@@ -577,7 +584,82 @@ async function runSecurityRegressionSuite() {
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/12 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // 13. Public Photo Gallery CMS Validation, XSS/SVG Blocking & Span Whitelist (Update #6)
+  {
+    assert.equal(
+      slugifyGalleryId("Inter-House Sports Day Relay 2026!"),
+      "inter-house-sports-day-relay-2026"
+    );
+
+    assert.equal(
+      validateGalleryImageSrc("/images/gallery/media__1782453677661.jpg"),
+      "/images/gallery/media__1782453677661.jpg"
+    );
+    assert.equal(
+      validateGalleryImageSrc("https://cdn.wordoffaith.edu.ng/events/sports.jpg"),
+      "https://cdn.wordoffaith.edu.ng/events/sports.jpg"
+    );
+    assert.equal(
+      validateGalleryImageSrc("data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="),
+      "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ=="
+    );
+    assert.equal(
+      validateGalleryImageSrc("data:image/svg+xml;base64,PHN2Zz48c2NyaXB0PmFsZXJ0KDEpPC9zdmc+PC9zdmc+"),
+      "/images/gallery/media__1782453677661.jpg",
+      "SVG Data URIs must be rejected to block embedded script XSS"
+    );
+    assert.equal(
+      validateGalleryImageSrc("javascript:alert(1)"),
+      "/images/gallery/media__1782453677661.jpg"
+    );
+    assert.equal(
+      validateGalleryImageSrc("//evil.example.com/photo.jpg"),
+      "/images/gallery/media__1782453677661.jpg"
+    );
+
+    assert.equal(sanitizeGallerySpan("row-span-2 col-span-2"), "row-span-2 col-span-2");
+    assert.equal(sanitizeGallerySpan(""), "");
+    assert.equal(sanitizeGallerySpan("col-span-2 evil-injected-class"), "col-span-2");
+    passed++;
+  }
+
+  // 14. Public Admissions Reference Parsing & Attendance Summary / Early Warning (Updates #8-#10)
+  {
+    assert.equal(formatAdmissionReference(14), "WOF-ADM-00014");
+    assert.equal(parseAdmissionReference("WOF-ADM-00014"), 14);
+    assert.equal(parseAdmissionReference("wof-adm-42"), 42);
+    assert.equal(parseAdmissionReference("27"), 27);
+    assert.equal(parseAdmissionReference("DROP TABLE"), null);
+    assert.equal(parseAdmissionReference(""), null);
+
+    assert.equal(normalizeAttendanceDateKey("2026-11-20T08:00:00.000Z"), "2026-11-20");
+
+    const healthy = summarizeStudentAttendance([
+      { Status: "Present" },
+      { Status: "Present" },
+      { Status: "Late" },
+      { Status: "Present" },
+      { Status: "Excused" },
+    ]);
+    assert.equal(healthy.totalMarked, 5);
+    assert.equal(healthy.attendanceRatePct, 100);
+    assert.equal(isAttendanceAtRisk(healthy, 80), false);
+
+    const atRisk = summarizeStudentAttendance([
+      { Status: "Present" },
+      { Status: "Absent" },
+      { Status: "Absent" },
+      { Status: "Present" },
+      { Status: "Present" },
+    ]);
+    assert.equal(atRisk.absent, 2);
+    assert.equal(atRisk.attendanceRatePct, 60);
+    assert.equal(isAttendanceAtRisk(atRisk, 80), true);
+    assert.equal(isAttendanceAtRisk(summarizeStudentAttendance([]), 80), false);
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/14 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {

@@ -1,9 +1,15 @@
 "use server";
 
 import prisma from "@/lib/db";
+import { revalidatePath } from "next/cache";
 import { sendEmail } from "@/lib/email";
 import { requireClassTeacherOrAdmin, requireRole } from "@/lib/authz";
 import { escapeHtml } from "@/lib/security";
+import {
+  isAttendanceAtRisk,
+  normalizeAttendanceDateKey,
+  summarizeStudentAttendance,
+} from "@/lib/attendance-summary";
 
 const ALLOWED_ATTENDANCE_ROLES = [
   "TEACHER",
@@ -39,29 +45,39 @@ export async function markAttendance(
     // Verify the teacher/form master is assigned to this student's class (or is school admin)
     await requireClassTeacherOrAdmin(student.ClassID);
 
-    const cleanStatus = VALID_ATTENDANCE_STATUSES.includes(status as any) ? status : "Present";
+    const cleanStatus = VALID_ATTENDANCE_STATUSES.includes(
+      status as (typeof VALID_ATTENDANCE_STATUSES)[number]
+    )
+      ? status
+      : "Present";
     const cleanNotes = notes ? String(notes).trim().slice(0, 400) : null;
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
-      return { success: false, error: "Invalid attendance date." };
-    }
+    const dateKey = normalizeAttendanceDateKey(dateStr);
+    const dayStart = new Date(`${dateKey}T00:00:00.000Z`);
+    const dayEnd = new Date(`${dateKey}T23:59:59.999Z`);
+    const canonicalDate = new Date(`${dateKey}T08:00:00.000Z`);
 
-    const attendance = await prisma.attendance.upsert({
+    const existingForDay = await prisma.attendance.findFirst({
       where: {
-        StudentID_Date: {
-          StudentID: student.StudentID,
-          Date: date,
-        },
-      },
-      update: { Status: cleanStatus, Notes: cleanNotes },
-      create: {
         StudentID: student.StudentID,
-        TermID: Number(termId),
-        Date: date,
-        Status: cleanStatus,
-        Notes: cleanNotes,
+        Date: { gte: dayStart, lte: dayEnd },
       },
+      select: { AttendanceID: true },
     });
+
+    const attendance = existingForDay
+      ? await prisma.attendance.update({
+          where: { AttendanceID: existingForDay.AttendanceID },
+          data: { Status: cleanStatus, Notes: cleanNotes },
+        })
+      : await prisma.attendance.create({
+          data: {
+            StudentID: student.StudentID,
+            TermID: Number(termId),
+            Date: canonicalDate,
+            Status: cleanStatus,
+            Notes: cleanNotes,
+          },
+        });
 
     if (cleanStatus === "Absent") {
       try {
@@ -108,6 +124,7 @@ export async function markAttendance(
       }
     }
 
+    revalidatePath("/portal/admin/attendance");
     return { success: true, attendance };
   } catch (error: any) {
     console.error("Failed to mark attendance:", error);
@@ -179,5 +196,320 @@ export async function markClassAttendanceBatch(params: {
   } catch (error: any) {
     console.error("markClassAttendanceBatch error:", error);
     return { success: false, error: error?.message || "Failed to save class attendance" };
+  }
+}
+
+export interface AdminClassAttendanceRow {
+  classId: number;
+  className: string;
+  level: string;
+  formMasterEmail: string | null;
+  enrolledCount: number;
+  markedCount: number;
+  presentCount: number;
+  lateCount: number;
+  absentCount: number;
+  excusedCount: number;
+  completionPct: number;
+}
+
+export interface AdminDailyAttendanceRow {
+  studentId: number;
+  admissionNo: string;
+  fullName: string;
+  classId: number;
+  className: string;
+  status: "Present" | "Late" | "Absent" | "Excused" | "Unmarked";
+  notes: string;
+}
+
+export interface AdminAttendanceWarningRow {
+  studentId: number;
+  admissionNo: string;
+  fullName: string;
+  classId: number;
+  className: string;
+  totalMarked: number;
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  attendanceRatePct: number;
+  parentContact: string;
+  parentEmail: string | null;
+}
+
+export interface AdminSchoolAttendanceOverview {
+  success: boolean;
+  error?: string;
+  selectedDate: string;
+  thresholdPct: number;
+  selectedTerm: { TermID: number; SessionName: string; TermName: string } | null;
+  terms: Array<{ TermID: number; SessionName: string; TermName: string; IsActive: boolean }>;
+  summaryStats: {
+    totalStudents: number;
+    markedTodayCount: number;
+    unmarkedTodayCount: number;
+    presentTodayCount: number;
+    lateTodayCount: number;
+    absentTodayCount: number;
+    excusedTodayCount: number;
+    totalClasses: number;
+    unmarkedClassCount: number;
+    atRiskCount: number;
+  };
+  classesSummary: AdminClassAttendanceRow[];
+  dailyRegisterRows: AdminDailyAttendanceRow[];
+  earlyWarningStudents: AdminAttendanceWarningRow[];
+}
+
+export async function getAdminSchoolAttendanceOverview(params?: {
+  dateStr?: string;
+  termId?: number;
+  classId?: number;
+  thresholdPct?: number;
+}): Promise<AdminSchoolAttendanceOverview> {
+  try {
+    await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMISSIONS", "BURSAR", "ADMIN", "Admin"]);
+
+    const selectedDate = normalizeAttendanceDateKey(params?.dateStr);
+    const thresholdPct = Math.min(95, Math.max(50, Number(params?.thresholdPct) || 80));
+    const dayStart = new Date(`${selectedDate}T00:00:00.000Z`);
+    const dayEnd = new Date(`${selectedDate}T23:59:59.999Z`);
+
+    const [terms, classes, students, dailyRecords] = await Promise.all([
+      prisma.academic_Term.findMany({
+        select: { TermID: true, SessionName: true, TermName: true, IsActive: true },
+        orderBy: [{ SessionName: "desc" }, { TermID: "asc" }],
+      }),
+      prisma.class.findMany({
+        select: {
+          ClassID: true,
+          ClassName: true,
+          Level: true,
+          FormMaster: { select: { Email: true } },
+        },
+        orderBy: [{ Level: "asc" }, { ClassName: "asc" }],
+      }),
+      prisma.student.findMany({
+        where: { EnrolmentStatus: "ACTIVE" },
+        select: {
+          StudentID: true,
+          AdmissionNo: true,
+          PreferredName: true,
+          FirstName: true,
+          LastName: true,
+          ClassID: true,
+          ParentContact: true,
+          ParentEmail: true,
+          Class: { select: { ClassName: true } },
+        },
+        orderBy: [{ ClassID: "asc" }, { FirstName: "asc" }, { LastName: "asc" }],
+      }),
+      prisma.attendance.findMany({
+        where: { Date: { gte: dayStart, lte: dayEnd } },
+        select: { StudentID: true, Status: true, Notes: true },
+      }),
+    ]);
+
+    const selectedTerm =
+      (params?.termId ? terms.find((t) => t.TermID === Number(params.termId)) : undefined) ||
+      terms.find((t) => t.IsActive) ||
+      terms[0] ||
+      null;
+
+    const termRecords = selectedTerm
+      ? await prisma.attendance.findMany({
+          where: { TermID: selectedTerm.TermID },
+          select: { StudentID: true, Status: true },
+        })
+      : [];
+
+    const dailyByStudent = new Map<number, { Status: string; Notes: string | null }>();
+    for (const rec of dailyRecords) {
+      dailyByStudent.set(rec.StudentID, { Status: rec.Status, Notes: rec.Notes });
+    }
+
+    const termByStudent = new Map<number, Array<{ Status: string }>>();
+    for (const rec of termRecords) {
+      const arr = termByStudent.get(rec.StudentID);
+      if (arr) arr.push({ Status: rec.Status });
+      else termByStudent.set(rec.StudentID, [{ Status: rec.Status }]);
+    }
+
+    const studentsByClass = new Map<number, typeof students>();
+    for (const st of students) {
+      const list = studentsByClass.get(st.ClassID);
+      if (list) list.push(st);
+      else studentsByClass.set(st.ClassID, [st]);
+    }
+
+    let markedTodayCount = 0;
+    let presentTodayCount = 0;
+    let lateTodayCount = 0;
+    let absentTodayCount = 0;
+    let excusedTodayCount = 0;
+    let unmarkedClassCount = 0;
+
+    const classesSummary: AdminClassAttendanceRow[] = classes.map((cls) => {
+      const roster = studentsByClass.get(cls.ClassID) || [];
+      let markedCount = 0;
+      let presentCount = 0;
+      let lateCount = 0;
+      let absentCount = 0;
+      let excusedCount = 0;
+
+      for (const st of roster) {
+        const d = dailyByStudent.get(st.StudentID);
+        if (d) {
+          markedCount += 1;
+          if (d.Status === "Present") presentCount += 1;
+          else if (d.Status === "Late") lateCount += 1;
+          else if (d.Status === "Absent") absentCount += 1;
+          else if (d.Status === "Excused") excusedCount += 1;
+        }
+      }
+
+      markedTodayCount += markedCount;
+      presentTodayCount += presentCount;
+      lateTodayCount += lateCount;
+      absentTodayCount += absentCount;
+      excusedTodayCount += excusedCount;
+
+      if (roster.length > 0 && markedCount === 0) {
+        unmarkedClassCount += 1;
+      }
+
+      const completionPct =
+        roster.length > 0 ? Math.round((markedCount / roster.length) * 100) : 100;
+
+      return {
+        classId: cls.ClassID,
+        className: cls.ClassName,
+        level: cls.Level,
+        formMasterEmail: cls.FormMaster?.Email || null,
+        enrolledCount: roster.length,
+        markedCount,
+        presentCount,
+        lateCount,
+        absentCount,
+        excusedCount,
+        completionPct,
+      };
+    });
+
+    const filteredStudents =
+      params?.classId && params.classId > 0
+        ? students.filter((s) => s.ClassID === Number(params.classId))
+        : students;
+
+    const dailyRegisterRows: AdminDailyAttendanceRow[] = filteredStudents.map((st) => {
+      const d = dailyByStudent.get(st.StudentID);
+      const status =
+        d && VALID_ATTENDANCE_STATUSES.includes(d.Status as (typeof VALID_ATTENDANCE_STATUSES)[number])
+          ? (d.Status as "Present" | "Late" | "Absent" | "Excused")
+          : "Unmarked";
+      const fullName =
+        st.PreferredName ||
+        `${st.FirstName || ""} ${st.LastName || ""}`.trim() ||
+        st.AdmissionNo;
+
+      return {
+        studentId: st.StudentID,
+        admissionNo: st.AdmissionNo,
+        fullName,
+        classId: st.ClassID,
+        className: st.Class?.ClassName || "Unassigned",
+        status,
+        notes: d?.Notes || "",
+      };
+    });
+
+    const earlyWarningStudents: AdminAttendanceWarningRow[] = [];
+    for (const st of filteredStudents) {
+      const recs = termByStudent.get(st.StudentID) || [];
+      const summary = summarizeStudentAttendance(recs);
+      if (isAttendanceAtRisk(summary, thresholdPct) && summary.attendanceRatePct !== null) {
+        const fullName =
+          st.PreferredName ||
+          `${st.FirstName || ""} ${st.LastName || ""}`.trim() ||
+          st.AdmissionNo;
+        earlyWarningStudents.push({
+          studentId: st.StudentID,
+          admissionNo: st.AdmissionNo,
+          fullName,
+          classId: st.ClassID,
+          className: st.Class?.ClassName || "Unassigned",
+          totalMarked: summary.totalMarked,
+          present: summary.present,
+          late: summary.late,
+          absent: summary.absent,
+          excused: summary.excused,
+          attendanceRatePct: summary.attendanceRatePct,
+          parentContact: st.ParentContact,
+          parentEmail: st.ParentEmail || null,
+        });
+      }
+    }
+
+    earlyWarningStudents.sort((a, b) => {
+      if (a.attendanceRatePct !== b.attendanceRatePct) {
+        return a.attendanceRatePct - b.attendanceRatePct;
+      }
+      return b.absent - a.absent;
+    });
+
+    return {
+      success: true,
+      selectedDate,
+      thresholdPct,
+      selectedTerm: selectedTerm
+        ? {
+            TermID: selectedTerm.TermID,
+            SessionName: selectedTerm.SessionName,
+            TermName: selectedTerm.TermName,
+          }
+        : null,
+      terms,
+      summaryStats: {
+        totalStudents: students.length,
+        markedTodayCount,
+        unmarkedTodayCount: Math.max(0, students.length - markedTodayCount),
+        presentTodayCount,
+        lateTodayCount,
+        absentTodayCount,
+        excusedTodayCount,
+        totalClasses: classes.length,
+        unmarkedClassCount,
+        atRiskCount: earlyWarningStudents.length,
+      },
+      classesSummary,
+      dailyRegisterRows,
+      earlyWarningStudents,
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load attendance register.",
+      selectedDate: normalizeAttendanceDateKey(params?.dateStr),
+      thresholdPct: Number(params?.thresholdPct) || 80,
+      selectedTerm: null,
+      terms: [],
+      summaryStats: {
+        totalStudents: 0,
+        markedTodayCount: 0,
+        unmarkedTodayCount: 0,
+        presentTodayCount: 0,
+        lateTodayCount: 0,
+        absentTodayCount: 0,
+        excusedTodayCount: 0,
+        totalClasses: 0,
+        unmarkedClassCount: 0,
+        atRiskCount: 0,
+      },
+      classesSummary: [],
+      dailyRegisterRows: [],
+      earlyWarningStudents: [],
+    };
   }
 }

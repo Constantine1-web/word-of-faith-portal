@@ -24,6 +24,7 @@ import {
   FiTrash2,
   FiInbox,
   FiFileText,
+  FiImage,
 } from "react-icons/fi";
 
 const COLORS = ['#0A2540', '#14532D', '#22C55E', '#3B82F6', '#F59E0B'];
@@ -279,6 +280,26 @@ export default function AdminDashboard() {
               <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Public News &amp; Events CMS</h4>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Publish, update, or archive school articles displayed live on the public /news pages.</p>
+          </div>
+        </Link>
+
+        <Link href="/portal/admin/gallery" style={{ textDecoration: "none" }}>
+          <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+              <div style={{ background: "var(--status-purple-bg)", color: "var(--status-purple-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiImage size={20} /></div>
+              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Public Photo Gallery CMS</h4>
+            </div>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Upload event photos, edit captions, set category tags, and curate the public /gallery showcase.</p>
+          </div>
+        </Link>
+
+        <Link href="/portal/admin/attendance" style={{ textDecoration: "none" }}>
+          <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+              <div style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiCalendar size={20} /></div>
+              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Attendance Register</h4>
+            </div>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Track daily class roll-call coverage, update statuses, and flag pupils below attendance thresholds.</p>
           </div>
         </Link>
       </div>
