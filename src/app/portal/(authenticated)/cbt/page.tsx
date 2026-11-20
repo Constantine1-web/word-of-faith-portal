@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { EXAM_TYPES, SUBJECTS } from "@/lib/cbt-constants";
+import {
+  EXAM_TYPES,
+  SUBJECTS,
+  formatCbtExamBodyLabel,
+  formatCbtSubjectLabel,
+} from "@/lib/cbt-constants";
 import styles from "./page.module.css";
 import {
   getCbtStudentStatus,
@@ -36,6 +41,7 @@ const QUANTITATIVE_SUBJECTS = new Set([
   "accounting",
   "commerce",
   "economics",
+  "quantitative",
 ]);
 
 function formatAllocatedDuration(questionCount: number, secondsPerQuestion: number): string {
@@ -294,7 +300,7 @@ export default function CBTLandingPage() {
             <select value={exam} onChange={(e) => setExam(e.target.value)} required>
               {EXAM_TYPES.map((type) => (
                 <option key={type} value={type}>
-                  {type.toUpperCase()}
+                  {formatCbtExamBodyLabel(type)}
                 </option>
               ))}
             </select>
@@ -303,11 +309,24 @@ export default function CBTLandingPage() {
           <div className={styles.formGroup}>
             <label>Subject</label>
             <select value={subject} onChange={(e) => handleSubjectChange(e.target.value)} required>
-              {SUBJECTS.map((sub) => (
-                <option key={sub} value={sub}>
-                  {sub.charAt(0).toUpperCase() + sub.slice(1)}
-                </option>
-              ))}
+              {Array.from(
+                new Set([
+                  ...SUBJECTS,
+                  ...((studentStatus?.schoolInternalSubjects || []).map(
+                    (s: { subjectCode: string }) => s.subjectCode
+                  ) as string[]),
+                ])
+              ).map((sub) => {
+                const internalInfo = (studentStatus?.schoolInternalSubjects || []).find(
+                  (s: { subjectCode: string; count: number }) => s.subjectCode === sub
+                );
+                return (
+                  <option key={sub} value={sub}>
+                    {formatCbtSubjectLabel(sub)}
+                    {internalInfo ? ` (${internalInfo.count} School Qs)` : ""}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

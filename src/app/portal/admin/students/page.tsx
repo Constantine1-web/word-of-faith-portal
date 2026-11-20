@@ -35,6 +35,11 @@ export default async function AdminStudentsPage() {
     orderBy: { ClassName: "asc" },
   });
 
+  const activeTerm = await prisma.academic_Term.findFirst({
+    where: { IsActive: true },
+    select: { SessionName: true },
+  });
+
   return (
     <div>
       <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>
@@ -43,7 +48,11 @@ export default async function AdminStudentsPage() {
       <p style={{ color: "var(--color-gray-600)", marginBottom: "2rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem" }}>
         Manage enrolled students and dispatch direct WhatsApp, SMS (via student phone numbers), and Email messages (via student portal registration emails).
       </p>
-      <StudentsClient initialStudents={JSON.parse(JSON.stringify(students))} classes={classes} />
+      <StudentsClient
+        initialStudents={JSON.parse(JSON.stringify(students))}
+        classes={classes}
+        activeSessionName={activeTerm?.SessionName || "2026/2027"}
+      />
     </div>
   );
 }

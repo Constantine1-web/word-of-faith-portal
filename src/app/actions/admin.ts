@@ -56,6 +56,7 @@ export async function getAdminDashboardStats() {
       pendingAdmissionsRes,
       pendingPaymentsRes,
       recentAuditLogsRes,
+      contactLogsRes,
     ] = await Promise.allSettled([
       prisma.student.count(),
       prisma.user.count({
@@ -80,6 +81,17 @@ export async function getAdminDashboardStats() {
         take: 8,
         orderBy: { CreatedAt: "desc" },
       }),
+      prisma.auditLog.findMany({
+        where: {
+          Entity: "ContactMessage",
+          Action: {
+            in: ["PUBLIC_CONTACT_INQUIRY", "CONTACT_INQUIRY_STATUS", "CONTACT_INQUIRY_REPLY"],
+          },
+        },
+        select: { Action: true, EntityID: true },
+        orderBy: { CreatedAt: "desc" },
+        take: 2500,
+      }),
     ]);
 
     const totalStudents = totalStudentsRes.status === "fulfilled" ? totalStudentsRes.value : 0;
@@ -90,6 +102,16 @@ export async function getAdminDashboardStats() {
     const pendingAdmissions = pendingAdmissionsRes.status === "fulfilled" ? pendingAdmissionsRes.value : 0;
     const pendingPayments = pendingPaymentsRes.status === "fulfilled" ? pendingPaymentsRes.value : 0;
     const rawAuditLogs = recentAuditLogsRes.status === "fulfilled" ? recentAuditLogsRes.value : [];
+    const contactLogs = (contactLogsRes.status === "fulfilled" ? contactLogsRes.value : []).slice().reverse();
+    const openInquiryRefs = new Set<string>();
+    for (const entry of contactLogs) {
+      if (entry.Action === "PUBLIC_CONTACT_INQUIRY") {
+        openInquiryRefs.add(String(entry.EntityID));
+      } else {
+        openInquiryRefs.delete(String(entry.EntityID));
+      }
+    }
+    const openInquiries = openInquiryRefs.size;
 
     // Ensure AuditLog objects are plain JSON-serializable objects for Next.js Server Actions
     const recentAuditLogs = rawAuditLogs.map((log: any) => ({
@@ -147,6 +169,7 @@ export async function getAdminDashboardStats() {
         paymentCount,
         pendingAdmissions,
         pendingPayments,
+        openInquiries,
         activeTerm: activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "None",
       },
       recentAuditLogs,
@@ -168,6 +191,7 @@ export async function getAdminDashboardStats() {
         paymentCount: 0,
         pendingAdmissions: 0,
         pendingPayments: 0,
+        openInquiries: 0,
         activeTerm: "Active Session",
       },
       recentAuditLogs: [],

@@ -407,7 +407,7 @@ export default function ResultsPage() {
                 <div style={{ fontWeight: 800, color: "var(--color-gray-900)", marginTop: "0.15rem" }}>{studentFullName}</div>
               </div>
               <div>
-                <div style={{ fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 700, textTransform: "uppercase" }}>Admission No</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--color-gray-500)", fontWeight: 700, textTransform: "uppercase" }}>WOFS Student ID</div>
                 <div style={{ fontWeight: 800, color: "var(--color-gray-900)", marginTop: "0.15rem" }}>{resultData.student?.AdmissionNo}</div>
               </div>
               <div>

@@ -209,7 +209,7 @@ export default function PayFeesPage() {
               <strong>{feeOrder.student?.PreferredName}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "0.5rem" }}>
-              <span style={{ color: "var(--color-gray-500)" }}>Registration Number:</span>
+              <span style={{ color: "var(--color-gray-500)" }}>WOFS Student ID:</span>
               <strong>{feeOrder.student?.AdmissionNo}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>

@@ -22,6 +22,8 @@ import {
   FiBell,
   FiPlus,
   FiTrash2,
+  FiInbox,
+  FiFileText,
 } from "react-icons/fi";
 
 const COLORS = ['#0A2540', '#14532D', '#22C55E', '#3B82F6', '#F59E0B'];
@@ -247,9 +249,36 @@ export default function AdminDashboard() {
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
               <div style={{ background: "var(--status-purple-bg)", color: "var(--status-purple-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiUserPlus size={20} /></div>
-              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Admissions & Onboarding</h4>
+              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Admissions &amp; Onboarding</h4>
             </div>
-            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Approve applications with auto-formatted registration numbering.</p>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Approve applications with auto-generated WOFS Student IDs &amp; single-use invitations.</p>
+          </div>
+        </Link>
+
+        <Link href="/portal/admin/inquiries" style={{ textDecoration: "none" }}>
+          <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", marginBottom: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiInbox size={20} /></div>
+                <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Website Contact Inquiries</h4>
+              </div>
+              {(data.stats.openInquiries || 0) > 0 && (
+                <span style={{ background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)", padding: "0.15rem 0.55rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 800 }}>
+                  {data.stats.openInquiries} New
+                </span>
+              )}
+            </div>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Read messages submitted via the public Contact Us page and send official email replies.</p>
+          </div>
+        </Link>
+
+        <Link href="/portal/admin/news" style={{ textDecoration: "none" }}>
+          <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+              <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiFileText size={20} /></div>
+              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Public News &amp; Events CMS</h4>
+            </div>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Publish, update, or archive school articles displayed live on the public /news pages.</p>
           </div>
         </Link>
       </div>

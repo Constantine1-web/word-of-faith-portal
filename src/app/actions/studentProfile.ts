@@ -153,6 +153,11 @@ export async function getStudentProfile(userId: number) {
       TeacherName: a.Teacher.Email,
     }));
 
+    const activeTerm = await prisma.academic_Term.findFirst({
+      where: { IsActive: true },
+      select: { SessionName: true },
+    });
+
     const fullName =
       student.PreferredName ||
       `${student.FirstName || ""} ${student.LastName || ""}`.trim() ||
@@ -171,6 +176,7 @@ export async function getStudentProfile(userId: number) {
         middleName: student.MiddleName,
         className: student.Class.ClassName,
         level: student.Class.Level,
+        sessionName: activeTerm?.SessionName || "2026/2027",
         email: student.User?.Email || actor.Email,
         preferredName: student.PreferredName,
         dob: student.DateOfBirth,

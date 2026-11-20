@@ -261,7 +261,7 @@ export default function MessagesPage() {
                   {selectedContact.Student && (
                     <>
                       {" "}
-                      • Admission No: <strong>{selectedContact.Student.AdmissionNo}</strong>
+                      • WOFS Student ID: <strong>{selectedContact.Student.AdmissionNo}</strong>
                     </>
                   )}
                 </div>

@@ -974,7 +974,7 @@ export default function TeacherDashboard({
                       <thead>
                         <tr style={{ background: "var(--bg-tertiary)", color: "var(--text-heading)" }}>
                           <th style={{ padding: "0.5rem", textAlign: "left" }}>Row</th>
-                          <th style={{ padding: "0.5rem", textAlign: "left" }}>Admission No</th>
+                          <th style={{ padding: "0.5rem", textAlign: "left" }}>WOFS Student ID</th>
                           <th style={{ padding: "0.5rem", textAlign: "center" }}>Incoming CA</th>
                           <th style={{ padding: "0.5rem", textAlign: "center" }}>Incoming Exam</th>
                           <th style={{ padding: "0.5rem", textAlign: "center" }}>Status</th>
@@ -1014,7 +1014,7 @@ export default function TeacherDashboard({
                   <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", marginBottom: "1.5rem" }}>
                     <thead>
                       <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
-                        <th style={{ padding: "1rem", textAlign: "left" }}>Admission No</th>
+                        <th style={{ padding: "1rem", textAlign: "left" }}>WOFS Student ID</th>
                         <th style={{ padding: "1rem", textAlign: "left" }}>Student Name</th>
                         <th style={{ padding: "1rem", textAlign: "center", width: "140px" }}>CA Score (Max 40)</th>
                         <th style={{ padding: "1rem", textAlign: "center", width: "140px" }}>Exam Score (Max 60)</th>
@@ -1032,7 +1032,7 @@ export default function TeacherDashboard({
 
                         return (
                           <tr key={student.StudentID} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
-                            <td data-label="Admission No" style={{ padding: "1rem", fontFamily: "monospace", fontWeight: "bold", color: "var(--color-navy-blue)" }}>
+                            <td data-label="WOFS Student ID" style={{ padding: "1rem", fontFamily: "monospace", fontWeight: "bold", color: "var(--color-navy-blue)" }}>
                               {student.AdmissionNo}
                             </td>
                             <td data-label="Student Name" style={{ padding: "1rem", fontWeight: "600" }}>
@@ -1274,7 +1274,7 @@ export default function TeacherDashboard({
                   <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
-                        <th style={{ padding: "1rem", textAlign: "left" }}>Admission No</th>
+                        <th style={{ padding: "1rem", textAlign: "left" }}>WOFS Student ID</th>
                         <th style={{ padding: "1rem", textAlign: "left" }}>Student Name</th>
                         <th style={{ padding: "1rem", textAlign: "center" }}>Subjects Taken</th>
                         <th style={{ padding: "1rem", textAlign: "center" }}>Total Score</th>
@@ -1290,7 +1290,7 @@ export default function TeacherDashboard({
 
                         return (
                           <tr key={student.StudentID} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
-                            <td data-label="Admission No" style={{ padding: "1rem", fontFamily: "monospace", fontWeight: "bold" }}>
+                            <td data-label="WOFS Student ID" style={{ padding: "1rem", fontFamily: "monospace", fontWeight: "bold" }}>
                               {student.AdmissionNo}
                             </td>
                             <td data-label="Student Name" style={{ padding: "1rem", fontWeight: "600", color: "var(--color-navy-blue)" }}>
@@ -1412,7 +1412,7 @@ export default function TeacherDashboard({
                 <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse", marginBottom: "1.5rem" }}>
                   <thead>
                     <tr style={{ background: "var(--bg-secondary)", borderBottom: "2px solid var(--border-primary)" }}>
-                      <th style={{ padding: "0.85rem", textAlign: "left" }}>Admission No</th>
+                      <th style={{ padding: "0.85rem", textAlign: "left" }}>WOFS Student ID</th>
                       <th style={{ padding: "0.85rem", textAlign: "left" }}>Student Name</th>
                       <th style={{ padding: "0.85rem", textAlign: "center", width: "200px" }}>Roll Call Status</th>
                       <th style={{ padding: "0.85rem", textAlign: "left" }}>Teacher Note / Reason</th>

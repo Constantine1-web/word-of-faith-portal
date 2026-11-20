@@ -14,7 +14,9 @@ import {
   FiShield,
   FiRefreshCw,
   FiX,
+  FiCreditCard,
 } from "react-icons/fi";
+import StudentIdCardStudio from "@/components/portal/StudentIdCardStudio";
 
 export default function ProfilePage() {
   const { data: session } = useSession();
@@ -22,6 +24,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [showIdCardModal, setShowIdCardModal] = useState(false);
 
   // Interactive Avatar Studio State (Upload, Camera Capture, Crop & Reposition, Preview, Remove)
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
@@ -362,6 +365,23 @@ export default function ProfilePage() {
               <p style={{ margin: "0.35rem 0 0", fontSize: "0.78rem", color: "var(--text-muted)" }}>
                 Changing your profile picture never alters your identity verification record.
               </p>
+              {profile?.wofsStudentId && !String(profile?.admissionNo || "").startsWith("STAFF-") && (
+                <button
+                  type="button"
+                  onClick={() => setShowIdCardModal(true)}
+                  className="btn btn-outline"
+                  style={{
+                    marginTop: "0.65rem",
+                    padding: "0.42rem 0.85rem",
+                    fontSize: "0.8rem",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                  }}
+                >
+                  <FiCreditCard size={14} /> View &amp; Print My ID Card
+                </button>
+              )}
             </div>
 
             {/* Action Buttons: Upload, Camera, Remove */}
@@ -754,6 +774,27 @@ export default function ProfilePage() {
           </form>
         </div>
       </div>
+
+      {showIdCardModal && profile?.wofsStudentId && (
+        <StudentIdCardStudio
+          students={[
+            {
+              AdmissionNo: profile.wofsStudentId,
+              FirstName: profile.firstName,
+              MiddleName: profile.middleName,
+              LastName: profile.lastName,
+              PreferredName: profile.preferredName || profile.fullName,
+              AvatarUrl: displayedAvatar || profile.avatarUrl,
+              EnrolmentStatus: "ACTIVE",
+              className: profile.className,
+              classLevel: profile.level,
+            },
+          ]}
+          onClose={() => setShowIdCardModal(false)}
+          sessionLabel={profile.sessionName || "2026/2027"}
+          title="My Official Word of Faith Student ID Card"
+        />
+      )}
     </div>
   );
 }

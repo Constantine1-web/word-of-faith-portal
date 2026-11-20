@@ -1,27 +1,25 @@
-import { newsItems } from "@/data/news";
+import { getPublicNewsPostBySlug } from "@/app/actions/news";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { FiArrowLeft, FiCalendar } from "react-icons/fi";
 
-export async function generateStaticParams() {
-  return newsItems.map((item) => ({
-    slug: item.slug,
-  }));
-}
+export const dynamic = "force-dynamic";
 
 export default async function NewsDetails({ params }: { params: Promise<{ slug: string }> }) {
   const resolvedParams = await params;
-  const item = newsItems.find(n => n.slug === resolvedParams.slug);
+  const item = await getPublicNewsPostBySlug(resolvedParams.slug);
 
   if (!item) {
     notFound();
   }
 
+  const safeCssBg = item.img.replace(/['"()\\]/g, "");
+
   return (
     <div>
       {/* Hero Section */}
       <section style={{ 
-        background: `linear-gradient(rgba(10,37,64,0.8), rgba(10,37,64,0.9)), url('${item.img}') center/cover`,
+        background: `linear-gradient(rgba(10,37,64,0.8), rgba(10,37,64,0.9)), url('${safeCssBg}') center/cover`,
         padding: "8rem 1rem 6rem",
         color: "white",
         textAlign: "center"
@@ -63,6 +61,12 @@ export default async function NewsDetails({ params }: { params: Promise<{ slug: 
           margin-top: 2rem;
           margin-bottom: 1rem;
           font-size: 1.5rem;
+        }
+        .news-content h4 {
+          color: var(--color-navy-blue);
+          margin-top: 1.5rem;
+          margin-bottom: 0.75rem;
+          font-size: 1.25rem;
         }
         .news-content p {
           color: var(--color-gray-800);

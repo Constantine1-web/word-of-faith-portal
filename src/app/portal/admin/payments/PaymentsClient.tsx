@@ -73,7 +73,7 @@ export default function PaymentsClient({
     const headers = [
       "Reference",
       "Student Name",
-      "Admission No",
+      "WOFS Student ID",
       "Class",
       "Status",
       "Gross Amount Paid (NGN)",
@@ -420,7 +420,7 @@ export default function PaymentsClient({
             <FiSearch style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)", color: "var(--color-gray-400)" }} />
             <input
               type="text"
-              placeholder="Search reference, student name, or reg no..."
+              placeholder="Search reference, student name, or WOFS ID..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleFilter()}

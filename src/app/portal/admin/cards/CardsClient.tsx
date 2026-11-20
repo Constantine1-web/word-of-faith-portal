@@ -1,8 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { createBatchScratchCards, getScratchCardsList } from "@/app/actions/scratchCards";
-import { FiPlus, FiPrinter, FiDownload, FiSearch, FiCreditCard, FiCheckCircle, FiAlertCircle, FiX } from "react-icons/fi";
+import {
+  createBatchScratchCards,
+  getScratchCardsList,
+  unlockScratchCard,
+  revokeScratchCard,
+} from "@/app/actions/scratchCards";
+import {
+  FiPlus,
+  FiPrinter,
+  FiDownload,
+  FiSearch,
+  FiX,
+  FiUnlock,
+  FiSlash,
+} from "react-icons/fi";
 
 export default function CardsClient({
   initialCards,
@@ -65,12 +78,14 @@ export default function CardsClient({
     setLoading(false);
   };
 
-  const handleSearchAndFilter = async () => {
+  const handleSearchAndFilter = async (overrideStatus?: string, overrideTerm?: string) => {
     setLoading(true);
-    const termId = termFilter ? parseInt(termFilter) : undefined;
+    const activeTermVal = overrideTerm !== undefined ? overrideTerm : termFilter;
+    const activeStatusVal = overrideStatus !== undefined ? overrideStatus : statusFilter;
+    const termId = activeTermVal ? parseInt(activeTermVal) : undefined;
     const res = await getScratchCardsList({
       termId,
-      status: statusFilter as any,
+      status: activeStatusVal as any,
       search: searchTerm || undefined
     });
     if (res.success && res.cards) {
@@ -78,6 +93,44 @@ export default function CardsClient({
       if (res.stats) setStats(res.stats);
     }
     setLoading(false);
+  };
+
+  const handleUnlockCard = async (cardId: number, serial: string) => {
+    const reason = prompt(
+      `Enter reason to clear PIN lockout for scratch card ${serial}:`,
+      "Bursar verified student & cleared failed PIN lockout"
+    );
+    if (reason === null) return;
+    setLoading(true);
+    setError("");
+    setSuccess("");
+    const res = await unlockScratchCard(cardId, reason);
+    if (res.success) {
+      setSuccess(`Scratch card ${serial} unlocked cleanly.`);
+      await handleSearchAndFilter();
+    } else {
+      setError(res.error || "Failed to unlock scratch card.");
+      setLoading(false);
+    }
+  };
+
+  const handleRevokeCard = async (cardId: number, serial: string) => {
+    const reason = prompt(
+      `Enter mandatory reason to permanently REVOKE scratch card ${serial}:`,
+      "Lost / compromised physical card reported"
+    );
+    if (!reason || reason.trim().length < 3) return;
+    setLoading(true);
+    setError("");
+    setSuccess("");
+    const res = await revokeScratchCard(cardId, reason);
+    if (res.success) {
+      setSuccess(res.message || `Scratch card ${serial} revoked.`);
+      await handleSearchAndFilter();
+    } else {
+      setError(res.error || "Failed to revoke scratch card.");
+      setLoading(false);
+    }
   };
 
   const exportCSV = () => {
@@ -252,18 +305,27 @@ export default function CardsClient({
 
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              handleSearchAndFilter(e.target.value, termFilter);
+            }}
             className="form-input"
-            style={{ width: "auto", minWidth: "130px" }}
+            style={{ width: "auto", minWidth: "155px" }}
           >
             <option value="all">All Status</option>
             <option value="unused">Unused Only</option>
             <option value="active">Claimed / Active</option>
+            <option value="exhausted">Exhausted</option>
+            <option value="locked">Locked (PIN Lockout)</option>
+            <option value="revoked">Revoked</option>
           </select>
 
           <select
             value={termFilter}
-            onChange={(e) => setTermFilter(e.target.value)}
+            onChange={(e) => {
+              setTermFilter(e.target.value);
+              handleSearchAndFilter(statusFilter, e.target.value);
+            }}
             className="form-input"
             style={{ width: "auto", minWidth: "150px" }}
           >
@@ -275,7 +337,7 @@ export default function CardsClient({
             ))}
           </select>
 
-          <button onClick={handleSearchAndFilter} className="btn btn-outline" style={{ padding: "0.5rem 1rem" }}>
+          <button onClick={() => handleSearchAndFilter()} className="btn btn-outline" style={{ padding: "0.5rem 1rem" }}>
             Filter
           </button>
         </div>
@@ -293,64 +355,127 @@ export default function CardsClient({
       <div style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", border: "1px solid var(--color-gray-200)", overflowX: "auto", boxShadow: "var(--shadow-sm)" }}>
         <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
-              <th style={{ padding: "1rem", textAlign: "left" }}>Serial Number</th>
-              <th style={{ padding: "1rem", textAlign: "left" }}>Term Scoped</th>
-              <th style={{ padding: "1rem", textAlign: "center" }}>Status</th>
-              <th style={{ padding: "1rem", textAlign: "center" }}>Usage Count</th>
-              <th style={{ padding: "1rem", textAlign: "left" }}>Bound Student</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cards.length === 0 ? (
-              <tr>
-                <td colSpan={5} style={{ padding: "3rem", textAlign: "center", color: "var(--color-gray-500)" }}>
-                  No scratch cards found. Click "Generate Batch" above.
-                </td>
+              <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
+                <th style={{ padding: "1rem", textAlign: "left" }}>Serial Number</th>
+                <th style={{ padding: "1rem", textAlign: "left" }}>Term Scoped</th>
+                <th style={{ padding: "1rem", textAlign: "center" }}>Status</th>
+                <th style={{ padding: "1rem", textAlign: "center" }}>Usage Count</th>
+                <th style={{ padding: "1rem", textAlign: "left" }}>Bound Student</th>
+                <th style={{ padding: "1rem", textAlign: "right" }}>Actions</th>
               </tr>
-            ) : (
-              cards.map((card) => (
-                <tr key={card.CardID} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
-                  <td data-label="Serial Number" style={{ padding: "1rem", fontWeight: "bold", fontFamily: "monospace", color: "var(--color-navy-blue)" }}>
-                    {card.SerialNumber}
-                  </td>
-                  <td data-label="Term" style={{ padding: "1rem", fontSize: "0.9rem", color: "var(--color-gray-700)" }}>
-                    {card.Term ? `${card.Term.SessionName} (${card.Term.TermName})` : "Universal"}
-                  </td>
-                  <td data-label="Status" style={{ padding: "1rem", textAlign: "center" }}>
-                    {card.UsedBy === null ? (
-                      <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
-                        Unused
-                      </span>
-                    ) : card.UsageCount >= card.MaxUsage ? (
-                      <span style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
-                        Exhausted
-                      </span>
-                    ) : (
-                      <span style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", border: "1px solid var(--status-info-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
-                        Active
-                      </span>
-                    )}
-                  </td>
-                  <td data-label="Usage Count" style={{ padding: "1rem", textAlign: "center", fontWeight: "bold", color: "var(--text-primary)" }}>
-                    {card.UsageCount} / {card.MaxUsage}
-                  </td>
-                  <td data-label="Bound Student" style={{ padding: "1rem", fontSize: "0.9rem" }}>
-                    {card.Student ? (
-                      <div>
-                        <strong>{card.Student.PreferredName}</strong>
-                        <div style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
-                          {card.Student.AdmissionNo} ({card.Student.Class?.ClassName})
-                        </div>
-                      </div>
-                    ) : (
-                      <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Not yet claimed</span>
-                    )}
+            </thead>
+            <tbody>
+              {cards.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: "3rem", textAlign: "center", color: "var(--color-gray-500)" }}>
+                    No scratch cards found. Click &ldquo;Generate Batch&rdquo; above.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
+              ) : (
+                cards.map((card) => {
+                  const isLocked =
+                    (card.FailedAttempts || 0) >= 5 ||
+                    Boolean(card.LockedUntil && new Date(card.LockedUntil) > new Date());
+                  const isRevoked = card.Status === "REVOKED";
+                  const isExhausted = card.Status === "EXHAUSTED" || (card.UsedBy !== null && card.UsageCount >= card.MaxUsage);
+                  return (
+                    <tr key={card.CardID} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
+                      <td data-label="Serial Number" style={{ padding: "1rem", fontWeight: "bold", fontFamily: "monospace", color: "var(--color-navy-blue)" }}>
+                        {card.SerialNumber}
+                      </td>
+                      <td data-label="Term" style={{ padding: "1rem", fontSize: "0.9rem", color: "var(--color-gray-700)" }}>
+                        {card.Term ? `${card.Term.SessionName} (${card.Term.TermName})` : "Universal"}
+                      </td>
+                      <td data-label="Status" style={{ padding: "1rem", textAlign: "center" }}>
+                        <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}>
+                          {isRevoked ? (
+                            <span style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.82rem", fontWeight: "bold" }}>
+                              Revoked
+                            </span>
+                          ) : card.UsedBy === null ? (
+                            <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.82rem", fontWeight: "bold" }}>
+                              Unused
+                            </span>
+                          ) : isExhausted ? (
+                            <span style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.82rem", fontWeight: "bold" }}>
+                              Exhausted
+                            </span>
+                          ) : (
+                            <span style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", border: "1px solid var(--status-info-border)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.82rem", fontWeight: "bold" }}>
+                              Active
+                            </span>
+                          )}
+                          {(isLocked || (card.FailedAttempts || 0) > 0) && !isRevoked && (
+                            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--status-warning-text)" }}>
+                              {isLocked ? "🔒 Locked" : `${card.FailedAttempts} fail(s)`}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td data-label="Usage Count" style={{ padding: "1rem", textAlign: "center", fontWeight: "bold", color: "var(--text-primary)" }}>
+                        {card.UsageCount} / {card.MaxUsage}
+                      </td>
+                      <td data-label="Bound Student" style={{ padding: "1rem", fontSize: "0.9rem" }}>
+                        {card.Student ? (
+                          <div>
+                            <strong>{card.Student.PreferredName}</strong>
+                            <div style={{ color: "var(--text-muted)", fontSize: "0.8rem", fontFamily: "monospace" }}>
+                              {card.Student.AdmissionNo} ({card.Student.Class?.ClassName})
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Not yet claimed</span>
+                        )}
+                      </td>
+                      <td data-label="Actions" style={{ padding: "1rem", textAlign: "right" }}>
+                        <div style={{ display: "inline-flex", gap: "0.4rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {((card.FailedAttempts || 0) > 0 || isLocked) && !isRevoked && (
+                            <button
+                              type="button"
+                              onClick={() => handleUnlockCard(card.CardID, card.SerialNumber)}
+                              disabled={loading}
+                              className="btn btn-outline"
+                              style={{
+                                padding: "0.35rem 0.65rem",
+                                fontSize: "0.78rem",
+                                borderColor: "var(--status-warning-border)",
+                                color: "var(--status-warning-text)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.25rem",
+                              }}
+                              title="Clear 15-minute failed PIN lockout"
+                            >
+                              <FiUnlock size={13} /> Unlock
+                            </button>
+                          )}
+                          {!isRevoked && !isExhausted && (
+                            <button
+                              type="button"
+                              onClick={() => handleRevokeCard(card.CardID, card.SerialNumber)}
+                              disabled={loading}
+                              className="btn btn-outline"
+                              style={{
+                                padding: "0.35rem 0.65rem",
+                                fontSize: "0.78rem",
+                                borderColor: "var(--status-error-border)",
+                                color: "var(--status-error-text)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.25rem",
+                              }}
+                              title="Permanently revoke lost or compromised card"
+                            >
+                              <FiSlash size={13} /> Revoke
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
         </table>
       </div>
 

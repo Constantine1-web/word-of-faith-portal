@@ -143,11 +143,22 @@ export async function getCbtStudentStatus() {
       await submitAttempt(activeAttempt.id);
     }
 
-    const recentAttempts = await prisma.cbtAttempt.findMany({
-      where: { studentId: student.StudentID },
-      orderBy: { startedAt: "desc" },
-      take: 25,
-    });
+    const [recentAttempts, internalSubjectRows] = await Promise.all([
+      prisma.cbtAttempt.findMany({
+        where: { studentId: student.StudentID },
+        orderBy: { startedAt: "desc" },
+        take: 25,
+      }),
+      prisma.cbtQuestion.groupBy({
+        by: ["subjectCode"],
+        where: {
+          provider: "SCHOOL_INTERNAL",
+          isActive: true,
+          answerKey: { isNot: null },
+        },
+        _count: { id: true },
+      }),
+    ]);
 
     return {
       success: true,
@@ -165,6 +176,9 @@ export async function getCbtStudentStatus() {
           ? activeAttempt.id
           : null,
       recentAttempts,
+      schoolInternalSubjects: internalSubjectRows
+        .filter((r) => r._count.id > 0)
+        .map((r) => ({ subjectCode: r.subjectCode, count: r._count.id })),
       isStaffSupervisor:
         actor.roles.has("TEACHER") ||
         actor.roles.has("FORM_MASTER") ||
@@ -201,7 +215,9 @@ export async function startAttempt(params: {
     }
 
     const subjectCode = params.subjectCode.toLowerCase().trim();
-    const examBody = (params.examBody || "WASSCE").toUpperCase().trim();
+    const rawExamBody = (params.examBody || "WASSCE").toUpperCase().trim();
+    const examBody = rawExamBody === "SCHOOL-INTERNAL" ? "SCHOOL_INTERNAL" : rawExamBody;
+    const isSchoolInternalOnly = examBody === "SCHOOL_INTERNAL";
     const mode: AttemptMode = params.mode === "MOCK" ? "MOCK" : "PRACTICE";
     const requestedCount = Math.min(Math.max(5, Number(params.questionCount || 10)), 50);
 
@@ -213,6 +229,7 @@ export async function startAttempt(params: {
       "accounting",
       "commerce",
       "economics",
+      "quantitative",
     ]);
     const defaultSecPerQ = quantitativeSubjects.has(subjectCode) ? 90 : 60;
     const secondsPerQuestion =
@@ -276,6 +293,7 @@ export async function startAttempt(params: {
       where: {
         subjectCode,
         isActive: true,
+        ...(isSchoolInternalOnly ? { provider: "SCHOOL_INTERNAL" } : {}),
         NOT: { stem: { startsWith: "[" } },
         answerKey: { isNot: null },
       },
@@ -309,9 +327,18 @@ export async function startAttempt(params: {
       (id) => !recentlySeenSet.has(id)
     );
 
+    if (isSchoolInternalOnly) {
+      if (stemToIdMap.size === 0) {
+        return {
+          success: false,
+          error: `No school-authored CBT questions exist yet for ${subjectCode.toUpperCase()} under School Internal Assessment. Ask a teacher or admin to add questions in the CBT Question Bank.`,
+        };
+      }
+    }
+
     // Refill from live ALOC Station v1 / Sdash / Verified Bank whenever unseen unique questions are fewer than requestedCount
     let rawFetched: Awaited<ReturnType<typeof fetchQuestions>> = [];
-    if (unseenCachedIds.length < requestedCount) {
+    if (!isSchoolInternalOnly && unseenCachedIds.length < requestedCount) {
       rawFetched = await fetchQuestions(
         subjectCode,
         Math.max(POOL_REFILL_SIZE, requestedCount),

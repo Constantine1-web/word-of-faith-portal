@@ -1830,7 +1830,7 @@ export async function uploadManualResult(data: {
     const student = await prisma.student.findUnique({
       where: { AdmissionNo: admissionNo.trim() },
     });
-    if (!student) return { error: `Student with Admission No. ${admissionNo} not found.` };
+    if (!student) return { error: `Student with WOFS Student ID ${admissionNo} not found.` };
 
     const subject = await prisma.subject.findFirst({
       where: { SubjectName: subjectName.trim() },

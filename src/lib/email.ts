@@ -217,7 +217,7 @@ export async function sendAdmissionDecisionNotification(params: {
         <div style="background: #ecfdf5; border: 1px solid #a7f3d0; padding: 18px; border-radius: 8px; margin: 20px 0; font-size: 14px;">
           <div style="margin-bottom: 6px;"><strong>Student Name:</strong> ${safeFullName}</div>
           <div style="margin-bottom: 6px;"><strong>Assigned Class Arm:</strong> ${safeAssignedClass}</div>
-          <div style="margin-bottom: 6px;"><strong>Registration / Admission Number:</strong> <span style="font-family: monospace; font-weight: bold; color: #065f46;">${safeAdmissionNo}</span></div>
+          <div style="margin-bottom: 6px;"><strong>WOFS Student ID:</strong> <span style="font-family: monospace; font-weight: bold; color: #065f46;">${safeAdmissionNo}</span></div>
           ${
             safeClaimCode
               ? `<div style="margin-bottom: 6px;"><strong>One-Time Portal Claim Code:</strong> <span style="font-family: monospace; font-weight: bold; background: #143424; color: #ffffff; padding: 2px 8px; border-radius: 4px;">${safeClaimCode}</span> <em>(valid for 7 days)</em></div>`
@@ -226,7 +226,7 @@ export async function sendAdmissionDecisionNotification(params: {
           <div style="margin-bottom: 6px;"><strong>Registered Email:</strong> ${safeEmail}</div>
           <div><strong>Registered Phone:</strong> ${safePhone}</div>
         </div>
-        <p>You can access the Student & Parent Portal using the button below with your Registration Number:</p>
+        <p>You can access the Student & Parent Portal using the button below with your WOFS Student ID:</p>
         <p style="margin: 24px 0;">
           <a href="${escapeHtml(portalUrl)}" style="background: #143424; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: bold; display: inline-block;">
             Open Student & Parent Portal
@@ -263,7 +263,7 @@ export async function sendAdmissionDecisionNotification(params: {
   `;
 
   const smsText = isApproved
-    ? `Word of Faith Schools: Congratulations ${params.parentName}! Admission for ${fullName} into ${params.assignedClassName || params.applyingClass} has been APPROVED. Reg No: ${params.admissionNo || ""}${params.claimCode ? `, Claim Code: ${params.claimCode}` : ""}. Portal: ${portalUrl}`
+    ? `Word of Faith Schools: Congratulations ${params.parentName}! Admission for ${fullName} into ${params.assignedClassName || params.applyingClass} has been APPROVED. WOFS Student ID: ${params.admissionNo || ""}${params.claimCode ? `, Claim Code: ${params.claimCode}` : ""}. Portal: ${portalUrl}`
     : `Word of Faith Schools: Dear ${params.parentName}, thank you for applying for ${fullName} (${params.applyingClass}). We regret to inform you that the admission application was not approved at this time. Check ${params.parentEmail} for details.`;
 
   const formattedPhone = formatPhoneForMessaging(params.parentPhone);

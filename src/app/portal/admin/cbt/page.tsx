@@ -3,6 +3,11 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getCbtIntegrityDashboard, getCbtProviderDiagnostics } from "@/app/actions/cbt";
+import {
+  getAdminCbtBankAndAnalytics,
+  type SchoolInternalQuestionRow,
+  type CbtSubjectAnalyticsRow,
+} from "@/app/actions/cbtAuthoring";
 import AdminCbtClient from "./AdminCbtClient";
 
 export const dynamic = "force-dynamic";
@@ -25,11 +30,16 @@ export default async function AdminCbtPage() {
   let recentEvents: any[] = [];
   let recentAttempts: any[] = [];
   let providerDiagnostics: any = null;
+  let bankQuestions: SchoolInternalQuestionRow[] = [];
+  let subjectAnalytics: CbtSubjectAnalyticsRow[] = [];
+  let attemptAnalyticsRows: any[] = [];
+  let internalSubjectCounts: Array<{ subjectCode: string; count: number }> = [];
 
   try {
-    const [res, diagRes] = await Promise.all([
+    const [res, diagRes, bankRes] = await Promise.all([
       getCbtIntegrityDashboard(),
       getCbtProviderDiagnostics(),
+      getAdminCbtBankAndAnalytics({ includeInactive: true }),
     ]);
     if (res.success) {
       activeLocks = res.activeLocks || [];
@@ -37,6 +47,12 @@ export default async function AdminCbtPage() {
     }
     if (diagRes.success) {
       providerDiagnostics = diagRes;
+    }
+    if (bankRes.success) {
+      bankQuestions = bankRes.questions;
+      subjectAnalytics = bankRes.subjectAnalytics;
+      attemptAnalyticsRows = bankRes.attemptRows;
+      internalSubjectCounts = bankRes.internalSubjectCounts;
     }
     recentAttempts = await prisma.cbtAttempt.findMany({
       include: {
@@ -80,6 +96,10 @@ export default async function AdminCbtPage() {
         initialRecentAttempts={JSON.parse(JSON.stringify(recentAttempts))}
         initialRecentEvents={JSON.parse(JSON.stringify(recentEvents))}
         initialProviderDiagnostics={JSON.parse(JSON.stringify(providerDiagnostics))}
+        initialBankQuestions={JSON.parse(JSON.stringify(bankQuestions))}
+        initialSubjectAnalytics={JSON.parse(JSON.stringify(subjectAnalytics))}
+        initialAttemptRows={JSON.parse(JSON.stringify(attemptAnalyticsRows))}
+        initialInternalSubjectCounts={JSON.parse(JSON.stringify(internalSubjectCounts))}
       />
     </div>
   );

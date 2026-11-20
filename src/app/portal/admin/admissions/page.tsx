@@ -45,7 +45,7 @@ export default async function AdminAdmissionsPage() {
             Admissions & Student Onboarding
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            Review incoming online admission applications, auto-generate registration numbers, and enroll students into class arms.
+            Review incoming online admission applications, auto-generate WOFS Student IDs, and enroll students into class arms.
           </p>
         </div>
       </div>

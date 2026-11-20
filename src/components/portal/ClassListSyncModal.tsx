@@ -118,7 +118,7 @@ export default function ClassListSyncModal({
     const text = syncSummary.claimSlips
       .map(
         (s: any) =>
-          `Student: ${s.name}\nClass: ${s.className}\nReg No: ${s.admissionNo}\nClaim Code: ${s.claimCode}\nRegister: https://wofs.vercel.app/portal/register\n---`
+          `Student: ${s.name}\nClass: ${s.className}\nWOFS Student ID: ${s.admissionNo}\nClaim Code: ${s.claimCode}\nRegister: https://wofs.vercel.app/portal/register\n---`
       )
       .join("\n\n");
 

@@ -36,7 +36,9 @@ export default async function AdminCardsPage() {
   });
 
   const totalCount = await prisma.scratch_Card.count();
-  const unusedCount = await prisma.scratch_Card.count({ where: { UsedBy: null } });
+  const unusedCount = await prisma.scratch_Card.count({
+    where: { UsedBy: null, Status: { not: "REVOKED" } },
+  });
   const usedCount = await prisma.scratch_Card.count({ where: { UsedBy: { not: null } } });
 
   return (

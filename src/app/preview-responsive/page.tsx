@@ -138,7 +138,7 @@ export default function PreviewResponsivePage() {
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "600px" }}>
                 <thead>
                   <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
-                    <th style={{ padding: "1rem", textAlign: "left" }}>Reg No</th>
+                    <th style={{ padding: "1rem", textAlign: "left" }}>WOFS Student ID</th>
                     <th style={{ padding: "1rem", textAlign: "left" }}>Full Name</th>
                     <th style={{ padding: "1rem", textAlign: "center" }}>CA Score</th>
                     <th style={{ padding: "1rem", textAlign: "center" }}>Exam Score</th>

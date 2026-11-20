@@ -248,9 +248,51 @@ export async function unlockScratchCard(cardId: number, reason: string) {
   }
 }
 
+export async function revokeScratchCard(cardId: number, reason: string) {
+  try {
+    const actor = await requireCardManager();
+    const cleanReason = (reason || "").trim();
+    if (cleanReason.length < 3) {
+      return { success: false, error: "Please provide a brief reason for revoking this card." };
+    }
+
+    const existing = await prisma.scratch_Card.findUnique({
+      where: { CardID: Number(cardId) },
+      select: { CardID: true, SerialNumber: true, Status: true },
+    });
+    if (!existing) {
+      return { success: false, error: "Scratch card not found." };
+    }
+    if (existing.Status === "REVOKED") {
+      return { success: false, error: "This scratch card is already revoked." };
+    }
+
+    await prisma.scratch_Card.update({
+      where: { CardID: Number(cardId) },
+      data: { Status: "REVOKED" },
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "SCRATCH_CARD_REVOKE",
+      targetTable: "Scratch_Card",
+      targetId: String(existing.CardID),
+      reason: cleanReason,
+      beforeState: { status: existing.Status },
+      afterState: { serial: existing.SerialNumber, status: "REVOKED" },
+    });
+
+    revalidatePath("/portal/admin/cards");
+    return { success: true, message: `Card ${existing.SerialNumber} has been revoked.` };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to revoke scratch card" };
+  }
+}
+
 export async function getScratchCardsList(filters?: {
   termId?: number;
-  status?: "all" | "unused" | "active" | "exhausted";
+  status?: "all" | "unused" | "active" | "exhausted" | "locked" | "revoked";
   search?: string;
   page?: number;
 }) {
@@ -267,11 +309,19 @@ export async function getScratchCardsList(filters?: {
 
     if (filters?.status === "unused") {
       whereClause.UsedBy = null;
+      whereClause.Status = { not: "REVOKED" };
     } else if (filters?.status === "active") {
       whereClause.UsedBy = { not: null };
-      whereClause.UsageCount = { lt: prisma.scratch_Card.fields.MaxUsage };
+      whereClause.Status = { in: ["ACTIVE", "ISSUED"] };
     } else if (filters?.status === "exhausted") {
-      whereClause.UsedBy = { not: null };
+      whereClause.Status = "EXHAUSTED";
+    } else if (filters?.status === "locked") {
+      whereClause.OR = [
+        { FailedAttempts: { gte: 5 } },
+        { LockedUntil: { gt: new Date() } },
+      ];
+    } else if (filters?.status === "revoked") {
+      whereClause.Status = "REVOKED";
     }
 
     if (filters?.search) {
@@ -298,7 +348,9 @@ export async function getScratchCardsList(filters?: {
 
     const stats = {
       total: await prisma.scratch_Card.count(),
-      unused: await prisma.scratch_Card.count({ where: { UsedBy: null } }),
+      unused: await prisma.scratch_Card.count({
+        where: { UsedBy: null, Status: { not: "REVOKED" } },
+      }),
       used: await prisma.scratch_Card.count({ where: { UsedBy: { not: null } } }),
     };
 

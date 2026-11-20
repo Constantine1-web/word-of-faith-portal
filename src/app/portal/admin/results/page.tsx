@@ -18,10 +18,11 @@ export default async function AdminResultsPage() {
     redirect("/portal/login");
   }
 
-  const activeTerm = await prisma.academic_Term.findFirst({
-    where: { IsActive: true },
+  const allTerms = await prisma.academic_Term.findMany({
+    orderBy: [{ SessionName: "desc" }, { TermID: "asc" }],
   });
 
+  const activeTerm = allTerms.find((t) => t.IsActive) || null;
   const termId = activeTerm?.TermID || 1;
 
   const classes = await prisma.class.findMany({
@@ -86,7 +87,12 @@ export default async function AdminResultsPage() {
         </div>
       </div>
 
-      <AdminResultsClient classes={classes} subjects={subjects} activeTerm={activeTerm} />
+      <AdminResultsClient
+        classes={classes}
+        subjects={subjects}
+        activeTerm={activeTerm}
+        terms={allTerms}
+      />
     </div>
   );
 }

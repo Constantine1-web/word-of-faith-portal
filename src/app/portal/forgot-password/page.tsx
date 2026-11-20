@@ -37,7 +37,7 @@ export default function ForgotPassword() {
       <div className={styles.loginCard}>
         <h1 className={styles.title}>Reset Password</h1>
         <p style={{ textAlign: "center", marginBottom: "1.5rem", color: "var(--text-secondary)", fontSize: "0.9rem" }}>
-          Enter your registered <strong>Email Address</strong> or school <strong>Registration Number</strong> (e.g. WOF/2026/045) and we will send a 6-digit reset code to your email.
+          Enter your registered <strong>Email Address</strong> or <strong>WOFS Student ID</strong> (e.g. WOFS-STU-2026-000001) and we will send a 6-digit reset code to your email.
         </p>
         
         {error && <div className={styles.error}>{error}</div>}
@@ -45,12 +45,12 @@ export default function ForgotPassword() {
 
         <form onSubmit={handleSubmit}>
           <div className={styles.formGroup}>
-            <label htmlFor="identifier" className={styles.label}>Email Address or Registration Number</label>
+            <label htmlFor="identifier" className={styles.label}>Email Address or WOFS Student ID</label>
             <input 
               type="text" 
               id="identifier" 
               className={styles.input} 
-              placeholder="e.g. name@gmail.com or WOF/2026/045"
+              placeholder="e.g. name@gmail.com or WOFS-STU-2026-000001"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               required 

@@ -1,8 +1,11 @@
 import { FiCalendar, FiArrowRight } from "react-icons/fi";
 import Link from "next/link";
-import { newsItems } from "@/data/news";
+import { getPublicNewsPosts } from "@/app/actions/news";
 
-export default function News() {
+export const dynamic = "force-dynamic";
+
+export default async function News() {
+  const newsItems = await getPublicNewsPosts();
 
   return (
     <div>
@@ -24,34 +27,43 @@ export default function News() {
 
       <section className="container" style={{ padding: "clamp(2.5rem, 6vw, 5rem) 1rem" }}>
         <div style={{ display: "grid", gap: "2rem", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))" }}>
-          {newsItems.map((item, index) => (
-            <div key={index} style={{ 
-              background: "var(--color-white)", 
-              borderRadius: "var(--radius-lg)", 
-              overflow: "hidden",
-              boxShadow: "var(--shadow-md)",
-              transition: "transform 0.3s ease, box-shadow 0.3s ease",
-              display: "flex",
-              flexDirection: "column"
-            }} className="news-card">
-              <div style={{ height: "200px", background: `url('${item.img}') center/cover` }}></div>
-              <div style={{ padding: "2rem", display: "flex", flexDirection: "column", flex: 1 }}>
-                <span style={{ color: "var(--color-primary-green)", fontSize: "0.85rem", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "0.5rem" }}>
-                  {item.category}
-                </span>
-                <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.4rem", marginBottom: "1rem", lineHeight: 1.4 }}>{item.title}</h3>
-                <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6, marginBottom: "1.5rem", flex: 1 }}>{item.excerpt}</p>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--color-gray-100)", paddingTop: "1rem", marginTop: "auto" }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-gray-500)", fontSize: "0.9rem" }}>
-                    <FiCalendar /> {item.date}
-                  </span>
-                  <Link href={`/news/${item.slug}`} style={{ textDecoration: "none", color: "var(--color-navy-blue)", display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: "bold", padding: 0 }}>
-                    Read More <FiArrowRight />
-                  </Link>
-                </div>
-              </div>
+          {newsItems.length === 0 ? (
+            <div style={{ background: "var(--color-white)", borderRadius: "var(--radius-lg)", padding: "3rem", textAlign: "center", color: "var(--color-gray-600)", boxShadow: "var(--shadow-sm)" }}>
+              No active school news or announcements published right now. Check back soon!
             </div>
-          ))}
+          ) : (
+            newsItems.map((item) => {
+              const safeCssBg = item.img.replace(/['"()\\]/g, "");
+              return (
+                <div key={item.slug} style={{ 
+                  background: "var(--color-white)", 
+                  borderRadius: "var(--radius-lg)", 
+                  overflow: "hidden",
+                  boxShadow: "var(--shadow-md)",
+                  transition: "transform 0.3s ease, box-shadow 0.3s ease",
+                  display: "flex",
+                  flexDirection: "column"
+                }} className="news-card">
+                  <div style={{ height: "200px", background: `url('${safeCssBg}') center/cover` }}></div>
+                  <div style={{ padding: "2rem", display: "flex", flexDirection: "column", flex: 1 }}>
+                    <span style={{ color: "var(--color-primary-green)", fontSize: "0.85rem", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "0.5rem" }}>
+                      {item.category}
+                    </span>
+                    <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.4rem", marginBottom: "1rem", lineHeight: 1.4 }}>{item.title}</h3>
+                    <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6, marginBottom: "1.5rem", flex: 1 }}>{item.excerpt}</p>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--color-gray-100)", paddingTop: "1rem", marginTop: "auto" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-gray-500)", fontSize: "0.9rem" }}>
+                        <FiCalendar /> {item.date}
+                      </span>
+                      <Link href={`/news/${item.slug}`} style={{ textDecoration: "none", color: "var(--color-navy-blue)", display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: "bold", padding: 0 }}>
+                        Read More <FiArrowRight />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </section>
 

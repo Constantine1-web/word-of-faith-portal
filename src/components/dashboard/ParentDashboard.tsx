@@ -261,7 +261,7 @@ export default function ParentDashboard({ session }: { session: any }) {
                     </span>
                   </div>
                   <p style={{ color: "var(--color-gray-600)", margin: "0.4rem 0 0 0", fontSize: "0.9rem" }}>
-                    Class: <strong>{currentChild.className}</strong> ({currentChild.classLevel}) &bull; Reg No: <code style={{ fontWeight: "bold" }}>{currentChild.admissionNo}</code>
+                    Class: <strong>{currentChild.className}</strong> ({currentChild.classLevel}) &bull; WOFS ID: <code style={{ fontWeight: "bold" }}>{currentChild.admissionNo}</code>
                   </p>
                   <p style={{ color: "var(--color-gray-500)", margin: "0.2rem 0 0 0", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                     <FiMail /> Form Master Contact: <strong>{currentChild.formMasterEmail}</strong>
@@ -465,7 +465,7 @@ export default function ParentDashboard({ session }: { session: any }) {
               <FiUserCheck color="var(--color-primary-green)" /> Link Student to Your Portal
             </h3>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", marginBottom: "1.5rem" }}>
-              Enter your ward's school Registration Number and Date of Birth to verify identity and link records.
+              Enter your ward&apos;s WOFS Student ID and Date of Birth to verify identity and link records.
             </p>
 
             {linkMsg && (
@@ -484,10 +484,10 @@ export default function ParentDashboard({ session }: { session: any }) {
 
             <form onSubmit={handleLinkChild} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ fontSize: "0.85rem" }}>Registration Number *</label>
+                <label className="form-label" style={{ fontSize: "0.85rem" }}>WOFS Student ID *</label>
                 <input
                   type="text"
-                  placeholder="e.g. WOF/2026/045"
+                  placeholder="e.g. WOFS-STU-2026-000001"
                   className="form-input"
                   value={admissionNo}
                   onChange={(e) => setAdmissionNo(e.target.value)}

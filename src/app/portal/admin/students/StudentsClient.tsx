@@ -35,7 +35,9 @@ import {
   FiShield,
   FiDownload,
   FiRefreshCw,
+  FiCreditCard,
 } from "react-icons/fi";
+import StudentIdCardStudio, { type StudentIdCardRecord } from "@/components/portal/StudentIdCardStudio";
 
 export default function StudentsClient({
   initialStudents,
@@ -43,6 +45,7 @@ export default function StudentsClient({
   initialVerificationRequests = [],
   initialDuplicateCases = [],
   initialSummary,
+  activeSessionName = "2026/2027",
 }: {
   initialStudents: any[];
   classes: any[];
@@ -58,6 +61,7 @@ export default function StudentsClient({
     expiredOrRevokedInvites: number;
     missingGuardianContact: number;
   };
+  activeSessionName?: string;
 }) {
   const [students, setStudents] = useState<any[]>(initialStudents);
   const [verificationRequests, setVerificationRequests] = useState<any[]>(
@@ -124,6 +128,9 @@ export default function StudentsClient({
 
   // Edit Student Record Modal State
   const [editingStudent, setEditingStudent] = useState<any | null>(null);
+
+  // Printable CR80 Student ID Card Modal State
+  const [idCardStudents, setIdCardStudents] = useState<StudentIdCardRecord[] | null>(null);
 
   // Bulk CSV Import State
   const [csvText, setCsvText] = useState("");
@@ -926,6 +933,25 @@ export default function StudentsClient({
             <div style={{ display: "flex", gap: "0.65rem", flexWrap: "wrap" }}>
               <button
                 type="button"
+                onClick={() => {
+                  if (filteredStudents.length === 0) {
+                    setBannerFeedback({
+                      type: "error",
+                      text: "No matching students in the current filter to generate ID cards for.",
+                    });
+                    return;
+                  }
+                  setIdCardStudents(filteredStudents.slice(0, 60));
+                }}
+                className="btn btn-outline"
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
+                title="Generate CR80 printable Student ID cards for the filtered students"
+              >
+                <FiCreditCard /> Batch ID Cards ({Math.min(filteredStudents.length, 60)})
+              </button>
+
+              <button
+                type="button"
                 onClick={() => openDirectMessageForStudent()}
                 className="btn btn-outline"
                 style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
@@ -1460,6 +1486,27 @@ export default function StudentsClient({
                               )}
                             </>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => setIdCardStudents([s])}
+                            title="Preview & Print CR80 Student ID Card with QR Verification"
+                            style={{
+                              background: "var(--status-purple-bg)",
+                              color: "var(--status-purple-text)",
+                              border: "1px solid var(--status-purple-border)",
+                              borderRadius: "6px",
+                              padding: "0.38rem 0.55rem",
+                              fontSize: "0.78rem",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.25rem",
+                            }}
+                          >
+                            <FiCreditCard size={13} /> ID Card
+                          </button>
 
                           <button
                             type="button"
@@ -2672,6 +2719,20 @@ export default function StudentsClient({
             </form>
           </div>
         </div>
+      )}
+
+      {/* CR80 Student ID Card Print & QR Preview Studio */}
+      {idCardStudents && idCardStudents.length > 0 && (
+        <StudentIdCardStudio
+          students={idCardStudents}
+          sessionLabel={activeSessionName}
+          onClose={() => setIdCardStudents(null)}
+          title={
+            idCardStudents.length === 1
+              ? `CR80 ID Card — ${idCardStudents[0].AdmissionNo}`
+              : `Batch CR80 ID Cards (${idCardStudents.length} Students)`
+          }
+        />
       )}
     </div>
   );

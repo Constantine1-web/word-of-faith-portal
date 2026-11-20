@@ -11,6 +11,7 @@ import {
   FiKey,
   FiShield,
   FiBookOpen,
+  FiInbox,
 } from "react-icons/fi";
 
 /** Admin Control Center sidebar contents (presentational; auth is enforced by the layout). */
@@ -252,6 +253,34 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
           }}
         >
           <FiShield /> Audit Hash Explorer
+        </Link>
+        <Link
+          href="/portal/admin/inquiries"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.85rem",
+            padding: "0.7rem 1rem",
+            color: "var(--sidebar-muted)",
+            textDecoration: "none",
+            borderRadius: "0.5rem",
+          }}
+        >
+          <FiInbox /> Contact Inquiries
+        </Link>
+        <Link
+          href="/portal/admin/news"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.85rem",
+            padding: "0.7rem 1rem",
+            color: "var(--sidebar-muted)",
+            textDecoration: "none",
+            borderRadius: "0.5rem",
+          }}
+        >
+          <FiFileText /> Public News &amp; Events
         </Link>
         <Link
           href="/portal/messages"

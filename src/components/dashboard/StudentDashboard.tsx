@@ -62,7 +62,7 @@ export default function StudentDashboard({ session }: { session: any }) {
           </p>
         </div>
         <div style={{ background: "rgba(255,255,255,0.12)", padding: "1rem 2rem", borderRadius: "var(--radius-md)", backdropFilter: "blur(10px)" }}>
-          <p style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.88)", marginBottom: "0.25rem" }}>Registration Number</p>
+          <p style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.88)", marginBottom: "0.25rem" }}>WOFS Student ID</p>
           <p style={{ fontSize: "1.5rem", fontWeight: "bold", fontFamily: "monospace", color: "#FFFFFF" }}>{profile?.admissionNo || "N/A"}</p>
         </div>
       </div>

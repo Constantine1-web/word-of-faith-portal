@@ -306,7 +306,7 @@ export default function FeesHistoryPage() {
                 <div style={{ fontWeight: 700, color: "var(--color-gray-900)" }}>{student?.fullName || student?.admissionNo}</div>
               </div>
               <div>
-                <div style={{ color: "var(--color-gray-500)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>Admission No &amp; Class</div>
+                <div style={{ color: "var(--color-gray-500)", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase" }}>WOFS Student ID &amp; Class</div>
                 <div style={{ fontWeight: 700, color: "var(--color-gray-900)" }}>{student?.admissionNo} • {student?.className}</div>
               </div>
               <div>

@@ -21,6 +21,10 @@ import {
   z,
 } from "../index";
 import { gradeFor, computeBroadsheetRankings } from "../../../server/domain/grading";
+import { computeCumulativeBroadsheet } from "../../cumulative-broadsheet";
+import { encodeQrMatrix, generateQrSvgMarkup } from "../../qr";
+import { normalizeCbtSubjectCode, parseSchoolCbtQuestionsCsv } from "../../cbt-csv";
+import { formatNewsBodyToSafeHtml, slugifyNewsTitle, validateNewsImageUrl } from "../../news-cms";
 
 async function runSecurityRegressionSuite() {
   let passed = 0;
@@ -202,7 +206,378 @@ async function runSecurityRegressionSuite() {
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/8 SECURITY REGRESSION TEST SUITES PASSED.`);
+  // 9. Annual Cumulative Broadsheet Calculation & Standing Determinism
+  {
+    const sessionTerms = [
+      { TermID: 1, SessionName: "2026/2027", TermName: "First Term" },
+      { TermID: 2, SessionName: "2026/2027", TermName: "Second Term" },
+      { TermID: 3, SessionName: "2026/2027", TermName: "Third Term" },
+    ];
+    const students = [
+      {
+        StudentID: 101,
+        AdmissionNo: "WOFS-STU-2026-000001",
+        FirstName: "Ada",
+        LastName: "Okafor",
+        EnrolmentStatus: "ACTIVE",
+        Results: [
+          { SubjectID: 10, TermID: 1, TotalScore: 80, TotalScoreTenths: 800, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+          { SubjectID: 10, TermID: 2, TotalScore: 70, TotalScoreTenths: 700, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+          { SubjectID: 10, TermID: 3, TotalScore: 90, TotalScoreTenths: 900, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+        ],
+      },
+      {
+        StudentID: 102,
+        AdmissionNo: "WOFS-STU-2026-000002",
+        FirstName: "Tunde",
+        LastName: "Bello",
+        EnrolmentStatus: "ACTIVE",
+        Results: [
+          { SubjectID: 10, TermID: 1, TotalScore: 40, TotalScoreTenths: 400, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+          { SubjectID: 10, TermID: 2, TotalScore: 45, TotalScoreTenths: 450, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+          { SubjectID: 10, TermID: 3, TotalScore: 35, TotalScoreTenths: 350, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+        ],
+      },
+      {
+        StudentID: 103,
+        AdmissionNo: "WOFS-STU-2026-000003",
+        FirstName: "Zainab",
+        LastName: "Musa",
+        EnrolmentStatus: "WITHDRAWN",
+        Results: [
+          { SubjectID: 10, TermID: 1, TotalScore: 95, TotalScoreTenths: 950, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+        ],
+      },
+    ];
+
+    const cum = computeCumulativeBroadsheet({
+      students,
+      sessionTerms,
+      classLevel: "Secondary",
+      passThresholdPct: 50,
+      divisorMode: "ENTERED_TERMS",
+    });
+
+    const ada = cum.rows.find((r) => r.studentId === 101)!;
+    const tunde = cum.rows.find((r) => r.studentId === 102)!;
+    const zainab = cum.rows.find((r) => r.studentId === 103)!;
+
+    assert.equal(ada.subjectCells[10].annualAvg, 80);
+    assert.equal(ada.annualAverage, 80);
+    assert.equal(ada.standing, "PROMOTE");
+    assert.equal(ada.position, 1);
+
+    assert.equal(tunde.subjectCells[10].annualAvg, 40);
+    assert.equal(tunde.standing, "REPEAT");
+    assert.equal(tunde.position, 2);
+
+    assert.equal(zainab.standing, "WITHDRAWN");
+    assert.equal(zainab.position, null, "Withdrawn students must not receive rank position");
+
+    // Verify ALL_SESSION_TERMS mode (divides by 3 terms even if transfer student only sat 2 terms)
+    const strictCum = computeCumulativeBroadsheet({
+      students: [
+        {
+          StudentID: 104,
+          AdmissionNo: "WOFS-STU-2026-000004",
+          FirstName: "Transfer",
+          LastName: "Pupil",
+          EnrolmentStatus: "ACTIVE",
+          Results: [
+            { SubjectID: 10, TermID: 2, TotalScore: 60, TotalScoreTenths: 600, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+            { SubjectID: 10, TermID: 3, TotalScore: 90, TotalScoreTenths: 900, Status: "ENTERED", Subject: { SubjectID: 10, SubjectName: "Mathematics" } },
+          ],
+        },
+      ],
+      sessionTerms,
+      classLevel: "Secondary",
+      passThresholdPct: 50,
+      divisorMode: "ALL_SESSION_TERMS",
+    });
+    assert.equal(strictCum.rows[0].subjectCells[10].annualAvg, 50, "(0 + 60 + 90) / 3 = 50");
+    assert.equal(strictCum.rows[0].standing, "PROMOTE");
+    passed++;
+  }
+
+  // 10. Full ISO/IEC 18004 QR Round-Trip Decode & Reed-Solomon Syndrome Verification (Versions 1..9)
+  {
+    const specs: Array<{
+      version: number;
+      ecPerBlock: number;
+      blocks: Array<[number, number]>;
+      align: number[];
+    }> = [
+      { version: 1, ecPerBlock: 10, blocks: [[1, 16]], align: [] },
+      { version: 2, ecPerBlock: 16, blocks: [[1, 28]], align: [6, 18] },
+      { version: 3, ecPerBlock: 26, blocks: [[1, 44]], align: [6, 22] },
+      { version: 4, ecPerBlock: 18, blocks: [[2, 32]], align: [6, 26] },
+      { version: 5, ecPerBlock: 24, blocks: [[2, 43]], align: [6, 30] },
+      { version: 6, ecPerBlock: 16, blocks: [[4, 27]], align: [6, 34] },
+      { version: 7, ecPerBlock: 18, blocks: [[4, 31]], align: [6, 22, 38] },
+      { version: 8, ecPerBlock: 22, blocks: [[2, 38], [2, 39]], align: [6, 24, 42] },
+      { version: 9, ecPerBlock: 22, blocks: [[3, 36], [2, 37]], align: [6, 26, 46] },
+    ];
+
+    const gfExp = new Uint8Array(512);
+    const gfLog = new Uint8Array(256);
+    for (let i = 0, x = 1; i < 255; i++) {
+      gfExp[i] = x;
+      gfLog[x] = i;
+      x <<= 1;
+      if (x & 0x100) x ^= 0x11d;
+    }
+    for (let i = 255; i < 512; i++) gfExp[i] = gfExp[i - 255];
+
+    const decodeAndVerifyQr = (payloadText: string) => {
+      const qr = encodeQrMatrix(payloadText);
+      const size = qr.size;
+      const version = (size - 17) / 4;
+      const spec = specs.find((s) => s.version === version);
+      assert.ok(spec, `Unsupported decoded version ${version}`);
+
+      // Verify finder corners & dark module
+      assert.equal(qr.modules[0][0], true);
+      assert.equal(qr.modules[3][3], true);
+      assert.equal(qr.modules[size - 8][8], true);
+
+      // Extract & verify Copy 1 vs Copy 2 Format bits + BCH syndrome
+      const copy1 = [
+        qr.modules[8][0], qr.modules[8][1], qr.modules[8][2], qr.modules[8][3],
+        qr.modules[8][4], qr.modules[8][5], qr.modules[8][7], qr.modules[8][8],
+        qr.modules[7][8], qr.modules[5][8], qr.modules[4][8], qr.modules[3][8],
+        qr.modules[2][8], qr.modules[1][8], qr.modules[0][8],
+      ];
+      const copy2 = [
+        qr.modules[size - 1][8], qr.modules[size - 2][8], qr.modules[size - 3][8],
+        qr.modules[size - 4][8], qr.modules[size - 5][8], qr.modules[size - 6][8],
+        qr.modules[size - 7][8],
+        qr.modules[8][size - 8], qr.modules[8][size - 7], qr.modules[8][size - 6],
+        qr.modules[8][size - 5], qr.modules[8][size - 4], qr.modules[8][size - 3],
+        qr.modules[8][size - 2], qr.modules[8][size - 1],
+      ];
+      assert.deepEqual(copy1, copy2, "Format info copy 1 and copy 2 must match bit-for-bit");
+
+      let rawFmt = 0;
+      for (const bit of copy1) rawFmt = (rawFmt << 1) | (bit ? 1 : 0);
+      const unmaskedFmt = rawFmt ^ 0b101010000010010;
+      let fmtCheck = unmaskedFmt;
+      for (let b = 14; b >= 10; b--) {
+        if ((fmtCheck >> b) & 1) fmtCheck ^= 0b10100110111 << (b - 10);
+      }
+      assert.equal(fmtCheck, 0, "Format BCH(15,5) syndrome must equal 0");
+
+      const ecBits = (unmaskedFmt >> 13) & 0x3;
+      const maskId = (unmaskedFmt >> 10) & 0x7;
+      assert.equal(ecBits, 0, "EC Level M must be 0b00");
+
+      // Reconstruct function mask grid
+      const isFunc = Array.from({ length: size }, () => new Uint8Array(size));
+      for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) isFunc[r][c] = 1;
+      for (let r = 0; r < 9; r++) for (let c = size - 8; c < size; c++) isFunc[r][c] = 1;
+      for (let r = size - 8; r < size; r++) for (let c = 0; c < 9; c++) isFunc[r][c] = 1;
+      for (let i = 8; i < size - 8; i++) {
+        isFunc[6][i] = 1;
+        isFunc[i][6] = 1;
+      }
+      for (let i = 0; i < spec.align.length; i++) {
+        for (let j = 0; j < spec.align.length; j++) {
+          const last = spec.align.length - 1;
+          if ((i === 0 && j === 0) || (i === 0 && j === last) || (i === last && j === 0)) continue;
+          const cr = spec.align[i];
+          const cc = spec.align[j];
+          for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) isFunc[cr + dr][cc + dc] = 1;
+        }
+      }
+      if (version >= 7) {
+        for (let a = 0; a < 6; a++) {
+          for (let b = size - 11; b < size - 8; b++) {
+            isFunc[a][b] = 1;
+            isFunc[b][a] = 1;
+          }
+        }
+      }
+
+      const maskCond = (r: number, c: number) => {
+        switch (maskId) {
+          case 0: return (r + c) % 2 === 0;
+          case 1: return r % 2 === 0;
+          case 2: return c % 3 === 0;
+          case 3: return (r + c) % 3 === 0;
+          case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
+          case 5: return ((r * c) % 2) + ((r * c) % 3) === 0;
+          case 6: return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0;
+          default: return (((r + c) % 2) + ((r * c ? 0 : 0))) % 2 === 0 || (((r + c) % 2) + ((r * c) % 3)) % 2 === 0;
+        }
+      };
+
+      // Extract data bits in reverse zigzag
+      const streamBits: number[] = [];
+      let upward = true;
+      for (let rightCol = size - 1; rightCol >= 1; rightCol -= 2) {
+        if (rightCol === 6) rightCol = 5;
+        for (let step = 0; step < size; step++) {
+          const r = upward ? size - 1 - step : step;
+          for (let dc = 0; dc < 2; dc++) {
+            const c = rightCol - dc;
+            if (isFunc[r][c]) continue;
+            const rawBit = qr.modules[r][c];
+            const unmasked = maskCond(r, c) ? !rawBit : rawBit;
+            streamBits.push(unmasked ? 1 : 0);
+          }
+        }
+        upward = !upward;
+      }
+
+      const totalCodewords =
+        spec.blocks.reduce((acc, [cnt, len]) => acc + cnt * (len + spec.ecPerBlock), 0);
+      const codewords: number[] = [];
+      for (let i = 0; i < totalCodewords; i++) {
+        let cw = 0;
+        for (let b = 0; b < 8; b++) cw = (cw << 1) | streamBits[i * 8 + b];
+        codewords.push(cw);
+      }
+
+      // De-interleave blocks & check ALL Reed-Solomon EC syndromes in GF(256)
+      const dataBlocks: number[][] = [];
+      const ecBlocks: number[][] = [];
+      for (const [cnt, len] of spec.blocks) {
+        for (let k = 0; k < cnt; k++) {
+          dataBlocks.push(new Array(len));
+          ecBlocks.push(new Array(spec.ecPerBlock));
+        }
+      }
+      const maxDataLen = Math.max(...dataBlocks.map((b) => b.length));
+      let idx = 0;
+      for (let i = 0; i < maxDataLen; i++) {
+        for (const blk of dataBlocks) {
+          if (i < blk.length) blk[i] = codewords[idx++];
+        }
+      }
+      for (let i = 0; i < spec.ecPerBlock; i++) {
+        for (const blk of ecBlocks) blk[i] = codewords[idx++];
+      }
+
+      for (let bIdx = 0; bIdx < dataBlocks.length; bIdx++) {
+        const fullBlock = [...dataBlocks[bIdx], ...ecBlocks[bIdx]];
+        for (let root = 0; root < spec.ecPerBlock; root++) {
+          let evalVal = 0;
+          const alpha = gfExp[root];
+          for (const coeff of fullBlock) {
+            evalVal = (evalVal === 0 ? 0 : gfExp[gfLog[evalVal] + gfLog[alpha]]) ^ coeff;
+          }
+          assert.equal(evalVal, 0, `RS syndrome[${root}] on V${version} block ${bIdx} must equal 0`);
+        }
+      }
+
+      const dataBits: number[] = [];
+      for (const blk of dataBlocks) {
+        for (const cw of blk) {
+          for (let b = 7; b >= 0; b--) dataBits.push((cw >> b) & 1);
+        }
+      }
+
+      const readBits = (pos: number, count: number) => {
+        let v = 0;
+        for (let i = 0; i < count; i++) v = (v << 1) | dataBits[pos + i];
+        return v;
+      };
+
+      const mode = readBits(0, 4);
+      const byteLen = readBits(4, 8);
+      assert.equal(mode, 0b0100, "Must use Byte mode (0100)");
+      const outBytes = new Uint8Array(byteLen);
+      for (let i = 0; i < byteLen; i++) outBytes[i] = readBits(12 + i * 8, 8);
+      const decodedText = new TextDecoder().decode(outBytes);
+      assert.equal(decodedText, payloadText, `QR decode mismatch for V${version}`);
+    };
+
+    const testPayloads = [
+      "WOFS-001", // V1
+      "https://wofs.sch.ng/v/001", // V2
+      "https://wofs.vercel.app/verify/student/1", // V3
+      "https://wofs.vercel.app/verify/student/WOFS-STU-2026-000001", // V4
+      "https://portal.wordoffaithschools.edu.ng/verify/student/WOFS-STU-2026-000001", // V5
+      "https://portal.wordoffaithschools.edu.ng/verify/student/WOFS-STU-2026-000001?campus=main-senior", // V6
+      "https://portal.wordoffaithschools.edu.ng/verify/student/WOFS-STU-2026-000001?campus=main-senior&arm=gold", // V7
+      "https://portal.wordoffaithschools.edu.ng/verify/student/WOFS-STU-2026-000001?campus=main-senior&arm=gold&session=2026-2027", // V8
+      "https://portal.wordoffaithschools.edu.ng/verify/student/WOFS-STU-2026-000001?campus=main-senior&arm=gold&session=2026-2027&term=third-term-final", // V9
+    ];
+
+    for (const p of testPayloads) {
+      decodeAndVerifyQr(p);
+    }
+
+    const svg = generateQrSvgMarkup(testPayloads[3]);
+    assert.equal(svg.pathD.startsWith("M"), true);
+    passed++;
+  }
+
+  // 11. School-Internal CBT CSV Parser & Subject Normalization (Option C)
+  {
+    assert.equal(normalizeCbtSubjectCode("Basic Science & Tech!"), "basicsciencetech");
+    assert.equal(normalizeCbtSubjectCode("computer-studies"), "computerstudies");
+
+    const bomCsv =
+      "\uFEFFsubjectCode,examBody,topic,stem,optionA,optionB,optionC,optionD,correctKey,explanation\r\n" +
+      'Basic Science,school-internal,"Matter, Energy","What is the chemical symbol for Water, ""H2O""?",H2,H2O,O2,CO2,B,"Contains two hydrogen atoms"\r\n' +
+      "computerstudies,,Hardware,Bad,OptA,OptB,OptC,OptD,Z,Too short\r\n" +
+      ",SCHOOL_INTERNAL,Grammar,Choose the correct verb for the sentence below.,go,goes,going,gone,b,Singular subject agreement\r\n";
+
+    const parsed = parseSchoolCbtQuestionsCsv(bomCsv, {
+      subjectCode: "english",
+      examBody: "SCHOOL_INTERNAL",
+    });
+
+    assert.equal(parsed.validRows.length, 2, "Should accept 2 valid rows and reject invalid row 3");
+    assert.equal(parsed.errors.length, 1, "Row 3 should report validation failure");
+    assert.equal(parsed.errors[0].rowNumber, 3);
+    assert.equal(parsed.validRows[0].subjectCode, "basicscience");
+    assert.equal(parsed.validRows[0].examBody, "SCHOOL_INTERNAL");
+    assert.equal(parsed.validRows[0].correctKey, "b");
+    assert.equal(
+      parsed.validRows[0].stem,
+      'What is the chemical symbol for Water, "H2O"?'
+    );
+    assert.equal(parsed.validRows[1].subjectCode, "english", "Missing subject falls back to default");
+
+    const missingHeader = parseSchoolCbtQuestionsCsv("topic,stem\r\nMath,Hello world");
+    assert.equal(missingHeader.validRows.length, 0);
+    assert.equal(missingHeader.errors.length, 1);
+    passed++;
+  }
+
+  // 12. Public News CMS Safe HTML, Slugification & Image URL Validation (Option D)
+  {
+    assert.equal(
+      slugifyNewsTitle("2026/2027 Resumption & Inter-House Sports!!"),
+      "2026-2027-resumption-inter-house-sports"
+    );
+
+    assert.equal(validateNewsImageUrl("/images/school-bg.jpg"), "/images/school-bg.jpg");
+    assert.equal(validateNewsImageUrl("https://cdn.wordoffaith.edu.ng/banner.jpg"), "https://cdn.wordoffaith.edu.ng/banner.jpg");
+    assert.equal(validateNewsImageUrl("//evil.example.com/payload.jpg"), "/images/school-bg.jpg");
+    assert.equal(validateNewsImageUrl("javascript:alert(1)"), "/images/school-bg.jpg");
+    assert.equal(validateNewsImageUrl("data:text/html,<script>alert(1)</script>"), "/images/school-bg.jpg");
+
+    const safeHtml = formatNewsBodyToSafeHtml(
+      "## Notice <script>alert('xss')</script>\n- Bring **ID cards** & uniforms\nPlease arrive by 7:45am <img src=x onerror=alert(1)>."
+    );
+    assert.equal(safeHtml.includes("<script>"), false, "Raw script tags must be escaped");
+    assert.equal(safeHtml.includes("&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"), true);
+    assert.equal(safeHtml.includes("<img src="), false, "Raw img tag must be escaped");
+    assert.equal(safeHtml.includes("<h3>Notice "), true);
+    assert.equal(
+      safeHtml.includes("<ul>\n<li>Bring <strong>ID cards</strong> &amp; uniforms</li>\n</ul>"),
+      true
+    );
+    assert.equal(
+      safeHtml.includes("<p>Please arrive by 7:45am &lt;img src=x onerror=alert(1)&gt;.</p>"),
+      true
+    );
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/12 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {
