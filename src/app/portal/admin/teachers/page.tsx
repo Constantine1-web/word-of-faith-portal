@@ -74,7 +74,7 @@ export default async function AdminTeachersPage() {
             Teacher Enrollment &amp; Subject Allocation Hub
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            Enroll new academic staff, designate Form Masters, and allocate Subject + Class Arms in one unified workspace. Active Period:{" "}
+            Add new teaching staff, assign Class Teachers, and assign subjects to classes in one place. Active Term:{" "}
             <strong>{activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "No active term"}</strong>
           </p>
         </div>

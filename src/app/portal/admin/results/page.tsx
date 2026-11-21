@@ -79,10 +79,10 @@ export default async function AdminResultsPage() {
       >
         <div>
           <h1 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.75rem" }}>
-            Examination Broadsheets & Publication
+            Class Result Sheets &amp; Publication
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            Review Form Master compilations, print official class broadsheets, and release terminal results.
+            Review Class Teacher compilations, print class result sheets, and publish term results.
           </p>
         </div>
       </div>

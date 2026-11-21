@@ -112,7 +112,7 @@ export async function markAttendance(
                     <p style="margin: 0; color: #b91c1c; font-weight: bold;">Status: ABSENT</p>
                     ${safeNotes ? `<p style="margin: 8px 0 0 0; font-style: italic; color: #6b7280;"><strong>Teacher's Note:</strong> ${safeNotes}</p>` : ""}
                   </div>
-                  <p style="font-size: 14px; color: #4b5563;">If this absence is unexcused or if you have any questions, please contact the class form master or the school administrative desk.</p>
+                  <p style="font-size: 14px; color: #4b5563;">If this absence is unexcused or if you have any questions, please contact the class teacher or the school office.</p>
                   <p style="margin-bottom: 0;">Warm regards,<br/><strong>School Administration Desk</strong><br/>Word of Faith Group of Schools</p>
                 </div>
               </div>

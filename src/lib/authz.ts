@@ -378,7 +378,7 @@ export async function assertFormMasterAssigned(classId: number) {
 
   if (cls.FormMasterID !== user.UserID && !isSupervisor) {
     throw new AuthorizationError(
-      "IDOR Security Violation: You are not the designated Form Master for this class arm.",
+      "Access denied: You are not the assigned Class Teacher for this class.",
       403
     );
   }

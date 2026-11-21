@@ -20,9 +20,6 @@ import {
   createCustomCbtQuestion,
   getTeacherCustomCbtQuestions,
   deleteCustomCbtQuestion,
-  publishCourseMaterial,
-  getCourseMaterials,
-  deleteCourseMaterial,
 } from "@/app/actions/elearning";
 import { SUBJECTS, EXAM_TYPES } from "@/lib/cbt-constants";
 import { calculateGrade } from "@/lib/grading";
@@ -46,10 +43,18 @@ import {
   FiCpu,
   FiPlus,
   FiTrash2,
-  FiFileText,
 } from "react-icons/fi";
 
-const VALID_TEACHER_TABS = new Set(["subject-scores", "form-master-hub", "attendance-hub", "elearning-studio"]);
+type TeacherTab = "subject-scores" | "class-teacher-hub" | "attendance-hub" | "elearning-studio";
+
+function normalizeTeacherTab(tab?: string | null): TeacherTab | null {
+  if (!tab) return null;
+  if (tab === "form-master-hub" || tab === "class-teacher-hub") return "class-teacher-hub";
+  if (tab === "subject-scores" || tab === "attendance-hub" || tab === "elearning-studio") {
+    return tab;
+  }
+  return null;
+}
 
 export default function TeacherDashboard({
   teacherId,
@@ -65,20 +70,21 @@ export default function TeacherDashboard({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Tab State: "subject-scores" vs "form-master-hub" vs "attendance-hub" vs "elearning-studio"
-  const [activeTab, setActiveTab] = useState<"subject-scores" | "form-master-hub" | "attendance-hub" | "elearning-studio">(
-    initialTab && VALID_TEACHER_TABS.has(initialTab)
-      ? (initialTab as "subject-scores" | "form-master-hub" | "attendance-hub" | "elearning-studio")
-      : "subject-scores"
+  // Tab State: "subject-scores" vs "class-teacher-hub" vs "attendance-hub" vs "elearning-studio"
+  const [activeTab, setActiveTab] = useState<TeacherTab>(
+    normalizeTeacherTab(initialTab) || "subject-scores"
   );
 
   useEffect(() => {
-    if (initialTab && VALID_TEACHER_TABS.has(initialTab)) {
-      setActiveTab(initialTab as any);
+    const normalizedInitial = normalizeTeacherTab(initialTab);
+    if (normalizedInitial) {
+      setActiveTab(normalizedInitial);
     } else if (typeof window !== "undefined") {
-      const urlTab = new URLSearchParams(window.location.search).get("tab");
-      if (urlTab && VALID_TEACHER_TABS.has(urlTab)) {
-        setActiveTab(urlTab as any);
+      const normalizedUrl = normalizeTeacherTab(
+        new URLSearchParams(window.location.search).get("tab")
+      );
+      if (normalizedUrl) {
+        setActiveTab(normalizedUrl);
       }
     }
   }, [initialTab]);
@@ -130,9 +136,8 @@ export default function TeacherDashboard({
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [savingAttendance, setSavingAttendance] = useState(false);
 
-  // Track A & B: Custom CBT Questions & Course Materials Studio State
+  // Track A: Custom CBT Questions Builder State
   const [customQuestions, setCustomQuestions] = useState<any[]>([]);
-  const [courseMaterials, setCourseMaterials] = useState<any[]>([]);
   const [qSubject, setQSubject] = useState<string>(SUBJECTS[0]);
   const [qExamBody, setQExamBody] = useState<string>(EXAM_TYPES[0]);
   const [qTopic, setQTopic] = useState<string>("");
@@ -145,22 +150,9 @@ export default function TeacherDashboard({
   const [qExplanation, setQExplanation] = useState<string>("");
   const [savingQuestion, setSavingQuestion] = useState(false);
 
-  const [mCategory, setMCategory] = useState<"Lesson Note" | "Homework Assignment" | "Revision Summary">("Lesson Note");
-  const [mSubjectName, setMSubjectName] = useState<string>("Mathematics");
-  const [mClassName, setMClassName] = useState<string>("All Assigned Classes");
-  const [mWeekLabel, setMWeekLabel] = useState<string>("Week 4");
-  const [mDueDate, setMDueDate] = useState<string>("");
-  const [mTitle, setMTitle] = useState<string>("");
-  const [mContent, setMContent] = useState<string>("");
-  const [savingMaterial, setSavingMaterial] = useState(false);
-
   const loadElearningStudio = async () => {
-    const [qRes, mRes] = await Promise.all([
-      getTeacherCustomCbtQuestions(),
-      getCourseMaterials(),
-    ]);
+    const qRes = await getTeacherCustomCbtQuestions();
     if (qRes.success) setCustomQuestions(qRes.questions || []);
-    if (mRes.success) setCourseMaterials(mRes.materials || []);
   };
 
   const loadData = async () => {
@@ -170,10 +162,6 @@ export default function TeacherDashboard({
       setDashboardData(res);
       if (res.subjectAllocations.length > 0 && !selectedAllocationId) {
         setSelectedAllocationId(res.subjectAllocations[0].id.toString());
-        const firstSub = res.subjectAllocations[0]?.Subject?.SubjectName;
-        const firstCls = res.subjectAllocations[0]?.Class?.ClassName;
-        if (firstSub) setMSubjectName(firstSub);
-        if (firstCls) setMClassName(firstCls);
       }
     } else {
       setError(res.error || "Failed to load dashboard data");
@@ -220,39 +208,6 @@ export default function TeacherDashboard({
 
   const handleDeleteCustomQuestion = async (questionId: string) => {
     const res = await deleteCustomCbtQuestion(questionId);
-    if (res.success) {
-      await loadElearningStudio();
-    }
-  };
-
-  const handlePublishMaterial = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingMaterial(true);
-    setError("");
-    setSuccess("");
-    const res = await publishCourseMaterial({
-      subjectName: mSubjectName,
-      className: mClassName,
-      category: mCategory,
-      weekLabel: mWeekLabel,
-      dueDate: mDueDate || undefined,
-      title: mTitle,
-      content: mContent,
-    });
-    if (res.success) {
-      setSuccess(`✅ ${mCategory} published to the Student Lesson Notes & Homework Hub!`);
-      setMTitle("");
-      setMContent("");
-      await loadElearningStudio();
-    } else {
-      setError(res.error || "Failed to publish material.");
-    }
-    setSavingMaterial(false);
-  };
-
-  const handleDeleteMaterial = async (materialId: string) => {
-    if (String(materialId).startsWith("starter-")) return;
-    const res = await deleteCourseMaterial(materialId);
     if (res.success) {
       await loadElearningStudio();
     }
@@ -327,7 +282,7 @@ export default function TeacherDashboard({
 
   const handleRequestUnlock = async () => {
     if (!selectedAllocation || !dashboardData?.activeTerm) return;
-    const reason = prompt("Enter reason for requesting sheet unlock (Two-Person Rule - requires Form Master or Principal approval):");
+    const reason = prompt("Enter a reason for requesting a score-sheet unlock (requires Class Teacher or Principal approval):");
     if (!reason || reason.trim().length < 5) return;
 
     setSavingScores(true);
@@ -340,7 +295,7 @@ export default function TeacherDashboard({
       reason.trim()
     );
     if (res.success) {
-      setSuccess("Unlock request logged and sent to Form Master / Principal for second-person approval.");
+      setSuccess("Unlock request sent to the Class Teacher and Principal for approval.");
     } else {
       setError(res.error || "Failed to request sheet unlock");
     }
@@ -508,7 +463,7 @@ export default function TeacherDashboard({
     });
     setShowCbtSyncModal(false);
     setSuccess(
-      `✅ Populated CA scores for ${updatedCount} student(s) from completed CBT tests (scaled out of ${cbtSyncPreview.maxCaWeight}). Review and click "Save Draft" or "Submit to Form Master".`
+      `✅ Populated CA scores for ${updatedCount} student(s) from completed CBT tests (scaled out of ${cbtSyncPreview.maxCaWeight}). Review and click "Save Draft" or "Submit to Class Teacher".`
     );
   };
 
@@ -517,7 +472,7 @@ export default function TeacherDashboard({
 
     const classArmName = selectedAllocation.Class?.ClassName;
     const subjectName = selectedAllocation.Subject?.SubjectName;
-    const formMasterName = selectedAllocation.Class?.FormMaster?.Email || "the designated Form Master";
+    const formMasterName = selectedAllocation.Class?.FormMaster?.Email || "the assigned Class Teacher";
 
     if (!confirm(`Are you ready to submit final scores for ${subjectName} in ${classArmName} to ${formMasterName}?`)) return;
 
@@ -539,7 +494,7 @@ export default function TeacherDashboard({
       scores: payload
     });
 
-    // 2. Submit to Form Master
+    // 2. Submit to Class Teacher
     const res = await submitSubjectToFormMaster(
       selectedAllocation.SubjectID,
       selectedAllocation.ClassID,
@@ -548,9 +503,9 @@ export default function TeacherDashboard({
 
     if (res.success) {
       setIsSubjectSubmitted(true);
-      setSuccess(`Results for ${subjectName} submitted to Form Master successfully!`);
+      setSuccess(`Results for ${subjectName} submitted to Class Teacher successfully!`);
     } else {
-      setError(res.error || "Failed to submit to Form Master");
+      setError(res.error || "Failed to submit to Class Teacher");
     }
     setSavingScores(false);
   };
@@ -712,13 +667,13 @@ export default function TeacherDashboard({
             {dashboardData?.activeTerm?.SessionName} — {dashboardData?.activeTerm?.TermName}
           </h2>
           <p style={{ margin: "0.25rem 0 0 0", color: "#f1f5f9", fontSize: "0.9rem" }}>
-            Record Continuous Assessment (CA), Examination grades, Daily Attendance, and Form Master remarks.
+            Record Continuous Assessment (CA), Exam scores, Daily Attendance, and Class Teacher remarks.
           </p>
         </div>
 
         {dashboardData?.isFormMaster && (
           <div style={{ background: "rgba(0, 0, 0, 0.35)", padding: "0.5rem 1rem", borderRadius: "var(--radius-md)", border: "1px solid rgba(255, 255, 255, 0.3)" }}>
-            <span style={{ color: "#86efac", fontWeight: "bold", fontSize: "0.85rem" }}>⭐ DESIGNATED FORM MASTER</span>
+            <span style={{ color: "#86efac", fontWeight: "bold", fontSize: "0.85rem" }}>⭐ ASSIGNED CLASS TEACHER</span>
             <div style={{ fontSize: "0.9rem", color: "white", fontWeight: "bold" }}>
               {dashboardData.formMasterClasses.map((c: any) => c.ClassName).join(", ")}
             </div>
@@ -744,27 +699,27 @@ export default function TeacherDashboard({
             gap: "0.5rem"
           }}
         >
-          <FiBookOpen /> Subject Score Assembly ({dashboardData?.subjectAllocations?.length || 0} Arms)
+          <FiBookOpen /> Enter Subject Scores ({dashboardData?.subjectAllocations?.length || 0} Classes)
         </button>
 
         {dashboardData?.isFormMaster && (
           <button
-            onClick={() => setActiveTab("form-master-hub")}
+            onClick={() => setActiveTab("class-teacher-hub")}
             style={{
               background: "none",
               border: "none",
               padding: "0.75rem 1rem",
               fontSize: "1.02rem",
               fontWeight: "bold",
-              color: activeTab === "form-master-hub" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
-              borderBottom: activeTab === "form-master-hub" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
+              color: activeTab === "class-teacher-hub" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
+              borderBottom: activeTab === "class-teacher-hub" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               gap: "0.5rem"
             }}
           >
-            <FiUserCheck /> My Class Compilation (Form Master Hub)
+            <FiUserCheck /> Class Teacher Hub
           </button>
         )}
 
@@ -803,7 +758,7 @@ export default function TeacherDashboard({
             gap: "0.5rem"
           }}
         >
-          <FiCpu /> CBT Quiz &amp; Lesson Notes Studio
+          <FiCpu /> Custom CBT Quiz Builder
         </button>
       </div>
 
@@ -853,7 +808,7 @@ export default function TeacherDashboard({
                     </span>
                   </div>
                   <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", margin: "0.25rem 0 0 0" }}>
-                    Form Master for this Class: <strong>{selectedAllocation.Class?.FormMaster?.Email || "Not yet assigned"}</strong>
+                    Class Teacher for this Class: <strong>{selectedAllocation.Class?.FormMaster?.Email || "Not yet assigned"}</strong>
                   </p>
                 </div>
 
@@ -864,7 +819,7 @@ export default function TeacherDashboard({
                     disabled={savingScores}
                     className="btn btn-outline"
                     style={{ padding: "0.4rem 0.75rem", fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
-                    title="Download locked class roster CSV template (Section B.4.3)"
+                    title="Download class list CSV template"
                   >
                     <FiDownload /> Template CSV
                   </button>
@@ -880,9 +835,9 @@ export default function TeacherDashboard({
                         gap: "0.3rem",
                         cursor: "pointer",
                       }}
-                      title="Upload CSV into staging preview before committing (Section B.4.3)"
+                      title="Upload a CSV file to preview scores before saving"
                     >
-                      <FiUploadCloud /> Stage Import CSV
+                      <FiUploadCloud /> Import CSV
                       <input
                         type="file"
                         accept=".csv"
@@ -914,7 +869,7 @@ export default function TeacherDashboard({
 
                   {isSubjectSubmitted ? (
                     <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                      <FiCheckCircle /> Submitted to Form Master
+                      <FiCheckCircle /> Submitted to Class Teacher
                     </span>
                   ) : (
                     <span style={{ background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)", padding: "0.4rem 0.8rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold", display: "flex", alignItems: "center", gap: "0.35rem" }}>
@@ -1125,7 +1080,7 @@ export default function TeacherDashboard({
                     className="btn btn-primary"
                     style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
                   >
-                    <FiSend /> {isSubjectSubmitted ? "Submitted to Form Master" : "Submit to Form Master"}
+                    <FiSend /> {isSubjectSubmitted ? "Submitted to Class Teacher" : "Submit to Class Teacher"}
                   </button>
                 </div>
               </div>
@@ -1135,9 +1090,9 @@ export default function TeacherDashboard({
       )}
 
       {/* ========================================================================= */}
-      {/* MODE 2: FORM MASTER COMPILATION & REMARKS HUB */}
+      {/* MODE 2: CLASS TEACHER COMPILATION & REMARKS HUB */}
       {/* ========================================================================= */}
-      {activeTab === "form-master-hub" && dashboardData?.isFormMaster && (
+      {activeTab === "class-teacher-hub" && dashboardData?.isFormMaster && (
         <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
           {dashboardData.formMasterClasses.map((cls: any) => {
             const totalAssignedSubjects = cls.TeacherMaps?.length || 0;
@@ -1160,14 +1115,14 @@ export default function TeacherDashboard({
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                       <h2 style={{ color: "var(--color-navy-blue)", margin: 0 }}>
-                        {cls.ClassName} — Form Master Review
+                        {cls.ClassName} — Class Teacher Review
                       </h2>
                       <span style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
                         {cls.Students?.length || 0} Students Enrolled
                       </span>
                     </div>
                     <p style={{ color: "var(--color-gray-500)", margin: "0.25rem 0 0 0", fontSize: "0.9rem" }}>
-                      Review subject score submissions from subject teachers, enter Form Master remarks, and submit for final publication.
+                      Review subject scores submitted by teachers, add Class Teacher remarks, and send to Admin for publishing.
                     </p>
                   </div>
 
@@ -1198,7 +1153,7 @@ export default function TeacherDashboard({
                       className="btn btn-outline"
                       style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
                     >
-                      <FiPrinter /> Print Official Broadsheet
+                      <FiPrinter /> Print Class Result Sheet
                     </Link>
 
                     <button
@@ -1267,7 +1222,7 @@ export default function TeacherDashboard({
 
                 {/* Students Review & Remarks Roster */}
                 <h4 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>
-                  Student Performance & Form Master Remarks
+                  Student Performance &amp; Class Teacher Remarks
                 </h4>
 
                 <div style={{ overflowX: "auto" }}>
@@ -1278,7 +1233,7 @@ export default function TeacherDashboard({
                         <th style={{ padding: "1rem", textAlign: "left" }}>Student Name</th>
                         <th style={{ padding: "1rem", textAlign: "center" }}>Subjects Taken</th>
                         <th style={{ padding: "1rem", textAlign: "center" }}>Total Score</th>
-                        <th style={{ padding: "1rem", textAlign: "left" }}>Form Master Remark</th>
+                        <th style={{ padding: "1rem", textAlign: "left" }}>Class Teacher Remark</th>
                         <th style={{ padding: "1rem", textAlign: "right" }}>Actions</th>
                       </tr>
                     </thead>
@@ -1515,17 +1470,11 @@ export default function TeacherDashboard({
       )}
 
       {/* ========================================================================= */}
-      {/* MODE 4: CBT QUIZ & LESSON NOTES STUDIO (TRACKS A & B)                     */}
+      {/* MODE 4: CUSTOM CBT QUESTION AUTHORING (TRACK A)                           */}
       {/* ========================================================================= */}
       {activeTab === "elearning-studio" && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))",
-            gap: "1.5rem",
-          }}
-        >
-          {/* Left Column: Track A — Author Custom CBT Objective Questions */}
+        <div style={{ maxWidth: "820px" }}>
+          {/* Custom CBT Objective Question Authoring */}
           <div
             style={{
               background: "var(--color-white)",
@@ -1695,176 +1644,6 @@ export default function TeacherDashboard({
               )}
             </div>
           </div>
-
-          {/* Right Column: Track B — Digital Lesson Notes, Study Materials & Homework Hub */}
-          <div
-            style={{
-              background: "var(--color-white)",
-              borderRadius: "var(--radius-lg)",
-              padding: "1.5rem",
-              border: "1px solid var(--color-gray-200)",
-              boxShadow: "var(--shadow-sm)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
-              <h3 style={{ color: "var(--color-navy-blue)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <FiFileText color="var(--color-primary-green)" /> Lesson Notes &amp; Homework Publisher
-              </h3>
-              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "var(--status-info-bg)", color: "var(--status-info-text)", border: "1px solid var(--status-info-border)", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
-                {courseMaterials.length} Active Resources
-              </span>
-            </div>
-            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-              Publish weekly lesson notes, revision summaries, and take-home homework directly to your pupils and students.
-            </p>
-
-            <form onSubmit={handlePublishMaterial} style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                <div>
-                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Material Type</label>
-                  <select className="form-input" value={mCategory} onChange={(e) => setMCategory(e.target.value as any)}>
-                    <option value="Lesson Note">Lesson Note</option>
-                    <option value="Homework Assignment">Homework Assignment</option>
-                    <option value="Revision Summary">Revision Summary</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Week / Module Label</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Week 4 · First Term"
-                    value={mWeekLabel}
-                    onChange={(e) => setMWeekLabel(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                <div>
-                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Subject Name</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={mSubjectName}
-                    onChange={(e) => setMSubjectName(e.target.value)}
-                    placeholder="e.g. Mathematics"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Target Class Arm</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={mClassName}
-                    onChange={(e) => setMClassName(e.target.value)}
-                    placeholder="e.g. SS2 Gold / All Arms"
-                    required
-                  />
-                </div>
-              </div>
-
-              {mCategory === "Homework Assignment" && (
-                <div>
-                  <label className="form-label" style={{ fontSize: "0.8rem" }}>Submission Due Date</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={mDueDate}
-                    onChange={(e) => setMDueDate(e.target.value)}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="form-label" style={{ fontSize: "0.8rem" }}>Topic / Assignment Title *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Week 4 Lesson Note: Laws of Indices & Logarithms"
-                  value={mTitle}
-                  onChange={(e) => setMTitle(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="form-label" style={{ fontSize: "0.8rem" }}>Full Study Note / Assignment Content *</label>
-                <textarea
-                  className="form-input"
-                  rows={5}
-                  placeholder="Write detailed study notes, worked examples, formulas, or homework questions..."
-                  value={mContent}
-                  onChange={(e) => setMContent(e.target.value)}
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={savingMaterial}
-                className="btn btn-primary"
-                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
-              >
-                <FiPlus /> {savingMaterial ? "Publishing..." : `Publish ${mCategory} to Student Portal`}
-              </button>
-            </form>
-
-            {/* Published Course Materials List */}
-            <div style={{ marginTop: "1.5rem", borderTop: "1px solid var(--border-primary)", paddingTop: "1rem" }}>
-              <h4 style={{ margin: "0 0 0.75rem 0", fontSize: "0.9rem", color: "var(--text-heading)" }}>
-                Published Lesson Notes &amp; Assignments ({courseMaterials.length})
-              </h4>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", maxHeight: "280px", overflowY: "auto" }}>
-                {courseMaterials.map((mat: any) => (
-                  <div
-                    key={mat.id}
-                    style={{
-                      padding: "0.75rem",
-                      borderRadius: "8px",
-                      background: "var(--bg-secondary)",
-                      border: "1px solid var(--border-primary)",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: "0.5rem",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--status-info-text)", textTransform: "uppercase" }}>
-                        {mat.category} · {mat.subjectName} · {mat.weekLabel}
-                      </div>
-                      <div style={{ fontSize: "0.86rem", color: "var(--text-heading)", fontWeight: 700, marginTop: "0.15rem" }}>
-                        {mat.title}
-                      </div>
-                      <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
-                        Target: {mat.className} {mat.dueDate ? `· Due: ${mat.dueDate}` : ""}
-                      </div>
-                    </div>
-                    {!String(mat.id).startsWith("starter-") && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteMaterial(mat.id)}
-                        style={{
-                          background: "var(--status-error-bg)",
-                          color: "var(--status-error-text)",
-                          border: "1px solid var(--status-error-border)",
-                          borderRadius: "6px",
-                          padding: "0.35rem 0.5rem",
-                          cursor: "pointer",
-                        }}
-                        title="Remove Material"
-                      >
-                        <FiTrash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -1873,7 +1652,7 @@ export default function TeacherDashboard({
         <div className="portal-modal-overlay">
           <div className="portal-modal-card" style={{ padding: "clamp(1rem, 3vw, 2rem)", maxWidth: "620px" }}>
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.25rem" }}>
-              Form Master Assessment, Affective &amp; Psychomotor Ratings
+              Class Teacher Remarks &amp; Conduct Ratings
             </h3>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
               Evaluating <strong>{selectedStudentForRemark.PreferredName || selectedStudentForRemark.AdmissionNo}</strong> ({selectedStudentForRemark.AdmissionNo})
@@ -1881,7 +1660,7 @@ export default function TeacherDashboard({
 
             <form onSubmit={handleSaveFormMasterRemark}>
               <div className="form-group">
-                <label className="form-label">Form Master / Class Teacher Remark</label>
+                <label className="form-label">Class Teacher Remark</label>
                 <textarea
                   className="form-input"
                   rows={3}

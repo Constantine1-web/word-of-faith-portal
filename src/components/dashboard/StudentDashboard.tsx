@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getStudentProfile } from "@/app/actions/studentProfile";
 import Link from "next/link";
-import { FiCreditCard, FiUser, FiFileText, FiUploadCloud, FiAward, FiBookOpen } from "react-icons/fi";
+import { FiCreditCard, FiUser, FiFileText, FiUploadCloud, FiAward } from "react-icons/fi";
 import InspirationSlideshow from "./InspirationSlideshow";
 import NoticeBoard from "./NoticeBoard";
 import QuickLinkCard from "./QuickLinkCard";
@@ -214,9 +214,6 @@ export default function StudentDashboard({ session }: { session: any }) {
                 <h3 style={{ margin: 0, fontSize: "0.95rem", color: "var(--color-navy-blue)" }}>
                   Registered Class Subjects ({academics.length})
                 </h3>
-                <Link href="/portal/courses" style={{ fontSize: "0.8rem", color: "var(--color-primary-green)", fontWeight: 600, textDecoration: "none" }}>
-                  Study Library →
-                </Link>
               </div>
               {academics.length === 0 ? (
                 <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
@@ -299,14 +296,6 @@ export default function StudentDashboard({ session }: { session: any }) {
       <div className="responsive-grid" style={{ marginBottom: "2rem" }}>
         
         {/* Quick Link Cards */}
-        <QuickLinkCard 
-          href="/portal/courses" 
-          icon={<FiBookOpen />} 
-          iconBgColor="var(--status-success-bg)" 
-          iconColor="var(--accent-green)" 
-          title="Study Notes" 
-          subtitle="E-Learning Library" 
-        />
         <QuickLinkCard 
           href="/portal/cbt" 
           icon={<FiAward />} 

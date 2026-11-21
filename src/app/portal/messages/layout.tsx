@@ -16,25 +16,25 @@ export default async function MessagesLayout({
     redirect("/portal/login?callbackUrl=/portal/messages");
   }
 
-  // Restrict access: Students are not permitted in the in-app messaging section
+  // Restrict access strictly to Administration and Teaching Staff
   const userRoles: string[] = (
-    (session?.user as any)?.roles || [session?.user?.role || "Student"]
+    (session?.user as { roles?: string[] })?.roles || [session?.user?.role || "Student"]
   ).map((r: string) => String(r).toLowerCase());
 
-  const isStaffOrParent = userRoles.some((r) =>
+  const isStaff = userRoles.some((r) =>
     [
       "admin",
       "super_admin",
       "principal",
       "bursar",
       "admissions",
+      "exam_officer",
       "teacher",
       "form_master",
-      "parent",
     ].includes(r)
   );
 
-  if (!isStaffOrParent) {
+  if (!isStaff) {
     redirect("/portal/dashboard");
   }
 

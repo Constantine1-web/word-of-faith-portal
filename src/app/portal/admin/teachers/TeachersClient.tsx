@@ -227,7 +227,7 @@ export default function TeachersClient({
         `Enrolled ${res.teacher.Email} successfully with ${
           res.teacher.TeacherMaps?.length || 0
         } subject allocation(s)${
-          fmClassObj ? ` and Form Master of ${fmClassObj.ClassName}` : ""
+          fmClassObj ? ` and Class Teacher of ${fmClassObj.ClassName}` : ""
         }!`
       );
       setShowEnrollModal(false);
@@ -341,13 +341,13 @@ export default function TeachersClient({
       );
 
       setSuccess(
-        `Assigned ${targetTeacherObj?.Email || "teacher"} as Form Master of ${
+        `Assigned ${targetTeacherObj?.Email || "teacher"} as Class Teacher of ${
           targetClassObj?.ClassName || "selected class"
         }!`
       );
       setShowFormMasterModal(false);
     } else {
-      setError(res.error || "Failed to assign Form Master");
+      setError(res.error || "Failed to assign Class Teacher");
     }
 
     setLoading(false);
@@ -388,7 +388,7 @@ export default function TeachersClient({
       `Email: ${provisionedCredentials.email}`,
       `Temporary Password: ${provisionedCredentials.password}`,
       provisionedCredentials.formMasterClass
-        ? `Form Master Class: ${provisionedCredentials.formMasterClass}`
+        ? `Class Teacher Class: ${provisionedCredentials.formMasterClass}`
         : `Role: Subject Teacher`,
     ].join("\n");
     navigator.clipboard.writeText(text);
@@ -434,7 +434,7 @@ export default function TeachersClient({
           }}
         >
           <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--status-success-text)", textTransform: "uppercase" }}>
-            Designated Form Masters
+            Assigned Class Teachers
           </div>
           <div style={{ fontSize: "1.65rem", fontWeight: 800, color: "var(--status-success-text)", marginTop: "0.25rem" }}>
             {kpis.formMastersCount}
@@ -468,7 +468,7 @@ export default function TeachersClient({
           }}
         >
           <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-label)", textTransform: "uppercase" }}>
-            Classes Without Form Master
+            Classes Without Class Teacher
           </div>
           <div
             style={{
@@ -543,7 +543,7 @@ export default function TeachersClient({
             </div>
             <div style={{ marginTop: "0.25rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
               {provisionedCredentials.formMasterClass
-                ? `Form Master: ${provisionedCredentials.formMasterClass} • `
+                ? `Class Teacher: ${provisionedCredentials.formMasterClass} • `
                 : ""}
               {provisionedCredentials.subjectCount} Subject Allocation(s) •{" "}
               {provisionedCredentials.emailSent
@@ -598,7 +598,7 @@ export default function TeachersClient({
           <input
             type="text"
             className="form-input"
-            placeholder="Search by teacher email, Form Master class, or subject..."
+            placeholder="Search by teacher email, Class Teacher assignment, or subject..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ paddingLeft: "2.4rem", margin: 0 }}
@@ -644,7 +644,7 @@ export default function TeachersClient({
               border: "1px solid var(--color-gray-200)",
             }}
           >
-            No matching teachers found. Click <strong>&quot;+ Enroll New Teacher (1-Step Wizard)&quot;</strong> above to onboard a new teacher with their Form Master and Subject assignments.
+            No matching teachers found. Click <strong>&quot;+ Enroll New Teacher (1-Step Wizard)&quot;</strong> above to onboard a new teacher with their Class Teacher and Subject assignments.
           </div>
         ) : (
           filteredTeachers.map((teacher) => (
@@ -705,11 +705,11 @@ export default function TeachersClient({
                         marginTop: "0.4rem",
                       }}
                     >
-                      <FiAward /> Form Master: {teacher.FormMasterClasses.map((c: any) => c.ClassName).join(", ")}
+                      <FiAward /> Class Teacher: {teacher.FormMasterClasses.map((c: any) => c.ClassName).join(", ")}
                     </span>
                   ) : (
                     <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
-                      Subject Teacher (No Form Master class assigned)
+                      Subject Teacher (No Class Teacher class assigned)
                     </div>
                   )}
                 </div>
@@ -735,7 +735,7 @@ export default function TeachersClient({
                       gap: "0.3rem",
                     }}
                   >
-                    <FiAward /> Assign Form Master Class
+                    <FiAward /> Assign Class Teacher Class
                   </button>
 
                   <button
@@ -843,7 +843,7 @@ export default function TeachersClient({
                 Enroll New Teacher &amp; Allocate Classes
               </h3>
               <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", margin: "0.3rem 0 0 0" }}>
-                Creates the teacher&apos;s login account, assigns an optional Form Master Class Arm, maps Subject Arms for{" "}
+                Creates the teacher&apos;s login account, assigns an optional Class Teacher class, maps subject classes for{" "}
                 <strong>{activeTerm ? `${activeTerm.SessionName} (${activeTerm.TermName})` : "the active term"}</strong>, and emails their login details.
               </p>
             </div>
@@ -923,7 +923,7 @@ export default function TeachersClient({
                 }}
               >
                 <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--status-success-text)", textTransform: "uppercase", marginBottom: "0.5rem" }}>
-                  2. Form Master (Class Teacher) Designation — Optional
+                  2. Class Teacher Assignment — Optional
                 </div>
                 <select
                   className="form-input"
@@ -931,7 +931,7 @@ export default function TeachersClient({
                   onChange={(e) => setNewFormMasterClassId(e.target.value)}
                   style={{ margin: 0, background: "var(--bg-input)" }}
                 >
-                  <option value="">-- Subject Teacher Only (No Form Master Class) --</option>
+                  <option value="">-- Subject Teacher Only (No Class Teacher Assignment) --</option>
                   {classList.map((c) => (
                     <option key={c.ClassID} value={c.ClassID.toString()}>
                       {c.ClassName} ({c.Level}){" "}
@@ -1184,14 +1184,14 @@ export default function TeachersClient({
             }}
           >
             <h3 style={{ color: "var(--text-heading)", marginBottom: "0.5rem" }}>
-              Assign Form Master Class Arm
+              Assign Class Teacher
             </h3>
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1.25rem" }}>
-              Designating a teacher as Form Master unlocks their Class Broadsheet, Affective/Psychomotor Grading, and Daily Roll Call Attendance for that class.
+              Assigning a teacher as Class Teacher unlocks their Class Result Sheet, student conduct ratings, and daily attendance for that class.
             </p>
             <form onSubmit={handleAssignFormMasterSubmit}>
               <div className="form-group">
-                <label className="form-label">Select Class Arm</label>
+                <label className="form-label">Select Class</label>
                 <select
                   className="form-input"
                   value={fmClassId}
@@ -1216,7 +1216,7 @@ export default function TeachersClient({
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? "Saving..." : "Assign Form Master"}
+                  {loading ? "Saving..." : "Assign Class Teacher"}
                 </button>
               </div>
             </form>

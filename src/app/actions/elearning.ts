@@ -248,211 +248,6 @@ export async function deleteCustomCbtQuestion(questionId: string) {
 }
 
 // ============================================================================
-// TRACK B: DIGITAL LESSON NOTES, STUDY MATERIALS & HOMEWORK HUB
-// ============================================================================
-
-export interface CourseMaterialItem {
-  id: string;
-  subjectName: string;
-  classId: number;
-  className: string;
-  title: string;
-  category: "Lesson Note" | "Homework Assignment" | "Revision Summary";
-  weekLabel: string;
-  content: string;
-  dueDate?: string | null;
-  teacherEmail: string;
-  createdAt: string;
-}
-
-function getDefaultCourseMaterials(classId?: number, className?: string): CourseMaterialItem[] {
-  return [
-    {
-      id: "default-math-wk1",
-      subjectName: "Mathematics",
-      classId: classId || 1,
-      className: className || "JSS 1A",
-      title: "Indices, Logarithms & Number Bases — Complete Formula Guide",
-      category: "Lesson Note",
-      weekLabel: "Week 1 & 2",
-      content:
-        "1. Laws of Indices:\n• xᵃ × xᵇ = xᵃ⁺ᵇ\n• xᵃ ÷ xᵇ = xᵃ⁻ᵇ\n• (xᵃ)ᵇ = xᵃᵇ\n• x⁰ = 1 (where x ≠ 0)\n• x⁻ⁿ = 1 / xⁿ\n\n2. Standard Logarithm Identities:\n• log₁₀(AB) = log₁₀A + log₁₀B\n• log₁₀(A/B) = log₁₀A - log₁₀B\n• log₁₀(Aⁿ) = n·log₁₀A\n\nWorked Example:\nGiven log₁₀2 = 0.3010 and log₁₀3 = 0.4771, evaluate log₁₀18:\n18 = 2 × 3² → log₁₀18 = log₁₀2 + 2·log₁₀3 = 0.3010 + 2(0.4771) = 1.2552.",
-      dueDate: null,
-      teacherEmail: "teacher.test@wordoffaithschools.edu.ng",
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: "default-eng-wk1",
-      subjectName: "English Language",
-      classId: classId || 1,
-      className: className || "JSS 1A",
-      title: "Concord (Subject-Verb Agreement) & Lexis Practice Assignment",
-      category: "Homework Assignment",
-      weekLabel: "Week 2",
-      content:
-        "Core Rules of Concord:\n1. Singular subjects joined by 'as well as', 'together with', or 'along with' take a singular verb (e.g., 'The Principal, together with the teachers, IS attending the seminar').\n2. 'Neither... nor' and 'Either... or' agree with the noun closer to the verb (Proximity Concord).\n3. Indefinite pronouns ('everyone', 'each', 'nobody', 'someone') always take singular verbs.\n\nHomework Task:\nComplete a 10-question Self-Paced Practice session in English Language on the CBT Portal (/portal/cbt) and write down the AI Tutor explanation for any question you miss.",
-      dueDate: "Friday, This Week",
-      teacherEmail: "teacher.test@wordoffaithschools.edu.ng",
-      createdAt: new Date().toISOString(),
-    },
-  ];
-}
-
-export async function publishCourseMaterial(data: {
-  subjectName: string;
-  classId?: number;
-  className: string;
-  title: string;
-  category: "Lesson Note" | "Homework Assignment" | "Revision Summary";
-  weekLabel: string;
-  content: string;
-  dueDate?: string;
-}) {
-  try {
-    const actor = await requireRole([
-      "TEACHER",
-      "FORM_MASTER",
-      "Teacher",
-      "SUPER_ADMIN",
-      "PRINCIPAL",
-      "Admin",
-    ]);
-
-    const title = (data.title || "").trim();
-    const content = (data.content || "").trim();
-    if (!title || !content) {
-      return { success: false, error: "Title and lesson/assignment content are required." };
-    }
-
-    const materialId = crypto.randomUUID();
-    const payload: CourseMaterialItem = {
-      id: materialId,
-      subjectName: (data.subjectName || "General Studies").trim(),
-      classId: Number(data.classId) || 0,
-      className: (data.className || "All Classes").trim(),
-      title,
-      category: data.category || "Lesson Note",
-      weekLabel: (data.weekLabel || "Week 1").trim(),
-      content,
-      dueDate: data.dueDate?.trim() || null,
-      teacherEmail: actor.Email,
-      createdAt: new Date().toISOString(),
-    };
-
-    await prisma.auditLog.create({
-      data: {
-        ActorID: actor.UserID,
-        Action: "COURSE_MATERIAL_PUBLISHED",
-        Entity: "CourseMaterial",
-        EntityID: materialId,
-        Reason: `${payload.category}: ${payload.title} (${payload.className})`,
-        NewValue: payload as any,
-      },
-    });
-
-    revalidatePath("/portal/courses");
-    revalidatePath("/portal/dashboard");
-    return { success: true, material: payload };
-  } catch (error: any) {
-    console.error("publishCourseMaterial error:", error);
-    return { success: false, error: error.message || "Failed to publish lesson note" };
-  }
-}
-
-export async function deleteCourseMaterial(materialId: string) {
-  try {
-    const actor = await requireRole([
-      "TEACHER",
-      "FORM_MASTER",
-      "Teacher",
-      "SUPER_ADMIN",
-      "PRINCIPAL",
-      "Admin",
-    ]);
-
-    const existing = await prisma.auditLog.findFirst({
-      where: {
-        Entity: "CourseMaterial",
-        EntityID: materialId,
-      },
-    });
-
-    if (!existing) {
-      return { success: false, error: "Lesson note not found." };
-    }
-
-    const isSchoolAdmin =
-      actor.roles.has("SUPER_ADMIN") ||
-      actor.roles.has("PRINCIPAL") ||
-      actor.roles.has("Admin");
-
-    if (!isSchoolAdmin && existing.ActorID !== actor.UserID) {
-      return {
-        success: false,
-        error: "FORBIDDEN: You can only delete lesson notes that you published.",
-      };
-    }
-
-    await prisma.auditLog.deleteMany({
-      where: {
-        Entity: "CourseMaterial",
-        EntityID: materialId,
-      },
-    });
-
-    await writeAuditLog({
-      actorUserId: actor.UserID,
-      actorRoles: Array.from(actor.roles).join(","),
-      action: "COURSE_MATERIAL_DELETED",
-      targetTable: "CourseMaterial",
-      targetId: materialId,
-    });
-
-    revalidatePath("/portal/courses");
-    return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message || "Failed to delete lesson note" };
-  }
-}
-
-export async function getCourseMaterials(classId?: number, className?: string) {
-  try {
-    await requireActiveUser();
-
-    const rows = await prisma.auditLog.findMany({
-      where: {
-        Entity: "CourseMaterial",
-        Action: "COURSE_MATERIAL_PUBLISHED",
-      },
-      orderBy: { CreatedAt: "desc" },
-      take: 100,
-    });
-
-    let materials: CourseMaterialItem[] = rows
-      .map((r) => r.NewValue as unknown as CourseMaterialItem)
-      .filter((m) => Boolean(m && m.title && m.content));
-
-    // Provide default curriculum starter materials if none have been published yet
-    if (materials.length === 0) {
-      materials = getDefaultCourseMaterials(classId, className);
-    } else if (classId || className) {
-      const filtered = materials.filter(
-        (m) =>
-          (classId && m.classId === Number(classId)) ||
-          (className && m.className.toLowerCase() === className.toLowerCase()) ||
-          m.className === "All Classes" ||
-          m.className === "All Assigned Classes"
-      );
-      materials = filtered.length > 0 ? filtered : getDefaultCourseMaterials(classId, className);
-    }
-
-    return { success: true, materials };
-  } catch (error: any) {
-    return { success: false, error: error.message || "Failed to load lesson notes", materials: [] };
-  }
-}
-
-// ============================================================================
 // TRACK C: STUDENT CBT PERFORMANCE ANALYTICS, BADGES & CLASS LEADERBOARD
 // ============================================================================
 
@@ -714,123 +509,99 @@ export async function getCbtAnalyticsAndLeaderboard() {
   }
 }
 
+import {
+  computeBroadcastExpiry,
+  DEFAULT_SCHOOL_NOTICES,
+  isSchoolNoticeExpired,
+  mergeSchoolNoticeAuditEvents,
+  type BroadcastDurationPreset,
+  type SchoolNoticeItem,
+} from "@/lib/noticeboard";
+
 // ============================================================================
 // TRACK D: LIVE SCHOOL-WIDE NOTICEBOARD, CALENDAR & EXAM TIMETABLE
 // ============================================================================
 
-export interface SchoolNoticeItem {
-  id: string;
-  type: string;
-  category: string;
-  title: string;
-  eventDate: string;
-  targetAudience: string;
-  details: string;
-  color: string;
-  createdAt: string;
-}
+export type { SchoolNoticeItem };
 
-const DEFAULT_NOTICES: SchoolNoticeItem[] = [
-  {
-    id: "default-notice-1",
-    type: "Exam Timetable",
-    category: "Exam Timetable",
-    title: "First Term CBT & Written Examinations",
-    eventDate: "Nov 23 – Dec 04, 2026",
-    targetAudience: "All Portal Users",
-    details:
-      "First Term Continuous Assessment (CA 40) closes Nov 18. Terminal CBT & Written Exams (60 Marks) begin Monday, Nov 23 across all JSS and SSS arms.",
-    color: "var(--color-navy-blue)",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "default-notice-2",
-    type: "Upcoming Event",
-    category: "Upcoming Event",
-    title: "PTA General Assembly & Open Day",
-    eventDate: "Nov 14, 2026 • 10:00 AM",
-    targetAudience: "Students & Parents",
-    details:
-      "Main School Auditorium. Parents are invited to review mid-term broadsheets and interact with Form Masters and Subject Teachers.",
-    color: "var(--color-primary-green)",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "default-notice-3",
-    type: "Deadline",
-    category: "Deadline",
-    title: "First Term Tuition & Bursary Clearance",
-    eventDate: "Nov 20, 2026",
-    targetAudience: "Students & Parents",
-    details:
-      "Please complete tuition payment via Paystack or upload verified bank teller receipts in the Fees Portal before terminal result publication.",
-    color: "#dc2626",
-    createdAt: new Date().toISOString(),
-  },
+const BROADCAST_ADMIN_ROLES = [
+  "SUPER_ADMIN",
+  "PRINCIPAL",
+  "BURSAR",
+  "ADMISSIONS",
+  "ADMIN",
+  "Admin",
 ];
 
-export async function getSchoolNotices() {
+export async function getSchoolNotices(options?: { includeExpired?: boolean }) {
+  let actor;
   try {
-    await requireActiveUser();
+    actor = await requireActiveUser();
   } catch {
-    return { success: false, error: "Unauthorized", notices: [] };
+    return { success: false, error: "Unauthorized", notices: [] as SchoolNoticeItem[], expiredNotices: [] as SchoolNoticeItem[] };
   }
+
+  const canSeeExpired =
+    Boolean(options?.includeExpired) &&
+    BROADCAST_ADMIN_ROLES.some((r) => actor.roles.has(r));
 
   try {
     const rows = await prisma.auditLog.findMany({
       where: {
         Entity: "SchoolNotice",
-        Action: "SCHOOL_NOTICE_PUBLISHED",
+        Action: { in: ["SCHOOL_NOTICE_PUBLISHED", "SCHOOL_NOTICE_DELETED"] },
       },
       orderBy: { CreatedAt: "desc" },
-      take: 25,
+      take: 250,
     });
 
-    const customNotices: SchoolNoticeItem[] = rows
-      .map((r) => {
-        const val = r.NewValue as unknown as SchoolNoticeItem;
-        if (!val) return null;
-        return {
-          ...val,
-          type: val.type || val.category || "Academics",
-          category: val.category || val.type || "Academics",
-        };
-      })
-      .filter((n): n is SchoolNoticeItem => Boolean(n && n.title && n.details));
+    const nowMs = Date.now();
+    const allLiveOrExpired = mergeSchoolNoticeAuditEvents(rows);
+    const activeNotices = allLiveOrExpired.filter((n) => !isSchoolNoticeExpired(n, nowMs));
+    const expiredNotices = canSeeExpired
+      ? allLiveOrExpired.filter((n) => isSchoolNoticeExpired(n, nowMs))
+      : [];
 
     return {
       success: true,
-      notices: customNotices.length > 0 ? customNotices : DEFAULT_NOTICES,
+      notices: activeNotices,
+      expiredNotices,
     };
   } catch {
-    return { success: true, notices: DEFAULT_NOTICES };
+    return {
+      success: true,
+      notices: DEFAULT_SCHOOL_NOTICES,
+      expiredNotices: [] as SchoolNoticeItem[],
+    };
   }
 }
 
 export async function publishSchoolNotice(data: {
+  id?: string;
   type?: string;
   category?: string;
   title: string;
   eventDate: string;
   targetAudience?: string;
   details: string;
+  durationPreset?: BroadcastDurationPreset;
+  customExpiresAt?: string | null;
 }) {
   try {
-    const actor = await requireRole([
-      "SUPER_ADMIN",
-      "PRINCIPAL",
-      "BURSAR",
-      "ADMISSIONS",
-      "Admin",
-    ]);
+    const actor = await requireRole(BROADCAST_ADMIN_ROLES);
 
-    const title = (data.title || "").trim();
-    const details = (data.details || "").trim();
+    const title = (data.title || "").trim().slice(0, 160);
+    const details = (data.details || "").trim().slice(0, 2000);
     if (!title || !details) {
       return { success: false, error: "Notice title and details are required." };
     }
 
     const chosenType = (data.type || data.category || "Upcoming Event").trim();
+    const preset: BroadcastDurationPreset = data.durationPreset || "7d";
+    const expiryInfo = computeBroadcastExpiry(preset, data.customExpiresAt);
+    if (expiryInfo.error) {
+      return { success: false, error: expiryInfo.error };
+    }
 
     const colorMap: Record<string, string> = {
       "Upcoming Event": "var(--color-primary-green)",
@@ -840,51 +611,75 @@ export async function publishSchoolNotice(data: {
       "Principal Broadcast": "#7c3aed",
     };
 
-    const noticeId = crypto.randomUUID();
+    const noticeId = (data.id || "").trim() || crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+
     const notice: SchoolNoticeItem = {
       id: noticeId,
       type: chosenType,
       category: chosenType,
       title,
-      eventDate: (data.eventDate || "Active Term").trim(),
-      targetAudience: data.targetAudience || "All Portal Users",
+      eventDate: (data.eventDate || "Active Term").trim().slice(0, 60),
+      targetAudience: (data.targetAudience || "All Portal Users").trim().slice(0, 80),
       details,
       color: colorMap[chosenType] || "var(--color-navy-blue)",
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      expiresAt: expiryInfo.expiresAt,
+      durationPreset: expiryInfo.durationPreset,
+      durationLabel: expiryInfo.durationLabel,
     };
 
-    await prisma.auditLog.create({
-      data: {
-        ActorID: actor.UserID,
-        Action: "SCHOOL_NOTICE_PUBLISHED",
-        Entity: "SchoolNotice",
-        EntityID: noticeId,
-        Reason: `${notice.category}: ${notice.title}`,
-        NewValue: notice as any,
-      },
+    await writeAuditLog({
+      actorId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "SCHOOL_NOTICE_PUBLISHED",
+      entity: "SchoolNotice",
+      entityId: noticeId,
+      reason: `${data.id ? "Updated" : "Published"} broadcast (${expiryInfo.durationLabel}): ${notice.title}`,
+      newValue: notice,
     });
 
     revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/admin");
     return { success: true, notice };
-  } catch (error: any) {
-    return { success: false, error: error.message || "Failed to publish notice" };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to publish notice",
+    };
   }
 }
 
-export async function deleteSchoolNotice(noticeId: string) {
+export async function deleteSchoolNotice(noticeId: string, reason?: string) {
   try {
-    await requireRole(["SUPER_ADMIN", "PRINCIPAL", "BURSAR", "ADMISSIONS", "Admin"]);
+    const actor = await requireRole(BROADCAST_ADMIN_ROLES);
+    const cleanId = String(noticeId || "").trim();
+    if (!cleanId) {
+      return { success: false, error: "Notice ID is required." };
+    }
 
-    await prisma.auditLog.deleteMany({
-      where: {
-        Entity: "SchoolNotice",
-        EntityID: noticeId,
+    await writeAuditLog({
+      actorId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "SCHOOL_NOTICE_DELETED",
+      entity: "SchoolNotice",
+      entityId: cleanId,
+      reason: reason?.trim() || "Removed broadcast from active noticeboard",
+      newValue: {
+        deleted: true,
+        deletedBy: actor.Email,
+        deletedAt: new Date().toISOString(),
       },
     });
 
     revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/admin");
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message || "Failed to delete notice" };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to delete notice",
+    };
   }
 }

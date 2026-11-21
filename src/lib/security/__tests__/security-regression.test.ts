@@ -32,6 +32,17 @@ import {
   normalizeAttendanceDateKey,
   summarizeStudentAttendance,
 } from "../../attendance-summary";
+import {
+  computeBroadcastExpiry,
+  formatRemainingBroadcastTime,
+  isSchoolNoticeExpired,
+  mergeSchoolNoticeAuditEvents,
+} from "../../noticeboard";
+import {
+  classifyStaffContactGroup,
+  formatStaffRoleLabel,
+  isAuthorizedStaffCommRoleSet,
+} from "../../staff-messaging";
 
 async function runSecurityRegressionSuite() {
   let passed = 0;
@@ -659,7 +670,79 @@ async function runSecurityRegressionSuite() {
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/14 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // 15. Active Broadcast Duration, Auto-Expiry & Audit Edit/Delete (Track D Upgrade)
+  {
+    const fixedNow = Date.UTC(2026, 10, 21, 12, 0, 0); // 2026-11-21T12:00:00Z
+    const sixHours = computeBroadcastExpiry("6h", undefined, fixedNow);
+    assert.equal(sixHours.error, undefined);
+    assert.equal(sixHours.expiresAt, new Date(fixedNow + 6 * 3_600_000).toISOString());
+    assert.equal(isSchoolNoticeExpired({ expiresAt: sixHours.expiresAt }, fixedNow + 5 * 3_600_000), false);
+    assert.equal(isSchoolNoticeExpired({ expiresAt: sixHours.expiresAt }, fixedNow + 7 * 3_600_000), true);
+    assert.equal(formatRemainingBroadcastTime(sixHours.expiresAt, fixedNow), "6h 0m left");
+    assert.equal(formatRemainingBroadcastTime(sixHours.expiresAt, fixedNow + 7 * 3_600_000), "Expired");
+
+    const pastCustom = computeBroadcastExpiry("custom", new Date(fixedNow - 60_000).toISOString(), fixedNow);
+    assert.equal(Boolean(pastCustom.error), true, "Custom expiry in the past must be rejected");
+
+    const manual = computeBroadcastExpiry("none", undefined, fixedNow);
+    assert.equal(manual.expiresAt, null);
+    assert.equal(formatRemainingBroadcastTime(manual.expiresAt, fixedNow), "No auto-expiry");
+
+    const merged = mergeSchoolNoticeAuditEvents([
+      {
+        Action: "SCHOOL_NOTICE_DELETED",
+        EntityID: "default-notice-3",
+        NewValue: { deleted: true },
+        CreatedAt: new Date(fixedNow + 3000),
+      },
+      {
+        Action: "SCHOOL_NOTICE_PUBLISHED",
+        EntityID: "custom-1",
+        NewValue: {
+          title: "Updated Exam Hall Notice",
+          details: "Corrected room assignment",
+          type: "Exam Timetable",
+          eventDate: "2026-11-24",
+          targetAudience: "All Students & Parents",
+          expiresAt: sixHours.expiresAt,
+        },
+        CreatedAt: new Date(fixedNow + 2000),
+      },
+      {
+        Action: "SCHOOL_NOTICE_PUBLISHED",
+        EntityID: "custom-1",
+        NewValue: {
+          title: "Old Draft Typo",
+          details: "Wrong room",
+          type: "Exam Timetable",
+        },
+        CreatedAt: new Date(fixedNow + 1000),
+      },
+    ]);
+
+    assert.equal(merged.some((n) => n.id === "default-notice-3"), false, "Deleted default notice stays hidden");
+    const edited = merged.find((n) => n.id === "custom-1");
+    assert.equal(edited?.title, "Updated Exam Hall Notice");
+    assert.equal(edited?.details, "Corrected room assignment");
+    passed++;
+  }
+
+  // 16. Strict Admin <-> Teacher Staff Messaging Access Control
+  {
+    assert.equal(isAuthorizedStaffCommRoleSet(["ADMIN"]), true);
+    assert.equal(isAuthorizedStaffCommRoleSet(["PRINCIPAL"]), true);
+    assert.equal(isAuthorizedStaffCommRoleSet(["TEACHER"]), true);
+    assert.equal(isAuthorizedStaffCommRoleSet(["FORM_MASTER"]), true);
+    assert.equal(isAuthorizedStaffCommRoleSet(["PARENT"]), false, "Parents must be blocked from Admin-Teacher Comms");
+    assert.equal(isAuthorizedStaffCommRoleSet(["STUDENT"]), false, "Students must be blocked from Admin-Teacher Comms");
+    assert.equal(classifyStaffContactGroup(["PRINCIPAL"]), "ADMINISTRATION");
+    assert.equal(classifyStaffContactGroup(["FORM_MASTER"]), "TEACHERS");
+    assert.equal(classifyStaffContactGroup(["PARENT"]), null);
+    assert.equal(formatStaffRoleLabel("FORM_MASTER"), "Class Teacher");
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/16 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {

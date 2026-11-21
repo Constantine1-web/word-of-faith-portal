@@ -1,67 +1,97 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   getMessageContacts,
   getConversation,
   sendMessage,
-  sendDirectStudentMessage,
+  type StaffMessageContactItem,
 } from "@/app/actions/messaging";
-import { FiSend, FiUser, FiMail, FiMessageCircle, FiPhone, FiExternalLink } from "react-icons/fi";
+import { FiSend, FiUser, FiSearch } from "react-icons/fi";
+
+interface ThreadMessage {
+  MessageID: number;
+  SenderID: number;
+  ReceiverID?: number;
+  Content: string;
+  CreatedAt: string | Date;
+}
 
 export default function MessagesPage() {
-  const [contacts, setContacts] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<StaffMessageContactItem[]>([]);
+  const [viewerGroup, setViewerGroup] = useState<"ADMINISTRATION" | "TEACHERS">("ADMINISTRATION");
+  const [groupFilter, setGroupFilter] = useState<"ALL" | "ADMINISTRATION" | "TEACHERS">("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
-  const [directSubject, setDirectSubject] = useState("Notice from Word of Faith Schools Portal");
-  const [directPhoneOverride, setDirectPhoneOverride] = useState("");
-  const [directDispatching, setDirectDispatching] = useState(false);
-  const [directFeedback, setDirectFeedback] = useState<{
-    type: "success" | "error";
-    text: string;
-    whatsappDeepLink?: string;
-    smsDeepLink?: string;
-  } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    async function loadContacts() {
-      const res = await getMessageContacts();
-      if (res.success) {
-        setContacts(res.contacts || []);
-      }
-      setLoading(false);
-    }
-    loadContacts();
+    let mounted = true;
+    getMessageContacts()
+      .then((res) => {
+        if (!mounted) return;
+        if (res.success) {
+          setContacts(res.contacts || []);
+          if (res.viewerGroup) setViewerGroup(res.viewerGroup);
+        } else if (res.error) {
+          setErrorMsg(res.error);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (mounted) {
+          setErrorMsg("Unable to load staff messaging contacts.");
+          setLoading(false);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const selectedContact = contacts.find((c) => c.UserID === selectedUserId);
+  const selectedContact = contacts.find((c) => c.UserID === selectedUserId) || null;
+
+  const filteredContacts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return contacts.filter((c) => {
+      if (groupFilter !== "ALL" && c.staffGroup !== groupFilter) return false;
+      if (!q) return true;
+      return (
+        c.Email.toLowerCase().includes(q) ||
+        c.RoleLabel.toLowerCase().includes(q) ||
+        c.formMasterClasses.some((cls) => cls.toLowerCase().includes(q)) ||
+        c.subjectSummary.some((s) => s.toLowerCase().includes(q))
+      );
+    });
+  }, [contacts, groupFilter, searchQuery]);
 
   useEffect(() => {
-    if (selectedContact?.Student?.ParentContact) {
-      setDirectPhoneOverride(selectedContact.Student.ParentContact);
-    } else {
-      setDirectPhoneOverride("");
-    }
-    setDirectFeedback(null);
-  }, [selectedUserId, selectedContact]);
+    if (!selectedUserId) return;
+    let active = true;
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
     async function loadMessages() {
       if (!selectedUserId) return;
       const res = await getConversation(selectedUserId);
-      if (res.success) {
-        setMessages(res.messages || []);
+      if (active && res.success && Array.isArray(res.messages)) {
+        setMessages(res.messages as ThreadMessage[]);
+        setContacts((prev) =>
+          prev.map((c) =>
+            c.UserID === selectedUserId ? { ...c, unreadCount: 0 } : c
+          )
+        );
       }
     }
 
     loadMessages();
-    interval = setInterval(loadMessages, 5000); // Poll every 5s
-
-    return () => clearInterval(interval);
+    const interval = setInterval(loadMessages, 5000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [selectedUserId]);
 
   useEffect(() => {
@@ -72,411 +102,370 @@ export default function MessagesPage() {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !selectedUserId) return;
+    const trimmed = input.trim();
+    if (!trimmed || !selectedUserId) return;
 
-    const tempMsg = {
+    setErrorMsg(null);
+    const tempMsg: ThreadMessage = {
       MessageID: Date.now(),
-      Content: input,
-      SenderID: -1, // Indicates self, optimistic
+      Content: trimmed,
+      SenderID: -1,
+      ReceiverID: selectedUserId,
       CreatedAt: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, tempMsg]);
-    const text = input;
     setInput("");
 
-    await sendMessage(selectedUserId, text);
+    const res = await sendMessage(selectedUserId, trimmed);
+    if (!res.success) {
+      setErrorMsg(res.error || "Failed to send message.");
+    }
   };
 
-  const handleDirectChannelSend = async (channels: ("EMAIL" | "WHATSAPP" | "SMS")[]) => {
-    if (!selectedContact || !input.trim()) {
-      setDirectFeedback({
-        type: "error",
-        text: "Type a message in the box below before dispatching via Email, WhatsApp, or SMS.",
-      });
-      return;
-    }
-
-    setDirectDispatching(true);
-    setDirectFeedback(null);
-
-    const res = await sendDirectStudentMessage({
-      studentIdentifier: selectedContact.Email,
-      phoneOverride: directPhoneOverride.trim() || selectedContact.Student?.ParentContact || undefined,
-      subject: directSubject,
-      message: input.trim(),
-      channels,
-    });
-
-    if (res.success) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          MessageID: Date.now(),
-          Content: `[Direct ${channels.join(" + ")}] ${input.trim()}`,
-          SenderID: -1,
-          CreatedAt: new Date().toISOString(),
-        },
-      ]);
-      setInput("");
-      setDirectFeedback({
-        type: "success",
-        text: `Direct ${channels.join(", ")} dispatched to ${res.registrationEmail}${res.studentPhone ? ` (${res.studentPhone})` : ""}.`,
-        whatsappDeepLink: res.whatsappUrl || undefined,
-        smsDeepLink: res.smsUrl || undefined,
-      });
-
-      if (channels.includes("WHATSAPP") && res.whatsappUrl && !res.whatsappApiDispatched) {
-        window.open(res.whatsappUrl, "_blank", "noopener,noreferrer");
-      }
-    } else {
-      setDirectFeedback({
-        type: "error",
-        text: res.error || "Failed to dispatch direct message.",
-      });
-    }
-
-    setDirectDispatching(false);
-  };
-
-  if (loading) return <div style={{ padding: "2rem" }}>Loading Messaging Hub...</div>;
+  if (loading) {
+    return (
+      <div style={{ padding: "2rem", color: "var(--text-muted)" }}>
+        Loading Admin &amp; Teacher Communications...
+      </div>
+    );
+  }
 
   return (
-    <div className="responsive-flex" style={{ padding: "1.5rem", minHeight: "calc(100vh - 80px)", gap: "1.25rem" }}>
-      {/* Contacts Sidebar */}
-      <div
-        style={{
-          flex: 1,
-          background: "var(--color-white)",
-          borderRadius: "var(--radius-md)",
-          boxShadow: "var(--shadow-sm)",
-          overflowY: "auto",
-          border: "1px solid var(--color-gray-200)",
-          maxHeight: "78vh",
-        }}
-      >
+    <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <div style={{ borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.9rem" }}>
+        <h1 style={{ margin: 0, fontSize: "1.5rem", color: "var(--color-navy-blue)" }}>
+          Admin &amp; Teacher Communications
+        </h1>
+        <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.88rem", color: "var(--text-muted)" }}>
+          Internal staff correspondence between School Administration, Class Teachers, and Subject Teachers.
+        </p>
+      </div>
+
+      {errorMsg && (
         <div
           style={{
-            padding: "1.25rem 1.5rem",
-            borderBottom: "1px solid var(--color-gray-200)",
-            background: "var(--color-gray-50)",
-            position: "sticky",
-            top: 0,
-            zIndex: 2,
+            padding: "0.75rem 1rem",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--status-error-bg)",
+            color: "var(--status-error-text)",
+            border: "1px solid var(--status-error-border)",
+            fontSize: "0.86rem",
+            fontWeight: 600,
           }}
         >
-          <h3 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Contacts Directory</h3>
-          <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.8rem", color: "var(--color-gray-500)" }}>
-            Select a student or staff account for portal chat or direct Email / WhatsApp / SMS
-          </p>
+          {errorMsg}
         </div>
-        <div>
-          {contacts.map((c) => {
-            const studentName = c.Student
-              ? c.Student.PreferredName ||
-                `${c.Student.FirstName || ""} ${c.Student.LastName || ""}`.trim() ||
-                c.Student.AdmissionNo
-              : null;
-            return (
-              <button
-                key={c.UserID}
-                onClick={() => setSelectedUserId(c.UserID)}
+      )}
+
+      <div className="responsive-flex" style={{ gap: "1.25rem", minHeight: "calc(100vh - 210px)" }}>
+        {/* Staff Directory Sidebar */}
+        <div
+          style={{
+            flex: "1 1 320px",
+            maxWidth: "420px",
+            background: "var(--bg-card)",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--border-primary)",
+            display: "flex",
+            flexDirection: "column",
+            maxHeight: "74vh",
+          }}
+        >
+          <div
+            style={{
+              padding: "1rem 1.15rem",
+              borderBottom: "1px solid var(--border-primary)",
+              background: "var(--bg-secondary)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.65rem",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0, fontSize: "1rem", color: "var(--color-navy-blue)" }}>
+                Staff Directory ({filteredContacts.length})
+              </h2>
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 700 }}>
+                {viewerGroup === "ADMINISTRATION" ? "Admin View" : "Teacher View"}
+              </span>
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <FiSearch
+                size={14}
+                style={{ position: "absolute", left: "0.65rem", top: "0.62rem", color: "var(--text-muted)" }}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search email, role, or class..."
+                className="input-field"
+                style={{ width: "100%", padding: "0.42rem 0.65rem 0.42rem 1.95rem", fontSize: "0.84rem" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "0.4rem" }}>
+              {(
+                [
+                  { id: "ALL", label: "All Staff" },
+                  { id: "ADMINISTRATION", label: "Administration" },
+                  { id: "TEACHERS", label: "Teachers" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setGroupFilter(tab.id)}
+                  style={{
+                    flex: 1,
+                    padding: "0.35rem 0.5rem",
+                    borderRadius: "4px",
+                    fontSize: "0.76rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    border: "1px solid var(--border-primary)",
+                    background:
+                      groupFilter === tab.id ? "var(--color-navy-blue)" : "var(--bg-card)",
+                    color: groupFilter === tab.id ? "#ffffff" : "var(--text-secondary)",
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {filteredContacts.length === 0 ? (
+              <div style={{ padding: "1.75rem", textAlign: "center", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                No matching staff accounts found.
+              </div>
+            ) : (
+              filteredContacts.map((c) => {
+                const isSelected = selectedUserId === c.UserID;
+                return (
+                  <button
+                    key={c.UserID}
+                    type="button"
+                    onClick={() => setSelectedUserId(c.UserID)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "0.85rem 1.1rem",
+                      border: "none",
+                      background: isSelected ? "var(--bg-secondary)" : "transparent",
+                      borderLeft: isSelected
+                        ? "3px solid var(--color-primary-green)"
+                        : "3px solid transparent",
+                      borderBottom: "1px solid var(--border-subtle)",
+                      cursor: "pointer",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                    }}
+                  >
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            padding: "0.12rem 0.4rem",
+                            borderRadius: "3px",
+                            border: "1px solid var(--border-primary)",
+                            background:
+                              c.staffGroup === "ADMINISTRATION"
+                                ? "var(--status-info-bg)"
+                                : "var(--status-success-bg)",
+                            color:
+                              c.staffGroup === "ADMINISTRATION"
+                                ? "var(--status-info-text)"
+                                : "var(--status-success-text)",
+                          }}
+                        >
+                          {c.RoleLabel}
+                        </span>
+                        {c.formMasterClasses.length > 0 && (
+                          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 600 }}>
+                            Class Teacher: {c.formMasterClasses.join(", ")}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          marginTop: "0.25rem",
+                          fontWeight: 700,
+                          color: "var(--text-heading)",
+                          fontSize: "0.88rem",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {c.Email}
+                      </div>
+                      {c.subjectSummary.length > 0 && (
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "var(--text-muted)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            marginTop: "0.1rem",
+                          }}
+                        >
+                          {c.subjectSummary.slice(0, 2).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+
+                    {c.unreadCount > 0 && (
+                      <span
+                        style={{
+                          minWidth: "22px",
+                          height: "22px",
+                          padding: "0 6px",
+                          borderRadius: "4px",
+                          background: "var(--color-primary-green)",
+                          color: "#ffffff",
+                          fontSize: "0.74rem",
+                          fontWeight: 800,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {c.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Thread Area */}
+        <div
+          style={{
+            flex: "2 1 420px",
+            background: "var(--bg-card)",
+            borderRadius: "var(--radius-md)",
+            display: "flex",
+            flexDirection: "column",
+            border: "1px solid var(--border-primary)",
+            minHeight: "62vh",
+            maxHeight: "74vh",
+          }}
+        >
+          {selectedUserId && selectedContact ? (
+            <>
+              <div
                 style={{
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "0.95rem 1.25rem",
-                  border: "none",
-                  background: selectedUserId === c.UserID ? "var(--active-bg)" : "transparent",
-                  borderBottom: "1px solid var(--border-subtle)",
-                  cursor: "pointer",
+                  padding: "1rem 1.25rem",
+                  borderBottom: "1px solid var(--border-primary)",
+                  background: "var(--bg-secondary)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <h3 style={{ margin: 0, color: "var(--color-navy-blue)", fontSize: "1.02rem" }}>
+                    {selectedContact.Email}
+                  </h3>
+                  <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--text-muted)" }}>
+                    ({selectedContact.RoleLabel})
+                  </span>
+                </div>
+                {(selectedContact.formMasterClasses.length > 0 ||
+                  selectedContact.subjectSummary.length > 0) && (
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                    {[
+                      selectedContact.formMasterClasses.length > 0
+                        ? `Class Teacher: ${selectedContact.formMasterClasses.join(", ")}`
+                        : null,
+                      selectedContact.subjectSummary.length > 0
+                        ? `Subjects: ${selectedContact.subjectSummary.slice(0, 3).join(", ")}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                )}
+              </div>
+
+              <div
+                ref={scrollRef}
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  padding: "1.25rem",
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: "column",
                   gap: "0.85rem",
                 }}
               >
-                <div style={{ background: "var(--color-gray-200)", padding: "0.5rem", borderRadius: "50%" }}>
-                  <FiUser size={18} color="var(--color-gray-600)" />
-                </div>
-                <div style={{ overflow: "hidden" }}>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontWeight: "bold",
-                      color: "var(--color-navy-blue)",
-                      fontSize: "0.92rem",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {studentName ? `${studentName} (${c.Email})` : c.Email}
-                  </p>
-                  <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--color-gray-500)" }}>
-                    {c.Role?.RoleName}
-                    {c.Student?.Class?.ClassName ? ` • ${c.Student.Class.ClassName}` : ""}
-                    {c.Student?.ParentContact ? ` • 📱 ${c.Student.ParentContact}` : ""}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Chat Area */}
-      <div
-        style={{
-          flex: 2,
-          background: "var(--color-white)",
-          borderRadius: "var(--radius-md)",
-          boxShadow: "var(--shadow-sm)",
-          display: "flex",
-          flexDirection: "column",
-          border: "1px solid var(--color-gray-200)",
-          minHeight: "65vh",
-        }}
-      >
-        {selectedUserId && selectedContact ? (
-          <>
-            <div
-              style={{
-                padding: "1.15rem 1.5rem",
-                borderBottom: "1px solid var(--color-gray-200)",
-                background: "var(--color-gray-50)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: "0.75rem",
-              }}
-            >
-              <div>
-                <h3 style={{ margin: 0, color: "var(--color-navy-blue)", fontSize: "1.05rem" }}>
-                  {selectedContact.Student
-                    ? `${selectedContact.Student.FirstName || ""} ${selectedContact.Student.LastName || ""} (${selectedContact.Email})`
-                    : `Chat with ${selectedContact.Email}`}
-                </h3>
-                <div style={{ fontSize: "0.8rem", color: "var(--color-gray-600)", marginTop: "0.2rem" }}>
-                  Registration Email: <strong>{selectedContact.Email}</strong>
-                  {selectedContact.Student && (
-                    <>
-                      {" "}
-                      • WOFS Student ID: <strong>{selectedContact.Student.AdmissionNo}</strong>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {selectedContact.Student && (
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                  <input
-                    className="input-field"
-                    type="tel"
-                    placeholder="Student WhatsApp/SMS Phone"
-                    value={directPhoneOverride}
-                    onChange={(e) => setDirectPhoneOverride(e.target.value)}
-                    style={{ padding: "0.4rem 0.65rem", fontSize: "0.82rem", width: "175px" }}
-                  />
-                  <input
-                    className="input-field"
-                    type="text"
-                    placeholder="Email Subject"
-                    value={directSubject}
-                    onChange={(e) => setDirectSubject(e.target.value)}
-                    style={{ padding: "0.4rem 0.65rem", fontSize: "0.82rem", width: "185px" }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {directFeedback && (
-                <div
-                  style={{
-                    padding: "0.65rem 1.25rem",
-                    background: directFeedback.type === "error" ? "var(--status-error-bg)" : "var(--status-success-bg)",
-                    color: directFeedback.type === "error" ? "var(--status-error-text)" : "var(--status-success-text)",
-                    borderBottom: `1px solid ${directFeedback.type === "error" ? "var(--status-error-border)" : "var(--status-success-border)"}`,
-                    fontSize: "0.84rem",
-                    fontWeight: 600,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: "0.5rem",
-                  }}
-                >
-                <span>{directFeedback.text}</span>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  {directFeedback.whatsappDeepLink && (
-                    <a
-                      href={directFeedback.whatsappDeepLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        background: "#15803d",
-                        color: "white",
-                        padding: "0.25rem 0.6rem",
-                        borderRadius: "4px",
-                        textDecoration: "none",
-                        fontSize: "0.78rem",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.25rem",
-                      }}
-                    >
-                      <FiExternalLink /> Open WhatsApp
-                    </a>
-                  )}
-                  {directFeedback.smsDeepLink && (
-                    <a
-                      href={directFeedback.smsDeepLink}
-                      style={{
-                        background: "#0369a1",
-                        color: "white",
-                        padding: "0.25rem 0.6rem",
-                        borderRadius: "4px",
-                        textDecoration: "none",
-                        fontSize: "0.78rem",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.25rem",
-                      }}
-                    >
-                      <FiPhone /> Open SMS App
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div
-              ref={scrollRef}
-              style={{
-                flex: 1,
-                overflowY: "auto",
-                padding: "1.5rem",
-                display: "flex",
-                flexDirection: "column",
-                gap: "1rem",
-              }}
-            >
-              {messages.map((m) => {
-                const isMine = m.SenderID === -1 || m.ReceiverID === selectedUserId;
-                return (
-                  <div key={m.MessageID} style={{ alignSelf: isMine ? "flex-end" : "flex-start", maxWidth: "75%" }}>
-                    <div
-                      style={{
-                        padding: "0.9rem 1.1rem",
-                        borderRadius: isMine ? "18px 18px 0 18px" : "18px 18px 18px 0",
-                        background: isMine ? "var(--brand-primary)" : "var(--bg-tertiary)",
-                        color: isMine ? "var(--brand-primary-text)" : "var(--text-primary)",
-                        border: isMine ? "none" : "1px solid var(--border-subtle)",
-                        boxShadow: "var(--shadow-sm)",
-                      }}
-                    >
-                      <p style={{ margin: 0, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{m.Content}</p>
-                    </div>
-                    <p
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "var(--color-gray-400)",
-                        marginTop: "0.25rem",
-                        textAlign: isMine ? "right" : "left",
-                      }}
-                    >
-                      {new Date(m.CreatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </p>
+                {messages.length === 0 ? (
+                  <div style={{ margin: "auto", textAlign: "center", color: "var(--text-muted)", fontSize: "0.88rem" }}>
+                    No previous messages in this thread. Send an internal staff note below.
                   </div>
-                );
-              })}
-            </div>
+                ) : (
+                  messages.map((m) => {
+                    const isMine = m.SenderID === -1 || m.ReceiverID === selectedUserId;
+                    return (
+                      <div
+                        key={m.MessageID}
+                        style={{ alignSelf: isMine ? "flex-end" : "flex-start", maxWidth: "75%" }}
+                      >
+                        <div
+                          style={{
+                            padding: "0.75rem 1rem",
+                            borderRadius: "8px",
+                            background: isMine ? "var(--color-navy-blue)" : "var(--bg-secondary)",
+                            color: isMine ? "#ffffff" : "var(--text-primary)",
+                            border: isMine ? "none" : "1px solid var(--border-primary)",
+                          }}
+                        >
+                          <p style={{ margin: 0, lineHeight: 1.45, whiteSpace: "pre-wrap", fontSize: "0.9rem" }}>
+                            {m.Content}
+                          </p>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "0.72rem",
+                            color: "var(--text-muted)",
+                            marginTop: "0.2rem",
+                            textAlign: isMine ? "right" : "left",
+                          }}
+                        >
+                          {new Date(m.CreatedAt).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
 
-            <div style={{ borderTop: "1px solid var(--color-gray-200)", padding: "1rem 1.5rem" }}>
-              {selectedContact.Student && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "0.5rem",
-                    marginBottom: "0.75rem",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                  }}
-                >
-                  <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--color-gray-600)" }}>
-                    Direct Student Dispatch:
-                  </span>
-                  <button
-                    type="button"
-                    disabled={directDispatching || !input.trim()}
-                    onClick={() => handleDirectChannelSend(["EMAIL"])}
-                    className="btn btn-outline"
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      fontSize: "0.78rem",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.3rem",
-                    }}
-                  >
-                    <FiMail /> Send Email ({selectedContact.Email})
-                  </button>
-                  <button
-                    type="button"
-                    disabled={directDispatching || !input.trim()}
-                    onClick={() => handleDirectChannelSend(["WHATSAPP"])}
-                    className="btn btn-outline"
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      fontSize: "0.78rem",
-                      borderColor: "var(--status-success-border)",
-                      color: "var(--status-success-text)",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.3rem",
-                    }}
-                  >
-                    <FiMessageCircle /> Send WhatsApp ({directPhoneOverride || "Phone"})
-                  </button>
-                  <button
-                    type="button"
-                    disabled={directDispatching || !input.trim()}
-                    onClick={() => handleDirectChannelSend(["SMS"])}
-                    className="btn btn-outline"
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      fontSize: "0.78rem",
-                      borderColor: "var(--status-info-border)",
-                      color: "var(--status-info-text)",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.3rem",
-                    }}
-                  >
-                    <FiPhone /> Send SMS ({directPhoneOverride || "Phone"})
-                  </button>
-                  <button
-                    type="button"
-                    disabled={directDispatching || !input.trim()}
-                    onClick={() => handleDirectChannelSend(["EMAIL", "WHATSAPP", "SMS"])}
-                    className="btn btn-primary"
-                    style={{
-                      padding: "0.3rem 0.75rem",
-                      fontSize: "0.78rem",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.3rem",
-                    }}
-                  >
-                    Dispatch All 3 Channels
-                  </button>
-                </div>
-              )}
-
-              <form onSubmit={handleSend} style={{ display: "flex", gap: "0.75rem" }}>
+              <form
+                onSubmit={handleSend}
+                style={{
+                  borderTop: "1px solid var(--border-primary)",
+                  padding: "0.9rem 1.25rem",
+                  display: "flex",
+                  gap: "0.75rem",
+                }}
+              >
                 <input
                   className="input-field"
                   type="text"
-                  placeholder="Type a message for portal chat or direct Email / WhatsApp / SMS..."
+                  placeholder={`Message ${selectedContact.RoleLabel} (${selectedContact.Email})...`}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   style={{ flex: 1 }}
@@ -484,31 +473,34 @@ export default function MessagesPage() {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  style={{ padding: "0 1.5rem" }}
+                  style={{ padding: "0 1.25rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
                   disabled={!input.trim()}
-                  title="Send Portal Message"
                 >
-                  <FiSend size={20} />
+                  <FiSend size={16} /> Send
                 </button>
               </form>
+            </>
+          ) : (
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-muted)",
+                flexDirection: "column",
+                gap: "0.75rem",
+                padding: "2rem",
+                textAlign: "center",
+              }}
+            >
+              <FiUser size={42} opacity={0.45} />
+              <p style={{ margin: 0, fontSize: "0.92rem" }}>
+                Select an Administrator, Class Teacher, or Subject Teacher from the directory to start or resume a conversation.
+              </p>
             </div>
-          </>
-        ) : (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--color-gray-400)",
-              flexDirection: "column",
-              gap: "1rem",
-            }}
-          >
-            <FiUser size={64} opacity={0.5} />
-            <p>Select a contact to start messaging or send direct Email, WhatsApp, and SMS</p>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

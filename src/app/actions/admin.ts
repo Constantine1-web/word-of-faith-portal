@@ -310,7 +310,7 @@ export async function updateAdminCapabilities(data: {
     if (actor.UserID === targetUserId) {
       return {
         success: false,
-        error: "Guardrail Violation (Section B.2): Nobody can grant or modify capabilities on their own account.",
+        error: "Not allowed: Nobody can grant or modify permissions on their own account.",
       };
     }
 
@@ -341,7 +341,7 @@ export async function updateAdminCapabilities(data: {
       if (fullCount <= 1) {
         return {
           success: false,
-          error: "Guardrail Violation (Section B.2): The last FULL admin cannot be demoted.",
+          error: "Not allowed: The last Full Admin cannot be demoted.",
         };
       }
     }
@@ -456,7 +456,7 @@ export async function toggleUserStatus(userId: number, isActive: boolean) {
     if (!isActive && actor.UserID === userId) {
       return {
         success: false,
-        error: "Guardrail Violation (Section B.2): You cannot deactivate your own account.",
+        error: "Not allowed: You cannot deactivate your own account.",
       };
     }
 
@@ -479,7 +479,7 @@ export async function toggleUserStatus(userId: number, isActive: boolean) {
           if (fullCount <= 1) {
             return {
               success: false,
-              error: "Guardrail Violation (Section B.2): The last FULL admin cannot be deactivated.",
+              error: "Not allowed: The last Full Admin cannot be deactivated.",
             };
           }
         }
@@ -680,7 +680,7 @@ export async function assignFormMaster(classId: number, teacherUserId: number | 
     return { success: true, class: updated };
   } catch (error: any) {
     console.error("assignFormMaster error:", error);
-    return { success: false, error: error.message || "Failed to assign Form Master" };
+    return { success: false, error: error.message || "Failed to assign Class Teacher" };
   }
 }
 
@@ -773,7 +773,7 @@ export async function enrollTeacherComplete(data: {
     if (existingUser) {
       return {
         success: false,
-        error: `A portal account with email '${emailClean}' already exists. You can assign subjects or Form Master duties to them directly on their card below.`,
+        error: `A portal account with email '${emailClean}' already exists. You can assign subjects or Class Teacher duties to them directly on their card below.`,
       };
     }
 

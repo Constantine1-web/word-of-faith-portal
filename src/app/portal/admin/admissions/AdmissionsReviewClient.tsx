@@ -381,7 +381,7 @@ export default function AdmissionsReviewClient({
                 >
                   {classes.map(c => (
                     <option key={c.ClassID} value={c.ClassID.toString()}>
-                      {c.ClassName} ({c.Level}) {c.FormMaster ? `· Form Master: ${c.FormMaster.Email}` : ""}
+                      {c.ClassName} ({c.Level}) {c.FormMaster ? `· Class Teacher: ${c.FormMaster.Email}` : ""}
                     </option>
                   ))}
                 </select>

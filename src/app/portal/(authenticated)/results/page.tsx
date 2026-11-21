@@ -217,14 +217,14 @@ export default function ResultsPage() {
               </div>
             </div>
             <div class="remarks-box">
-              <div><strong>Form Master's Remark:</strong> ${formMasterRemark}</div>
+              <div><strong>Class Teacher's Remark:</strong> ${formMasterRemark}</div>
               <div style="margin-bottom: 0;"><strong>Principal's Official Remark:</strong> ${principalRemark}</div>
             </div>
             <div style="font-size: 11px; color: #64748b;">
               <strong>Grading Scale:</strong> A (70–100%: Distinction) • B (60–69%: Very Good) • C (50–59%: Credit) • D/E (40–49%: Pass) • F (0–39%: Fail)
             </div>
             <div class="footer-sigs">
-              <div><strong>Form Master's Signature:</strong> Signed &amp; Verified</div>
+              <div><strong>Class Teacher's Signature:</strong> Signed &amp; Verified</div>
               <div><strong>Date Issued:</strong> ${new Date().toLocaleDateString("en-NG", { day: "2-digit", month: "long", year: "numeric" })}</div>
               <div><strong>Principal's Stamp &amp; Signature:</strong> Approved</div>
             </div>
@@ -574,7 +574,7 @@ export default function ResultsPage() {
               }}
             >
               <div style={{ marginBottom: "0.5rem" }}>
-                <strong>Form Master&apos;s Remark:</strong> {formMasterRemark}
+                <strong>Class Teacher&apos;s Remark:</strong> {formMasterRemark}
               </div>
               <div>
                 <strong>Principal&apos;s Official Remark:</strong> {principalRemark}

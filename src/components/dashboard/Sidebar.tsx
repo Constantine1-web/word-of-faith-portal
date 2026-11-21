@@ -63,8 +63,8 @@ export default function Sidebar() {
           name: "Academic Setup", 
           icon: <FiCalendar />, 
           children: [
-            { name: "Session & Term Master", href: "/portal/admin/terms" },
-            { name: "Classes & Form Masters", href: "/portal/admin/classes" },
+            { name: "Session & Term Setup", href: "/portal/admin/terms" },
+            { name: "Classes & Class Teachers", href: "/portal/admin/classes" },
             { name: "Subject Allocations", href: "/portal/admin/teachers" },
           ]
         },
@@ -86,13 +86,12 @@ export default function Sidebar() {
           ]
         },
         { 
-          name: "Examinations & E-Learning", 
+          name: "Examinations & CBT", 
           icon: <FiAward />, 
           children: [
             { name: "Result Broadsheets", href: "/portal/admin/results" },
             { name: "CBT & Day Locks", href: "/portal/admin/cbt" },
             { name: "CBT Portal", href: "/portal/cbt" },
-            { name: "Lesson Notes & Homework", href: "/portal/courses" },
           ]
         },
         { 
@@ -102,7 +101,7 @@ export default function Sidebar() {
             { name: "Audit Hash Explorer", href: "/portal/admin/audit" },
           ]
         },
-        { name: "Messages", href: "/portal/messages", icon: <FiFileText /> },
+        { name: "Admin–Teacher Comms", href: "/portal/messages", icon: <FiFileText /> },
       ];
     }
 
@@ -114,14 +113,13 @@ export default function Sidebar() {
           icon: <FiBookOpen />, 
           children: [
             { name: "Score Entry & CA", href: "/portal/teacher" },
-            { name: "Lesson Notes & Quiz Studio", href: "/portal/teacher?tab=elearning-studio" },
+            { name: "Custom CBT Quiz Builder", href: "/portal/teacher?tab=elearning-studio" },
             { name: "Attendance Roll Call", href: "/portal/teacher?tab=attendance-hub" },
-            { name: "Class Lesson Notes", href: "/portal/courses" },
-            { name: "Form Master Hub", href: "/portal/teacher?tab=form-master-hub" },
+            { name: "Class Teacher Hub", href: "/portal/teacher?tab=class-teacher-hub" },
             { name: "CBT Exams", href: "/portal/cbt" },
           ]
         },
-        { name: "Messages", href: "/portal/messages", icon: <FiFileText /> },
+        { name: "Admin–Teacher Comms", href: "/portal/messages", icon: <FiFileText /> },
         { name: "My Profile", href: "/portal/profile", icon: <FiUser /> },
       ];
     }
@@ -134,7 +132,6 @@ export default function Sidebar() {
           icon: <FiBookOpen />, 
           children: [
             { name: "Check Results", href: "/portal/results" },
-            { name: "Lesson Notes & Homework", href: "/portal/courses" },
             { name: "CBT Performance", href: "/portal/cbt" },
           ]
         },
@@ -146,7 +143,6 @@ export default function Sidebar() {
             { name: "Payment Receipts", href: "/portal/fees/history" },
           ]
         },
-        { name: "Messages", href: "/portal/messages", icon: <FiFileText /> },
         { name: "My Profile", href: "/portal/profile", icon: <FiUser /> },
       ];
     }
@@ -159,7 +155,6 @@ export default function Sidebar() {
         icon: <FiBookOpen />, 
         children: [
           { name: "Check Results", href: "/portal/results" },
-          { name: "Subjects & Lesson Notes", href: "/portal/courses" },
           { name: "CBT Practice", href: "/portal/cbt" },
         ]
       },

@@ -90,7 +90,7 @@ export default function TeacherNav({
         <FiBookOpen color="#4ade80" /> Score Entry & CA Sheets
       </Link>
       <Link
-        href="/portal/teacher?tab=form-master-hub"
+        href="/portal/teacher?tab=class-teacher-hub"
         style={{
           display: "flex",
           alignItems: "center",
@@ -101,7 +101,7 @@ export default function TeacherNav({
           borderRadius: "0.5rem",
         }}
       >
-        <FiUserCheck /> Form Master Hub
+        <FiUserCheck /> Class Teacher Hub
       </Link>
       <Link
         href="/portal/teacher?tab=attendance-hub"
@@ -129,21 +129,7 @@ export default function TeacherNav({
           borderRadius: "0.5rem",
         }}
       >
-        <FiBookOpen /> Lesson Notes & Quiz Studio
-      </Link>
-      <Link
-        href="/portal/courses"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.85rem",
-          padding: "0.75rem 1rem",
-          color: "var(--sidebar-muted)",
-          textDecoration: "none",
-          borderRadius: "0.5rem",
-        }}
-      >
-        <FiBookOpen /> Class Lesson Notes
+        <FiAward /> Custom CBT Quiz Builder
       </Link>
       <Link
         href="/portal/cbt"
@@ -157,7 +143,7 @@ export default function TeacherNav({
           borderRadius: "0.5rem",
         }}
       >
-        <FiAward /> CBT Exam Builder
+        <FiAward /> CBT Exam Hall
       </Link>
       <Link
         href="/portal/messages"
@@ -171,7 +157,7 @@ export default function TeacherNav({
           borderRadius: "0.5rem",
         }}
       >
-        <FiMessageSquare /> Staff & Parent Comms
+        <FiMessageSquare /> Admin–Teacher Comms
       </Link>
       <Link
         href="/portal/profile"

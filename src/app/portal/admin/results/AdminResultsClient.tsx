@@ -163,7 +163,7 @@ export default function AdminResultsClient({
   const handlePublishBroadsheet = async (classId: number, isRepublish: boolean) => {
     const reason = isRepublish
       ? prompt(
-          "Enter change reason for superseding previous ReportCard version (Section B.4.6):",
+          "Enter a reason for updating the already published report cards:",
           "Post-publication score correction approved"
         )
       : "Initial terminal publication";
@@ -199,7 +199,7 @@ export default function AdminResultsClient({
 
   const handleUnlockSheet = async (submissionId: number) => {
     const note = prompt(
-      "Enter mandatory written reason to unlock this sheet for 24 hours (Section B.4.1 & SoD):",
+      "Enter a written reason to unlock this score sheet for 24 hours:",
       "Approved teacher request for score correction"
     );
     if (!note) return;
@@ -487,11 +487,11 @@ export default function AdminResultsClient({
                   borderBottom: "2px solid var(--color-gray-200)",
                 }}
               >
-                <th style={{ padding: "1rem", textAlign: "left" }}>Class Arm</th>
-                <th style={{ padding: "1rem", textAlign: "left" }}>Designated Form Master</th>
+                <th style={{ padding: "1rem", textAlign: "left" }}>Class</th>
+                <th style={{ padding: "1rem", textAlign: "left" }}>Class Teacher</th>
                 <th style={{ padding: "1rem", textAlign: "center" }}>Enrolled</th>
                 <th style={{ padding: "1rem", textAlign: "center" }}>Sheet Status</th>
-                <th style={{ padding: "1rem", textAlign: "center" }}>Broadsheet State (B.4.5)</th>
+                <th style={{ padding: "1rem", textAlign: "center" }}>Approval &amp; Publish Status</th>
                 <th style={{ padding: "1rem", textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
@@ -522,7 +522,7 @@ export default function AdminResultsClient({
                       >
                         {cls.ClassName} ({cls.Level})
                       </td>
-                      <td data-label="Form Master" style={{ padding: "1rem", color: "var(--color-gray-700)" }}>
+                      <td data-label="Class Teacher" style={{ padding: "1rem", color: "var(--color-gray-700)" }}>
                         {cls.FormMaster?.Email || (
                           <span style={{ color: "var(--color-gray-400)", fontStyle: "italic" }}>
                             Not Assigned
@@ -694,11 +694,11 @@ export default function AdminResultsClient({
           <table className="responsive-table" style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
-                <th style={{ padding: "1rem", textAlign: "left" }}>Class Arm & Subject</th>
+                <th style={{ padding: "1rem", textAlign: "left" }}>Class &amp; Subject</th>
                 <th style={{ padding: "1rem", textAlign: "left" }}>Assigned Teacher</th>
                 <th style={{ padding: "1rem", textAlign: "center" }}>Current Status</th>
                 <th style={{ padding: "1rem", textAlign: "left" }}>Unlock Request Reason</th>
-                <th style={{ padding: "1rem", textAlign: "right" }}>Action (Requires UNLOCK_SHEETS)</th>
+                <th style={{ padding: "1rem", textAlign: "right" }}>Action</th>
               </tr>
             </thead>
             <tbody>

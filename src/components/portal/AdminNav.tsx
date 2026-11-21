@@ -113,7 +113,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             borderRadius: "0.5rem",
           }}
         >
-          <FiLayers /> Classes & Form Masters
+          <FiLayers /> Classes &amp; Class Teachers
         </Link>
         <Link
           href="/portal/admin/teachers"
@@ -228,20 +228,6 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
           <FiCheckSquare /> CBT & Day Locks
         </Link>
         <Link
-          href="/portal/courses"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiBookOpen /> Lesson Notes &amp; Homework
-        </Link>
-        <Link
           href="/portal/admin/users"
           style={{
             display: "flex",
@@ -323,7 +309,7 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
             borderRadius: "0.5rem",
           }}
         >
-          <FiFileText /> Portal Messaging
+          <FiFileText /> Admin–Teacher Comms
         </Link>
 
         <div

@@ -59,9 +59,9 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
     if (res.success) {
       const assignedTeacher = teachers.find(t => t.UserID === teacherUserId);
       setClasses(prev => prev.map(c => c.ClassID === classId ? { ...c, FormMaster: assignedTeacher || null, FormMasterID: teacherUserId } : c));
-      setSuccess("Form Master allocation updated!");
+      setSuccess("Class Teacher assignment updated!");
     } else {
-      setError(res.error || "Failed to update Form Master");
+      setError(res.error || "Failed to update Class Teacher");
     }
     setLoading(false);
   };
@@ -115,7 +115,7 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
             <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
               <th style={{ padding: "1rem", textAlign: "left" }}>Class Arm</th>
               <th style={{ padding: "1rem", textAlign: "left" }}>Level</th>
-              <th style={{ padding: "1rem", textAlign: "left" }}>Designated Form Master (Class Teacher)</th>
+              <th style={{ padding: "1rem", textAlign: "left" }}>Assigned Class Teacher</th>
               <th style={{ padding: "1rem", textAlign: "center" }}>Students</th>
               <th style={{ padding: "1rem", textAlign: "right" }}>Actions</th>
             </tr>
@@ -146,7 +146,7 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
                       {cls.Level}
                     </span>
                   </td>
-                  <td data-label="Form Master" style={{ padding: "1rem" }}>
+                  <td data-label="Class Teacher" style={{ padding: "1rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                       <select
                         value={cls.FormMasterID?.toString() || ""}
@@ -155,7 +155,7 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
                         className="form-input"
                         style={{ padding: "0.4rem 0.6rem", fontSize: "0.9rem", maxWidth: "260px" }}
                       >
-                        <option value="">-- No Form Master Assigned --</option>
+                        <option value="">-- No Class Teacher Assigned --</option>
                         {teachers.map(t => (
                           <option key={t.UserID} value={t.UserID.toString()}>
                             {t.Email}
@@ -249,7 +249,7 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
               </div>
 
               <div className="form-group">
-                <label className="form-label">Initial Form Master (Optional)</label>
+                <label className="form-label">Initial Class Teacher (Optional)</label>
                 <select
                   className="form-input"
                   value={selectedFormMaster}

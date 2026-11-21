@@ -9,18 +9,14 @@ import {
   writeAuditLog,
 } from "@/lib/authz";
 import { rateLimit } from "@/lib/security";
+import {
+  ALL_STAFF_COMM_ROLES,
+  classifyStaffContactGroup,
+  formatStaffRoleLabel,
+  isAuthorizedStaffCommRoleSet,
+} from "@/lib/staff-messaging";
 
-const STAFF_MESSAGING_ROLES = [
-  "SUPER_ADMIN",
-  "PRINCIPAL",
-  "ADMISSIONS",
-  "BURSAR",
-  "EXAM_OFFICER",
-  "FORM_MASTER",
-  "TEACHER",
-  "Admin",
-  "Teacher",
-];
+const STAFF_MESSAGING_ROLES = [...ALL_STAFF_COMM_ROLES];
 
 function isSchoolAdminOrSupervisor(actor: Awaited<ReturnType<typeof requireActiveUser>>): boolean {
   return (
@@ -29,6 +25,7 @@ function isSchoolAdminOrSupervisor(actor: Awaited<ReturnType<typeof requireActiv
     actor.roles.has("ADMISSIONS") ||
     actor.roles.has("BURSAR") ||
     actor.roles.has("EXAM_OFFICER") ||
+    actor.roles.has("ADMIN") ||
     actor.roles.has("Admin") ||
     actor.capabilities.has("MANAGE_STUDENTS")
   );
@@ -56,13 +53,10 @@ export async function sendMessage(receiverId: number, content: string) {
     return { success: false, error: "Invalid recipient." };
   }
 
-  const isStaff = STAFF_MESSAGING_ROLES.some((r) => actor.roles.has(r));
-  const isParent = actor.roles.has("PARENT") || actor.roles.has("Parent");
-
-  if (!isStaff && !isParent) {
+  if (!isAuthorizedStaffCommRoleSet(actor.roles)) {
     return {
       success: false,
-      error: "Direct student-to-teacher in-app messaging has been disabled. For any academic or administrative inquiries, please have a parent or guardian contact the school.",
+      error: "Portal internal messaging is restricted to Administration and Teaching Staff.",
     };
   }
 
@@ -73,21 +67,18 @@ export async function sendMessage(receiverId: number, content: string) {
     });
 
     if (!recipient || !recipient.IsActive) {
-      return { success: false, error: "Recipient account not found or inactive." };
+      return { success: false, error: "Recipient staff account not found or inactive." };
     }
 
-    if (!isStaff) {
-      const recipientRoles = new Set<string>([
-        recipient.Role?.RoleName || "",
-        ...(recipient.RoleAssignments?.map((ra) => ra.Role) || []),
-      ]);
-      const isRecipientStaff = STAFF_MESSAGING_ROLES.some((r) => recipientRoles.has(r));
-      if (!isRecipientStaff) {
-        return {
-          success: false,
-          error: "Students and parents can only message authorized school teachers and administrators.",
-        };
-      }
+    const recipientRoles = [
+      recipient.Role?.RoleName || "",
+      ...(recipient.RoleAssignments?.map((ra) => ra.Role) || []),
+    ];
+    if (!isAuthorizedStaffCommRoleSet(recipientRoles)) {
+      return {
+        success: false,
+        error: "Messages can only be exchanged between Administration and Teaching Staff accounts.",
+      };
     }
 
     const message = await prisma.message.create({
@@ -113,22 +104,38 @@ export async function getConversation(otherUserId: number) {
   }
 
   const currentUserId = actor.UserID;
-  const isStaff = STAFF_MESSAGING_ROLES.some((r) => actor.roles.has(r));
-  const isParent = actor.roles.has("PARENT") || actor.roles.has("Parent");
-
-  if (!isStaff && !isParent) {
+  if (!isAuthorizedStaffCommRoleSet(actor.roles)) {
     return {
       success: false,
-      error: "Direct student-to-teacher in-app messaging has been disabled.",
+      error: "Portal internal messaging is restricted to Administration and Teaching Staff.",
     };
   }
 
   const targetId = Number(otherUserId);
   if (!Number.isInteger(targetId) || targetId <= 0) {
-    return { success: false, error: "Invalid user ID" };
+    return { success: false, error: "Invalid staff user ID" };
   }
 
   try {
+    const peer = await prisma.user.findUnique({
+      where: { UserID: targetId },
+      select: {
+        UserID: true,
+        Role: { select: { RoleName: true } },
+        RoleAssignments: { select: { Role: true } },
+      },
+    });
+    const peerRoles = [
+      peer?.Role?.RoleName || "",
+      ...(peer?.RoleAssignments?.map((r) => r.Role) || []),
+    ];
+    if (!peer || !isAuthorizedStaffCommRoleSet(peerRoles)) {
+      return {
+        success: false,
+        error: "Conversation partner must be an active Administrator or Teacher.",
+      };
+    }
+
     const messages = await prisma.message.findMany({
       where: {
         OR: [
@@ -139,7 +146,6 @@ export async function getConversation(otherUserId: number) {
       orderBy: { CreatedAt: "asc" },
     });
 
-    // Mark received messages as read
     await prisma.message.updateMany({
       where: {
         ReceiverID: currentUserId,
@@ -156,67 +162,147 @@ export async function getConversation(otherUserId: number) {
   }
 }
 
-export async function getMessageContacts() {
+export interface StaffMessageContactItem {
+  UserID: number;
+  Email: string;
+  RoleName: string;
+  RoleLabel: string;
+  staffGroup: "ADMINISTRATION" | "TEACHERS";
+  formMasterClasses: string[];
+  subjectSummary: string[];
+  unreadCount: number;
+}
+
+export async function getMessageContacts(): Promise<{
+  success: boolean;
+  error?: string;
+  viewerGroup?: "ADMINISTRATION" | "TEACHERS";
+  contacts: StaffMessageContactItem[];
+}> {
   let actor;
   try {
     actor = await requireActiveUser();
   } catch {
-    return { success: false, error: "Unauthorized" };
+    return { success: false, error: "Unauthorized", contacts: [] };
   }
 
   const currentUserId = actor.UserID;
-  const isStaff = STAFF_MESSAGING_ROLES.some((r) => actor.roles.has(r));
-  const isParent = actor.roles.has("PARENT") || actor.roles.has("Parent");
-
-  if (!isStaff && !isParent) {
+  const viewerGroup = classifyStaffContactGroup(actor.roles);
+  if (!viewerGroup) {
     return {
       success: false,
-      error: "Direct student-to-teacher in-app messaging has been disabled. For any academic or administrative inquiries, please have a parent or guardian contact the school.",
+      error: "Portal internal messaging is restricted to Administration and Teaching Staff.",
+      contacts: [],
     };
   }
 
   try {
-    // Non-staff (Students/Parents) can only see active Staff/Admin contacts and never other students' PII
-    const whereClause: any = isStaff
-      ? { UserID: { not: currentUserId }, IsActive: true }
-      : {
+    const [users, unreadRows] = await Promise.all([
+      prisma.user.findMany({
+        where: {
           UserID: { not: currentUserId },
           IsActive: true,
-          Role: { RoleName: { in: ["Admin", "Teacher", "SUPER_ADMIN", "PRINCIPAL", "BURSAR", "ADMISSIONS"] } },
-        };
-
-    const users = await prisma.user.findMany({
-      where: whereClause,
-      select: {
-        UserID: true,
-        Email: true,
-        Role: {
-          select: { RoleName: true },
-        },
-        Student: isStaff
-          ? {
-              select: {
-                StudentID: true,
-                AdmissionNo: true,
-                PreferredName: true,
-                FirstName: true,
-                LastName: true,
-                ParentContact: true,
-                ParentEmail: true,
-                Class: {
-                  select: { ClassName: true },
+          OR: [
+            { Role: { RoleName: { in: STAFF_MESSAGING_ROLES } } },
+            {
+              RoleAssignments: {
+                some: {
+                  Role: {
+                    in: [
+                      "SUPER_ADMIN",
+                      "PRINCIPAL",
+                      "BURSAR",
+                      "ADMISSIONS",
+                      "TEACHER",
+                      "FORM_MASTER",
+                    ],
+                  },
                 },
               },
-            }
-          : false,
-      },
-      take: 100,
-    });
+            },
+          ],
+        },
+        select: {
+          UserID: true,
+          Email: true,
+          Role: { select: { RoleName: true } },
+          RoleAssignments: { select: { Role: true } },
+          FormMasterClasses: { select: { ClassName: true } },
+          TeacherMaps: {
+            select: {
+              Subject: { select: { SubjectName: true } },
+              Class: { select: { ClassName: true } },
+            },
+            take: 8,
+          },
+        },
+        orderBy: { Email: "asc" },
+        take: 150,
+      }),
+      prisma.message.groupBy({
+        by: ["SenderID"],
+        where: {
+          ReceiverID: currentUserId,
+          IsRead: false,
+        },
+        _count: { MessageID: true },
+      }),
+    ]);
 
-    return { success: true, contacts: users };
+    const unreadBySender = new Map<number, number>(
+      unreadRows.map((row) => [row.SenderID, row._count.MessageID])
+    );
+
+    const contacts: StaffMessageContactItem[] = users
+      .map((u) => {
+        const allRoles = [
+          u.Role?.RoleName || "",
+          ...(u.RoleAssignments?.map((ra) => ra.Role) || []),
+        ];
+        const staffGroup = classifyStaffContactGroup(allRoles);
+        if (!staffGroup) return null;
+
+        const roleLabel = formatStaffRoleLabel(u.Role?.RoleName);
+        const formMasterClasses = u.FormMasterClasses.map((c) => c.ClassName);
+        const subjectSummary = Array.from(
+          new Set(
+            u.TeacherMaps.map(
+              (m) => `${m.Subject?.SubjectName || "Subject"} (${m.Class?.ClassName || ""})`
+            )
+          )
+        );
+
+        return {
+          UserID: u.UserID,
+          Email: u.Email,
+          RoleName: u.Role?.RoleName || "Staff",
+          RoleLabel: roleLabel,
+          staffGroup,
+          formMasterClasses,
+          subjectSummary,
+          unreadCount: unreadBySender.get(u.UserID) || 0,
+        };
+      })
+      .filter((c): c is StaffMessageContactItem => Boolean(c))
+      .sort((a, b) => {
+        if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount;
+        // Put counterpart group first (Admins see Teachers first; Teachers see Admins first)
+        if (a.staffGroup !== b.staffGroup) {
+          return viewerGroup === "ADMINISTRATION"
+            ? a.staffGroup === "TEACHERS"
+              ? -1
+              : 1
+            : a.staffGroup === "ADMINISTRATION"
+            ? -1
+            : 1;
+        }
+        return a.Email.localeCompare(b.Email);
+      });
+
+    return { success: true, viewerGroup, contacts };
   } catch (error) {
-    console.error("Failed to fetch contacts:", error);
-    return { success: false, error: "Internal server error" };
+    console.error("Failed to fetch staff contacts:", error);
+    return { success: false, error: "Internal server error", contacts: [] };
   }
 }
 

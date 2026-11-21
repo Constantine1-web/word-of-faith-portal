@@ -379,10 +379,10 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                                 marginRight: "0.5rem",
                               }}
                             >
-                              Form Master ({user.FormMasterClasses.map((c: any) => c.ClassName).join(", ")})
+                              Class Teacher ({user.FormMasterClasses.map((c: any) => c.ClassName).join(", ")})
                             </span>
                           )}
-                          <span>{user.TeacherMaps?.length || 0} Subject Arm(s)</span>
+                          <span>{user.TeacherMaps?.length || 0} Subject Class(es)</span>
                         </div>
                       ) : (
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -449,7 +449,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
                               borderColor: "var(--status-purple-border)",
                               color: "var(--status-purple-text)",
                             }}
-                            title="Configure Section B.2 Capabilities & Presets"
+                            title="Configure Admin Permissions & Roles"
                           >
                             <FiSliders /> Capabilities
                           </button>
@@ -515,7 +515,7 @@ export default function UsersClient({ initialUsers, roles }: { initialUsers: any
             }}
           >
             <h3 style={{ color: "var(--color-navy-blue)", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <FiShield /> Admin Capabilities & Presets (Section B.2)
+              <FiShield /> Admin Permissions &amp; Presets
             </h3>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.9rem", marginBottom: "1rem" }}>
               Configuring switchable capabilities for <strong>{capTargetUser.Email}</strong>. Self-modification and demoting the last FULL admin are blocked by server guardrails.

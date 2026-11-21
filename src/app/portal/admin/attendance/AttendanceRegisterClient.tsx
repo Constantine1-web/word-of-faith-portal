@@ -541,7 +541,7 @@ export default function AttendanceRegisterClient({
             <thead>
               <tr style={{ background: "var(--bg-secondary)", borderBottom: "2px solid var(--border-primary)", textAlign: "left" }}>
                 <th style={{ padding: "0.85rem 1rem" }}>Class Arm</th>
-                <th style={{ padding: "0.85rem 1rem" }}>Form Master</th>
+                <th style={{ padding: "0.85rem 1rem" }}>Class Teacher</th>
                 <th style={{ padding: "0.85rem 1rem", textAlign: "center" }}>Enrolled</th>
                 <th style={{ padding: "0.85rem 1rem", textAlign: "center" }}>Marked</th>
                 <th style={{ padding: "0.85rem 1rem", textAlign: "center" }}>Present</th>

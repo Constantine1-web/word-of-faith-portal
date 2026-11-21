@@ -198,7 +198,7 @@ export default async function BroadsheetPage({
               {cumulative.orderedTerms.map((t) => t.TermName).join(" / ") || "Session Terms"})
             </span>
             <span>
-              <strong>Form Master:</strong> {classData.FormMaster?.Email || "Not Assigned"}
+              <strong>Class Teacher:</strong> {classData.FormMaster?.Email || "Not Assigned"}
             </span>
             <span>
               <strong>Formula:</strong>{" "}
@@ -370,10 +370,10 @@ export default async function BroadsheetPage({
           <div style={{ textAlign: "center", width: "min(100%, 250px)" }}>
             <div style={{ borderBottom: "1px solid var(--border-primary)", height: "40px", marginBottom: "0.5rem" }} />
             <p style={{ margin: 0, fontWeight: "bold", color: "var(--text-primary)" }}>
-              {classData.FormMaster?.Email || "Form Master"}
+              {classData.FormMaster?.Email || "Class Teacher"}
             </p>
             <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-              Form Master / Class Teacher
+              Class Teacher
             </p>
           </div>
 
@@ -454,7 +454,7 @@ export default async function BroadsheetPage({
     ...subjects,
     "Total",
     "Avg (%)",
-    "Form Master Remark",
+    "Class Teacher Remark",
   ];
   const terminalCsvRows = rankedStudents.map((item, idx) => [
     idx + 1,
@@ -545,7 +545,7 @@ export default async function BroadsheetPage({
             {activeTerm ? `${activeTerm.SessionName} - ${activeTerm.TermName}` : "Active Term"}
           </span>
           <span>
-            <strong>Form Master:</strong> {classData.FormMaster?.Email || "Not Assigned"}
+            <strong>Class Teacher:</strong> {classData.FormMaster?.Email || "Not Assigned"}
           </span>
         </div>
       </div>
@@ -588,7 +588,7 @@ export default async function BroadsheetPage({
                 Avg (%)
               </th>
               <th style={{ border: "1px solid var(--border-primary)", padding: "0.5rem", textAlign: "left", minWidth: "200px" }}>
-                Form Master Remark
+                Class Teacher Remark
               </th>
             </tr>
           </thead>
@@ -663,10 +663,10 @@ export default async function BroadsheetPage({
         <div style={{ textAlign: "center", width: "min(100%, 250px)" }}>
           <div style={{ borderBottom: "1px solid var(--border-primary)", height: "40px", marginBottom: "0.5rem" }} />
           <p style={{ margin: 0, fontWeight: "bold", color: "var(--text-primary)" }}>
-            {classData.FormMaster?.Email || "Form Master"}
+            {classData.FormMaster?.Email || "Class Teacher"}
           </p>
           <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-            Form Master / Class Teacher
+            Class Teacher
           </p>
         </div>
 

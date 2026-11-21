@@ -55,10 +55,10 @@ export default async function AdminClassesPage() {
       >
         <div>
           <h1 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.75rem" }}>
-            Classes & Form Masters
+            Classes &amp; Class Teachers
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            Configure class arms (Gold, Blue, etc.) and assign 1-to-1 Form Masters (Class Teachers) in charge of final compilation.
+            Set up class groups (Gold, Blue, etc.) and assign a Class Teacher to oversee each class&apos;s results and remarks.
           </p>
         </div>
       </div>

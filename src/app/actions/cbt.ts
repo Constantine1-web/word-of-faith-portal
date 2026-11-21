@@ -1307,7 +1307,7 @@ export async function liftCbtDayLock(lockId: string, reason: string) {
     if (!can(actor, "cbt:lift_lock")) {
       return {
         success: false,
-        error: "Forbidden: Only a Subject Teacher, Form Master, or the Principal may lift a CBT Day Lock.",
+        error: "Forbidden: Only a Subject Teacher, Class Teacher, or the Principal may lift a CBT Day Lock.",
       };
     }
 

@@ -669,7 +669,7 @@ export async function stageScoreSheetImportCsv(data: {
 
     const rawBytes = Buffer.byteLength(data.csvContent || "", "utf8");
     if (rawBytes > 2 * 1024 * 1024) {
-      return { success: false, error: "File exceeds the 2 MB import limit (Section B.4.3)." };
+      return { success: false, error: "File exceeds the 2 MB import limit." };
     }
     if (data.fileName && /\.xlsm$/i.test(data.fileName)) {
       return { success: false, error: "Macro-enabled workbooks (.xlsm) are strictly rejected." };
@@ -684,7 +684,7 @@ export async function stageScoreSheetImportCsv(data: {
       return { success: false, error: "Import file is empty or missing student rows." };
     }
     if (lines.length - 1 > 500) {
-      return { success: false, error: "Import file exceeds the 500-row cap (Section B.4.3)." };
+      return { success: false, error: "Import file exceeds the 500-row cap." };
     }
 
     // Ensure Subject_Submission sheet exists so ImportBatch can attach to it
@@ -1004,7 +1004,7 @@ export async function submitSubjectToFormMaster(subjectId: number, classId: numb
     return { success: true, submission };
   } catch (error: any) {
     console.error("submitSubjectToFormMaster error:", error);
-    return { success: false, error: error.message || "Failed to submit results to Form Master." };
+    return { success: false, error: error.message || "Failed to submit results to Class Teacher." };
   }
 }
 
@@ -1248,7 +1248,7 @@ export async function saveFormMasterRemarks(data: {
     return { success: true, report };
   } catch (error: any) {
     console.error("saveFormMasterRemarks error:", error);
-    return { success: false, error: error.message || "Failed to save Form Master remarks." };
+    return { success: false, error: error.message || "Failed to save Class Teacher remarks." };
   }
 }
 

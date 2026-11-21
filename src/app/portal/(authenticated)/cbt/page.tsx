@@ -226,7 +226,7 @@ export default function CBTLandingPage() {
             <strong>Reason:</strong> {studentStatus.lockReason}
           </p>
           <p style={{ margin: "0.5rem 0 0 0", fontSize: "0.85rem", opacity: 0.9 }}>
-            To resume testing today, a Subject Teacher, Form Master, or the School Principal must review and lift this lock with a recorded reason.
+            To resume testing today, a Subject Teacher, Class Teacher, or the School Principal must review and lift this lock with a recorded reason.
           </p>
         </div>
       )}
@@ -1160,7 +1160,7 @@ export default function CBTLandingPage() {
             <FiShield color="var(--color-primary-green)" /> Staff CBT Integrity &amp; Day-Lock Supervisor
           </h2>
           <p style={{ color: "var(--color-gray-500)", fontSize: "0.88rem", marginBottom: "1.5rem" }}>
-            Teachers, Form Masters, and the Principal can review automatic 2-strike day locks and lift them with a mandatory audited reason.
+            Teachers, Class Teachers, and the Principal can review automatic 2-warning day locks and reopen the exam with a written reason.
           </p>
 
           <h4 style={{ color: "var(--color-gray-900)", marginBottom: "0.75rem" }}>

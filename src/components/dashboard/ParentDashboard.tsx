@@ -264,7 +264,7 @@ export default function ParentDashboard({ session }: { session: any }) {
                     Class: <strong>{currentChild.className}</strong> ({currentChild.classLevel}) &bull; WOFS ID: <code style={{ fontWeight: "bold" }}>{currentChild.admissionNo}</code>
                   </p>
                   <p style={{ color: "var(--color-gray-500)", margin: "0.2rem 0 0 0", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <FiMail /> Form Master Contact: <strong>{currentChild.formMasterEmail}</strong>
+                    <FiMail /> Class Teacher Contact: <strong>{currentChild.formMasterEmail}</strong>
                   </p>
                 </div>
 

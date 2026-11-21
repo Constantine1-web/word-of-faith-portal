@@ -179,7 +179,7 @@ function ResetPasswordContent() {
             <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", fontWeight: "600", color: "var(--text-primary)", marginBottom: "0.2rem" }}>
               <FiInfo /> Need immediate assistance?
             </div>
-            If the email takes too long or you no longer have access to this email address, contact your <strong>Form Master</strong> or the <strong>School ICT Administrator</strong> to reset your password instantly.
+            If the email takes too long or you no longer have access to this email address, contact your <strong>Class Teacher</strong> or the <strong>School ICT Administrator</strong> to reset your password instantly.
           </div>
           
           <div className={styles.footerLinks} style={{ marginTop: "1rem" }}>

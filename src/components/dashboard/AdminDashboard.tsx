@@ -6,7 +6,13 @@ import {
   getSchoolNotices,
   publishSchoolNotice,
   deleteSchoolNotice,
+  type SchoolNoticeItem,
 } from "@/app/actions/elearning";
+import {
+  BROADCAST_DURATION_OPTIONS,
+  formatRemainingBroadcastTime,
+  type BroadcastDurationPreset,
+} from "@/lib/noticeboard";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import Link from "next/link";
 import {
@@ -22,6 +28,8 @@ import {
   FiBell,
   FiPlus,
   FiTrash2,
+  FiEdit2,
+  FiClock,
   FiInbox,
   FiFileText,
   FiImage,
@@ -35,14 +43,41 @@ export default function AdminDashboard() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // School Noticeboard & Exam Timetable State (Track D)
-  const [notices, setNotices] = useState<any[]>([]);
+  const [notices, setNotices] = useState<SchoolNoticeItem[]>([]);
+  const [expiredNotices, setExpiredNotices] = useState<SchoolNoticeItem[]>([]);
+  const [showExpiredNotices, setShowExpiredNotices] = useState(false);
+  const [editingNoticeId, setEditingNoticeId] = useState<string | null>(null);
   const [noticeType, setNoticeType] = useState<"Upcoming Event" | "Deadline" | "Academics" | "Exam Timetable">("Academics");
   const [noticeTitle, setNoticeTitle] = useState("");
   const [noticeDetails, setNoticeDetails] = useState("");
   const [noticeEventDate, setNoticeEventDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [noticeAudience, setNoticeAudience] = useState("All Students & Parents");
+  const [durationPreset, setDurationPreset] = useState<BroadcastDurationPreset>("7d");
+  const [customExpiresAt, setCustomExpiresAt] = useState(() => {
+    const dt = new Date(Date.now() + 7 * 24 * 3600_000);
+    return new Date(dt.getTime() - dt.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  });
   const [publishingNotice, setPublishingNotice] = useState(false);
+  const [busyNoticeId, setBusyNoticeId] = useState<string | null>(null);
   const [noticeMsg, setNoticeMsg] = useState("");
+
+  const refreshNotices = async () => {
+    const refreshed = await getSchoolNotices({ includeExpired: true });
+    if (refreshed.success) {
+      setNotices(refreshed.notices || []);
+      setExpiredNotices(refreshed.expiredNotices || []);
+    }
+  };
+
+  const resetNoticeForm = () => {
+    setEditingNoticeId(null);
+    setNoticeType("Academics");
+    setNoticeTitle("");
+    setNoticeDetails("");
+    setNoticeEventDate(new Date().toISOString().split("T")[0]);
+    setNoticeAudience("All Students & Parents");
+    setDurationPreset("7d");
+  };
 
   const fetchStats = async () => {
     setLoading(true);
@@ -50,10 +85,11 @@ export default function AdminDashboard() {
     try {
       const [res, noticeRes] = await Promise.all([
         getAdminDashboardStats(),
-        getSchoolNotices(),
+        getSchoolNotices({ includeExpired: true }),
       ]);
       if (noticeRes.success) {
         setNotices(noticeRes.notices || []);
+        setExpiredNotices(noticeRes.expiredNotices || []);
       }
       if (res && res.stats) {
         setData(res);
@@ -74,39 +110,83 @@ export default function AdminDashboard() {
     fetchStats();
   }, []);
 
+  const handleStartEditNotice = (n: SchoolNoticeItem) => {
+    setEditingNoticeId(n.id);
+    const validType = (["Upcoming Event", "Deadline", "Academics", "Exam Timetable"] as const).includes(
+      n.type as "Upcoming Event" | "Deadline" | "Academics" | "Exam Timetable"
+    )
+      ? (n.type as "Upcoming Event" | "Deadline" | "Academics" | "Exam Timetable")
+      : "Academics";
+    setNoticeType(validType);
+    setNoticeTitle(n.title);
+    setNoticeDetails(n.details);
+    setNoticeEventDate(
+      /^\d{4}-\d{2}-\d{2}$/.test(n.eventDate || "")
+        ? n.eventDate
+        : new Date().toISOString().split("T")[0]
+    );
+    setNoticeAudience(n.targetAudience || "All Students & Parents");
+
+    if (n.durationPreset && n.durationPreset !== "custom") {
+      setDurationPreset(n.durationPreset);
+    } else if (n.expiresAt && new Date(n.expiresAt).getTime() > Date.now() + 120_000) {
+      const dt = new Date(n.expiresAt);
+      setDurationPreset("custom");
+      setCustomExpiresAt(
+        new Date(dt.getTime() - dt.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+      );
+    } else {
+      setDurationPreset("7d");
+    }
+    setNoticeMsg("");
+  };
+
   const handlePublishNotice = async (e: React.FormEvent) => {
     e.preventDefault();
     setNoticeMsg("");
     setPublishingNotice(true);
     const res = await publishSchoolNotice({
+      id: editingNoticeId || undefined,
       type: noticeType,
       title: noticeTitle,
       details: noticeDetails,
       eventDate: noticeEventDate,
       targetAudience: noticeAudience,
+      durationPreset,
+      customExpiresAt: durationPreset === "custom" ? new Date(customExpiresAt).toISOString() : undefined,
     });
     if (res.success) {
-      setNoticeTitle("");
-      setNoticeDetails("");
-      setNoticeMsg("✅ Broadcast published to all Student, Parent & Teacher dashboards!");
-      const refreshed = await getSchoolNotices();
-      if (refreshed.success) setNotices(refreshed.notices || []);
+      const wasEdit = Boolean(editingNoticeId);
+      resetNoticeForm();
+      setNoticeMsg(
+        wasEdit
+          ? "Broadcast updated and synced across Student, Parent & Teacher dashboards."
+          : "Broadcast published across Student, Parent & Teacher dashboards."
+      );
+      await refreshNotices();
     } else {
-      setNoticeMsg(`❌ ${res.error || "Failed to publish notice."}`);
+      setNoticeMsg(`Error: ${res.error || "Failed to publish notice."}`);
     }
     setPublishingNotice(false);
   };
 
-  const handleDeleteNotice = async (id: string) => {
-    if (String(id).startsWith("default-")) {
-      setNoticeMsg("ℹ️ Default starter notices automatically hide once you publish custom school notices.");
+  const handleDeleteNotice = async (notice: SchoolNoticeItem) => {
+    if (!confirm(`Remove broadcast "${notice.title}" from all Student, Parent & Teacher dashboards?`)) {
       return;
     }
-    const res = await deleteSchoolNotice(id);
+    setBusyNoticeId(notice.id);
+    setNoticeMsg("");
+    const res = await deleteSchoolNotice(notice.id);
     if (res.success) {
-      const refreshed = await getSchoolNotices();
-      if (refreshed.success) setNotices(refreshed.notices || []);
+      if (editingNoticeId === notice.id) {
+        resetNoticeForm();
+      }
+      setNoticeMsg(`Removed broadcast "${notice.title}".`);
+      await refreshNotices();
+    } else {
+      setNoticeMsg(`Error: ${res.error || "Failed to remove notice."}`);
     }
+    setBusyNoticeId(null);
   };
 
   if (loading) {
@@ -210,9 +290,9 @@ export default function AdminDashboard() {
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
               <div style={{ background: "var(--status-info-bg)", color: "var(--status-info-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiLayers size={20} /></div>
-              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Classes & Form Masters</h4>
+              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Classes &amp; Class Teachers</h4>
             </div>
-            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Configure class arms (Gold, Blue) and assign 1-to-1 Form Masters.</p>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Set up class groups (Gold, Blue) and assign a dedicated Class Teacher to each class.</p>
           </div>
         </Link>
 
@@ -318,24 +398,35 @@ export default function AdminDashboard() {
       >
         <div
           style={{
-            background: "var(--color-white)",
+            background: "var(--bg-card)",
             padding: "1.5rem",
             borderRadius: "var(--radius-md)",
-            border: "1px solid var(--color-gray-200)",
-            boxShadow: "var(--shadow-sm)",
+            border: "1px solid var(--border-primary)",
           }}
         >
-          <h4 style={{ margin: "0 0 0.75rem 0", color: "var(--color-navy-blue)" }}>
-            Broadcast New Notice / Timetable Event
-          </h4>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+            <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>
+              {editingNoticeId ? "Edit Broadcast Notice" : "Broadcast New Notice / Timetable Event"}
+            </h4>
+            {editingNoticeId && (
+              <button
+                type="button"
+                onClick={resetNoticeForm}
+                className="btn btn-outline"
+                style={{ padding: "0.28rem 0.65rem", fontSize: "0.78rem" }}
+              >
+                Cancel Edit
+              </button>
+            )}
+          </div>
           {noticeMsg && (
             <div
               style={{
                 padding: "0.65rem 0.9rem",
-                borderRadius: "8px",
-                background: noticeMsg.startsWith("❌") ? "var(--status-error-bg)" : "var(--status-success-bg)",
-                color: noticeMsg.startsWith("❌") ? "var(--status-error-text)" : "var(--status-success-text)",
-                border: `1px solid ${noticeMsg.startsWith("❌") ? "var(--status-error-border)" : "var(--status-success-border)"}`,
+                borderRadius: "6px",
+                background: noticeMsg.startsWith("Error:") ? "var(--status-error-bg)" : "var(--status-success-bg)",
+                color: noticeMsg.startsWith("Error:") ? "var(--status-error-text)" : "var(--status-success-text)",
+                border: `1px solid ${noticeMsg.startsWith("Error:") ? "var(--status-error-border)" : "var(--status-success-border)"}`,
                 fontSize: "0.84rem",
                 fontWeight: 600,
                 marginBottom: "0.85rem",
@@ -374,23 +465,59 @@ export default function AdminDashboard() {
                 />
               </div>
             </div>
-            <div>
-              <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
-                Target Audience
-              </label>
-              <select
-                className="form-input"
-                value={noticeAudience}
-                onChange={(e) => setNoticeAudience(e.target.value)}
-              >
-                <option value="All Students & Parents">All Students &amp; Parents</option>
-                <option value="All Students, Parents & Staff">All Students, Parents &amp; Staff</option>
-                <option value="Senior Secondary (SS1–SS3)">Senior Secondary (SS1–SS3)</option>
-                <option value="Junior Secondary (JSS1–JSS3)">Junior Secondary (JSS1–JSS3)</option>
-                <option value="Parents & Guardians">Parents &amp; Guardians</option>
-                <option value="Teaching & Academic Staff">Teaching &amp; Academic Staff</option>
-              </select>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
+                  Target Audience
+                </label>
+                <select
+                  className="form-input"
+                  value={noticeAudience}
+                  onChange={(e) => setNoticeAudience(e.target.value)}
+                >
+                  <option value="All Students & Parents">All Students &amp; Parents</option>
+                  <option value="All Students, Parents & Staff">All Students, Parents &amp; Staff</option>
+                  <option value="Senior Secondary (SS1–SS3)">Senior Secondary (SS1–SS3)</option>
+                  <option value="Junior Secondary (JSS1–JSS3)">Junior Secondary (JSS1–JSS3)</option>
+                  <option value="Parents & Guardians">Parents &amp; Guardians</option>
+                  <option value="Teaching & Academic Staff">Teaching &amp; Academic Staff</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
+                  Broadcast Visibility Period
+                </label>
+                <select
+                  className="form-input"
+                  value={durationPreset}
+                  onChange={(e) => setDurationPreset(e.target.value as BroadcastDurationPreset)}
+                >
+                  {BROADCAST_DURATION_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+
+            {durationPreset === "custom" && (
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
+                  Auto-Expire Date &amp; Time *
+                </label>
+                <input
+                  type="datetime-local"
+                  className="form-input"
+                  value={customExpiresAt}
+                  onChange={(e) => setCustomExpiresAt(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
             <div>
               <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-label)", marginBottom: "0.25rem" }}>
                 Headline / Title
@@ -423,7 +550,14 @@ export default function AdminDashboard() {
               className="btn btn-primary"
               style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
             >
-              <FiPlus /> {publishingNotice ? "Broadcasting..." : "Publish to Live School Noticeboard"}
+              {editingNoticeId ? <FiEdit2 /> : <FiPlus />}{" "}
+              {publishingNotice
+                ? editingNoticeId
+                  ? "Saving Changes..."
+                  : "Broadcasting..."
+                : editingNoticeId
+                ? "Save Broadcast Changes"
+                : "Publish to Live School Noticeboard"}
             </button>
           </form>
         </div>
@@ -433,81 +567,154 @@ export default function AdminDashboard() {
             background: "var(--bg-card)",
             padding: "1.5rem",
             borderRadius: "var(--radius-md)",
-            border: "1px solid var(--border-subtle)",
-            boxShadow: "var(--shadow-sm)",
+            border: "1px solid var(--border-primary)",
             display: "flex",
             flexDirection: "column",
             gap: "0.75rem",
           }}
         >
-          <h4 style={{ margin: "0 0 0.25rem 0", color: "var(--text-heading)" }}>
-            Active Broadcasts ({notices.length})
-          </h4>
-          <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
-            These announcements appear immediately on the Student, Parent, and Teacher portals.
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+            <h4 style={{ margin: 0, color: "var(--text-heading)" }}>
+              Active Broadcasts ({notices.length})
+            </h4>
+            {expiredNotices.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowExpiredNotices((prev) => !prev)}
+                className="btn btn-outline"
+                style={{ padding: "0.28rem 0.65rem", fontSize: "0.76rem" }}
+              >
+                {showExpiredNotices
+                  ? "Hide Expired"
+                  : `View Expired (${expiredNotices.length})`}
+              </button>
+            )}
+          </div>
+          <p style={{ margin: "0 0 0.25rem 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
+            Visible across Student, Parent, and Teacher noticeboards until edited, deleted, or expired.
           </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "340px", overflowY: "auto" }}>
-            {notices.map((n: any) => (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "420px", overflowY: "auto" }}>
+            {notices.length === 0 && !showExpiredNotices ? (
               <div
-                key={n.id}
                 style={{
-                  padding: "0.85rem 1rem",
-                  borderRadius: "10px",
-                  border: "1px solid var(--border-subtle)",
-                  background: "var(--bg-secondary)",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  gap: "0.75rem",
+                  padding: "1.5rem",
+                  textAlign: "center",
+                  color: "var(--text-muted)",
+                  border: "1px dashed var(--border-primary)",
+                  borderRadius: "8px",
+                  fontSize: "0.86rem",
                 }}
               >
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-                    <span
+                No active broadcasts currently displayed to users.
+              </div>
+            ) : (
+              (showExpiredNotices
+                ? [
+                    ...notices.map((n) => ({ ...n, _expired: false })),
+                    ...expiredNotices.map((n) => ({ ...n, _expired: true })),
+                  ]
+                : notices.map((n) => ({ ...n, _expired: false }))
+              ).map((n) => (
+                <div
+                  key={n.id}
+                  style={{
+                    padding: "0.85rem 1rem",
+                    borderRadius: "8px",
+                    border: editingNoticeId === n.id
+                      ? "1px solid var(--color-primary-green)"
+                      : "1px solid var(--border-primary)",
+                    background: "var(--bg-secondary)",
+                    opacity: n._expired ? 0.72 : 1,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "0.75rem",
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
+                      <span
+                        style={{
+                          fontSize: "0.72rem",
+                          fontWeight: 800,
+                          textTransform: "uppercase",
+                          color: n.color || "var(--color-navy-blue)",
+                        }}
+                      >
+                        {n.type}
+                      </span>
+                      {n.eventDate && (
+                        <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 600 }}>
+                          · {n.eventDate}
+                        </span>
+                      )}
+                      {n.targetAudience && (
+                        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                          · {n.targetAudience}
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.25rem",
+                          fontSize: "0.71rem",
+                          fontWeight: 700,
+                          padding: "0.12rem 0.45rem",
+                          borderRadius: "4px",
+                          border: "1px solid",
+                          background: n._expired ? "var(--status-error-bg)" : "var(--bg-card)",
+                          color: n._expired ? "var(--status-error-text)" : "var(--text-secondary)",
+                          borderColor: n._expired ? "var(--status-error-border)" : "var(--border-primary)",
+                        }}
+                      >
+                        <FiClock size={11} />{" "}
+                        {n._expired ? "Expired" : formatRemainingBroadcastTime(n.expiresAt)}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 700, color: "var(--text-heading)", fontSize: "0.92rem" }}>
+                      {n.title}
+                    </div>
+                    <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "0.2rem", lineHeight: 1.45 }}>
+                      {n.details}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.35rem", flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditNotice(n)}
+                      title={n._expired ? "Edit & Re-broadcast" : "Edit Broadcast"}
                       style={{
-                        fontSize: "0.72rem",
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        color: n.color || "var(--brand-accent)",
+                        background: "var(--bg-card)",
+                        color: "var(--color-navy-blue)",
+                        border: "1px solid var(--border-primary)",
+                        borderRadius: "6px",
+                        padding: "0.35rem 0.5rem",
+                        cursor: "pointer",
                       }}
                     >
-                      {n.type}
-                    </span>
-                    {n.eventDate && (
-                      <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)", fontWeight: 700 }}>
-                        · 📅 {n.eventDate}
-                      </span>
-                    )}
-                    {n.targetAudience && (
-                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                        · {n.targetAudience}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontWeight: 800, color: "var(--text-heading)", fontSize: "0.92rem" }}>{n.title}</div>
-                  <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "0.2rem", lineHeight: 1.45 }}>
-                    {n.details}
+                      <FiEdit2 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteNotice(n)}
+                      disabled={busyNoticeId === n.id}
+                      title="Delete Broadcast"
+                      style={{
+                        background: "var(--status-error-bg)",
+                        color: "var(--status-error-text)",
+                        border: "1px solid var(--status-error-border)",
+                        borderRadius: "6px",
+                        padding: "0.35rem 0.5rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <FiTrash2 size={14} />
+                    </button>
                   </div>
                 </div>
-                {!String(n.id).startsWith("default-") && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteNotice(n.id)}
-                    title="Remove Notice"
-                    style={{
-                      background: "var(--status-error-bg)",
-                      color: "var(--status-error-text)",
-                      border: "1px solid var(--status-error-border)",
-                      borderRadius: "6px",
-                      padding: "0.35rem 0.5rem",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <FiTrash2 size={14} />
-                  </button>
-                )}
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

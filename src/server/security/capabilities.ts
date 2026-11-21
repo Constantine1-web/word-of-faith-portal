@@ -42,7 +42,7 @@ export const CAPABILITY_METADATA: Record<
     },
     MANAGE_STRUCTURE: {
         label: "Manage Structure",
-        description: "Sessions, terms, classes, subjects, teacher allocation, form masters",
+        description: "Sessions, terms, classes, subjects, teacher assignments, and class teachers",
         requiresStepUpTotp: false,
     },
     MANAGE_STUDENTS: {
@@ -52,17 +52,17 @@ export const CAPABILITY_METADATA: Record<
     },
     CORRECT_SCORES: {
         label: "Correct Scores",
-        description: "Edit any score with a reason (step-up TOTP on published terms)",
+        description: "Edit any score with a reason (2FA verification required on published terms)",
         requiresStepUpTotp: true,
     },
     APPROVE_RESULTS: {
         label: "Approve Results",
-        description: "Compute broadsheets, sign off",
+        description: "Compile class result sheets and sign off",
         requiresStepUpTotp: false,
     },
     PUBLISH_RESULTS: {
         label: "Publish Results",
-        description: "Release results to students (step-up TOTP after a correction)",
+        description: "Release results to students (2FA verification required after a correction)",
         requiresStepUpTotp: true,
     },
     UNLOCK_SHEETS: {

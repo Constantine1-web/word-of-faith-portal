@@ -544,7 +544,7 @@ export async function sendTeacherOnboardingEmail(params: {
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #ffffff;">
       <div style="background: linear-gradient(135deg, #0a2540 0%, #143424 100%); color: #ffffff; padding: 26px; text-align: center;">
         <h2 style="margin: 0; font-size: 20px; letter-spacing: 0.4px;">Word of Faith Group of Schools</h2>
-        <p style="margin: 6px 0 0; font-size: 13px; color: #a7f3d0;">Official Academic Staff &amp; Form Master Portal Onboarding</p>
+        <p style="margin: 6px 0 0; font-size: 13px; color: #a7f3d0;">Official Academic Staff &amp; Class Teacher Portal Onboarding</p>
       </div>
       <div style="padding: 28px; color: #1f2937; line-height: 1.6;">
         <p style="margin-top: 0;">Dear <strong>${safeTitle}</strong>,</p>
@@ -560,11 +560,11 @@ export async function sendTeacherOnboardingEmail(params: {
         <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px 18px; margin: 20px 0;">
           <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: #166534; font-weight: 700; margin-bottom: 8px;">Academic &amp; Class Allocations</div>
           <div style="font-size: 14px; margin-bottom: 10px;">
-            <strong>Form Master Designation:</strong>
+            <strong>Class Teacher Role:</strong>
             ${
               safeFormMaster
-                ? `<span style="background: #15803d; color: #ffffff; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; margin-left: 6px;">Form Master — ${safeFormMaster}</span>`
-                : `<span style="color: #64748b; margin-left: 6px;">Subject Teacher (Not assigned as Form Master)</span>`
+                ? `<span style="background: #15803d; color: #ffffff; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; margin-left: 6px;">Class Teacher — ${safeFormMaster}</span>`
+                : `<span style="color: #64748b; margin-left: 6px;">Subject Teacher (No Class Teacher assignment)</span>`
             }
           </div>
           <div style="font-size: 14px; font-weight: 700; color: #0a2540; margin-bottom: 6px;">Assigned Subject Arms:</div>
@@ -573,7 +573,7 @@ export async function sendTeacherOnboardingEmail(params: {
           </ul>
         </div>
 
-        <p style="font-size: 13px; color: #475569;">Once signed in at <a href="${safePortalUrl}" style="color: #0a2540; font-weight: 600;">/portal/teacher</a>, you can record CA (40) &amp; Exam (60) scores, manage your Form Master class broadsheet and behavioral assessments, and take Daily Class Attendance Roll Call.</p>
+        <p style="font-size: 13px; color: #475569;">Once signed in at <a href="${safePortalUrl}" style="color: #0a2540; font-weight: 600;">/portal/teacher</a>, you can record CA (40) &amp; Exam (60) scores, manage your Class Teacher result sheet and student conduct remarks, and take daily class attendance.</p>
         <p style="margin-bottom: 0;">Warm regards,<br/><strong>Office of the Principal</strong><br/>Word of Faith Group of Schools</p>
       </div>
     </div>

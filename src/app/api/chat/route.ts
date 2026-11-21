@@ -83,7 +83,7 @@ Online admissions are currently open! You can submit an online application right
         query.includes("practice")
       ) {
         fallbackReply = `📝 **CBT & Examination Suite:**
-Students can take self-paced practice drills and supervised mock examinations under the **CBT Suite** in their Student Portal. Practice with authentic past WAEC, NECO, and UTME questions. Subject teachers and Form Masters automatically assemble scores for report cards.`;
+Students can take self-paced practice drills and supervised mock examinations under the **CBT Suite** in their Student Portal. Practice with authentic past WAEC, NECO, and UTME questions. Subject teachers and Class Teachers compile scores for report cards.`;
       } else if (
         query.includes("fee") ||
         query.includes("pay") ||
