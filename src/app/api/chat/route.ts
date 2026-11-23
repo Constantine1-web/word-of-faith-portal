@@ -94,12 +94,13 @@ Students can take self-paced practice drills and supervised mock examinations un
 School fees can be paid seamlessly via Paystack in the portal, or bank teller receipts can be uploaded for verification by the School Bursar before terminal report card access is unlocked.`;
       } else if (
         query.includes("course") ||
-        query.includes("note") ||
+        query.includes("study") ||
         query.includes("assignment") ||
-        query.includes("homework")
+        query.includes("homework") ||
+        query.includes("revision")
       ) {
-        fallbackReply = `📚 **Subjects, Lesson Notes & Homework:**
-You can access your class lesson notes, revision summaries, and take-home homework assignments under **Subjects & Lesson Notes** in the portal!`;
+        fallbackReply = `📚 **Study Support & Exam Revision:**
+You can practise past WAEC, NECO, and UTME questions by subject inside the **CBT Suite** in your Student Portal, or ask **Faithbot** directly for step-by-step explanations on any homework topic.`;
       } else {
         fallbackReply += `\n\n💡 *Tip: For full AI-powered homework tutoring and step-by-step problem solving, please ensure the Google Gemini API key is configured in the environment settings.*`;
       }

@@ -38,7 +38,60 @@ export default function PaymentsClient({
 
   // Receipt Preview Modal
   const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
-  const [maintenanceRate, setMaintenanceRate] = useState<number>(1000);
+  // Optional flat-rate simulation override; null = automatically use each student's configured class FeeSchedule
+  const [customRateOverride, setCustomRateOverride] = useState<number | null>(null);
+
+  const resolveLevelGroupForPayment = (className?: string | null, level?: string | null) => {
+    const combined = `${className || ""} ${level || ""}`.toLowerCase();
+    if (
+      combined.includes("creche") ||
+      combined.includes("nursery") ||
+      combined.includes("pre-nursery") ||
+      combined.includes("kg")
+    ) {
+      return "CRECHE_NURSERY";
+    }
+    if (combined.includes("primary") || combined.includes("basic")) {
+      return "PRIMARY";
+    }
+    if ((combined.includes("ss") && !combined.includes("jss")) || combined.includes("senior")) {
+      return "SSS";
+    }
+    return "JSS";
+  };
+
+  const scheduleRateByGroup = new Map<string, number>(
+    schedules.map((s) => [s.levelGroup, Math.max(0, Number(s.maintenanceFeeNaira) || 0)])
+  );
+
+  const uniqueScheduleRates = Array.from(new Set(scheduleRateByGroup.values()));
+  const uniformScheduleRate = uniqueScheduleRates.length === 1 ? uniqueScheduleRates[0] : null;
+
+  const getPaymentAllocation = (p: {
+    AmountPaid?: number | null;
+    Student?: { Class?: { ClassName?: string | null; Level?: string | null } | null } | null;
+    allocation?: { maintenanceFee?: number } | null;
+  }) => {
+    const gross = Math.max(0, Number(p.AmountPaid) || 0);
+    let rate: number;
+    if (customRateOverride !== null) {
+      rate = Math.max(0, customRateOverride);
+    } else {
+      const grp = resolveLevelGroupForPayment(p.Student?.Class?.ClassName, p.Student?.Class?.Level);
+      if (scheduleRateByGroup.has(grp)) {
+        rate = scheduleRateByGroup.get(grp) as number;
+      } else if (typeof p.allocation?.maintenanceFee === "number") {
+        rate = Math.max(0, p.allocation.maintenanceFee);
+      } else {
+        rate = 1000;
+      }
+    }
+    const maint = gross >= rate ? rate : 0;
+    const tuition = Math.max(0, gross - maint);
+    const provider80 = Math.round(maint * 0.8);
+    const school20 = maint - provider80;
+    return { gross, rate, maint, tuition, provider80, school20 };
+  };
 
   // Compute live 80% / 20% Portal Maintenance / ICT Fee reconciliation from Approved payments
   const approvedPayments = payments.filter(
@@ -46,11 +99,7 @@ export default function PaymentsClient({
   );
   const reconciliation = approvedPayments.reduce(
     (acc, p) => {
-      const gross = Math.max(0, Number(p.AmountPaid) || 0);
-      const maint = gross >= maintenanceRate ? maintenanceRate : 0;
-      const tuition = Math.max(0, gross - maint);
-      const provider80 = Math.round(maint * 0.8);
-      const school20 = maint - provider80;
+      const { gross, maint, tuition, provider80, school20 } = getPaymentAllocation(p);
       acc.count += 1;
       acc.grossTotal += gross;
       acc.tuitionTotal100 += tuition;
@@ -69,6 +118,12 @@ export default function PaymentsClient({
     }
   );
 
+  const sanitizeCsv = (val: unknown) => {
+    const s = String(val ?? "");
+    const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+
   const handleExportReconciliationCsv = () => {
     const headers = [
       "Reference",
@@ -84,17 +139,13 @@ export default function PaymentsClient({
       "Date",
     ];
     const rows = approvedPayments.map((p) => {
-      const gross = Math.max(0, Number(p.AmountPaid) || 0);
-      const maint = gross >= maintenanceRate ? maintenanceRate : 0;
-      const tuition = Math.max(0, gross - maint);
-      const provider80 = Math.round(maint * 0.8);
-      const school20 = maint - provider80;
+      const { gross, maint, tuition, provider80, school20 } = getPaymentAllocation(p);
       return [
-        p.Reference || `PAY-${p.PaymentID}`,
-        `"${(p.Student?.PreferredName || "Student").replace(/"/g, '""')}"`,
-        p.Student?.AdmissionNo || "",
-        p.Student?.Class?.ClassName || "",
-        p.Status,
+        sanitizeCsv(p.Reference || `PAY-${p.PaymentID}`),
+        sanitizeCsv(p.Student?.PreferredName || "Student"),
+        sanitizeCsv(p.Student?.AdmissionNo || ""),
+        sanitizeCsv(p.Student?.Class?.ClassName || ""),
+        sanitizeCsv(p.Status),
         gross,
         tuition,
         maint,
@@ -220,7 +271,11 @@ export default function PaymentsClient({
           <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Portal Maintenance / ICT Pool</p>
           <h2 style={{ color: "var(--accent-blue)", margin: 0 }}>₦{reconciliation.maintenancePool.toLocaleString()}</h2>
           <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-            {reconciliation.count} approved × ₦{maintenanceRate.toLocaleString()}/student
+            {customRateOverride !== null
+              ? `${reconciliation.count} approved × ₦${customRateOverride.toLocaleString()} (override)`
+              : uniformScheduleRate !== null
+              ? `${reconciliation.count} approved × ₦${uniformScheduleRate.toLocaleString()}/student`
+              : `${reconciliation.count} approved · per-section Fee Schedules`}
           </span>
         </div>
         <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--accent-purple)" }}>
@@ -252,22 +307,40 @@ export default function PaymentsClient({
             Automated Portal Maintenance / ICT Fee Allocation Ledger (80% Provider / 20% School)
           </strong>
           <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-            Applies strictly to the designated Portal Maintenance / ICT Fee line item (₦{maintenanceRate.toLocaleString()} per payment). Tuition remains 100% School revenue.
+            {customRateOverride !== null
+              ? `Simulating flat override of ₦${customRateOverride.toLocaleString()} per payment. Tuition remains 100% School revenue.`
+              : uniformScheduleRate !== null
+              ? `Synced to configured Fee Schedules (₦${uniformScheduleRate.toLocaleString()} per payment). Tuition remains 100% School revenue.`
+              : `Synced per student to configured section Fee Schedules (Creche–SSS). Tuition remains 100% School revenue.`}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
           <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-label)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-            ICT/Maint Fee Rate (₦):
+            Rate Override (₦):
             <input
               type="number"
               min={0}
               step={100}
-              value={maintenanceRate}
-              onChange={(e) => setMaintenanceRate(Math.max(0, parseInt(e.target.value) || 0))}
+              placeholder="Auto"
+              value={customRateOverride === null ? "" : customRateOverride}
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                setCustomRateOverride(raw === "" ? null : Math.max(0, parseInt(raw, 10) || 0));
+              }}
               className="form-input"
               style={{ width: "105px", padding: "0.35rem 0.6rem", fontSize: "0.85rem" }}
             />
           </label>
+          {customRateOverride !== null && (
+            <button
+              type="button"
+              onClick={() => setCustomRateOverride(null)}
+              className="btn btn-outline"
+              style={{ padding: "0.35rem 0.65rem", fontSize: "0.78rem", minHeight: "34px" }}
+            >
+              Use Schedules
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowScheduleEditor((v) => !v)}
@@ -506,11 +579,15 @@ export default function PaymentsClient({
                     <div style={{ fontWeight: "bold", color: "var(--color-primary-green)" }}>
                       ₦{p.AmountPaid?.toLocaleString()}
                     </div>
-                    {Number(p.AmountPaid) >= maintenanceRate && maintenanceRate > 0 && (
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
-                        Tuition: ₦{Math.max(0, Number(p.AmountPaid) - maintenanceRate).toLocaleString()} · ICT: ₦{maintenanceRate.toLocaleString()} (80%: ₦{Math.round(maintenanceRate * 0.8).toLocaleString()} | 20%: ₦{(maintenanceRate - Math.round(maintenanceRate * 0.8)).toLocaleString()})
-                      </div>
-                    )}
+                    {(() => {
+                      const rowAlloc = getPaymentAllocation(p);
+                      if (rowAlloc.maint <= 0) return null;
+                      return (
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                          Tuition: ₦{rowAlloc.tuition.toLocaleString()} · ICT: ₦{rowAlloc.maint.toLocaleString()} (80%: ₦{rowAlloc.provider80.toLocaleString()} | 20%: ₦{rowAlloc.school20.toLocaleString()})
+                        </div>
+                      );
+                    })()}
                   </td>
 
                   <td data-label="Receipt / Reference" style={{ padding: "1rem", textAlign: "center" }}>

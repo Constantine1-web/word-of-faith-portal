@@ -145,14 +145,50 @@ export async function getAdminDashboardStats() {
       }
     }
 
-    const monthlyRevenue = [
-      { name: "Jan", revenue: 400000 },
-      { name: "Feb", revenue: 300000 },
-      { name: "Mar", revenue: 500000 },
-      { name: "Apr", revenue: 700000 },
-      { name: "May", revenue: 200000 },
-      { name: "Jun", revenue: totalRevenue > 0 ? totalRevenue : 600000 },
-    ];
+    const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const now = new Date();
+    const monthlyBuckets: Array<{ key: string; name: string; revenue: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      monthlyBuckets.push({
+        key,
+        name: `${MONTH_LABELS[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`,
+        revenue: 0,
+      });
+    }
+
+    try {
+      const sixMonthsStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      const recentApprovedPayments = await prisma.payment_Record.findMany({
+        where: {
+          Status: { in: ["Approved", "Successful", "APPROVED", "SUCCESSFUL"] },
+          PaymentDate: { gte: sixMonthsStart },
+        },
+        select: {
+          AmountPaid: true,
+          PaymentDate: true,
+        },
+      });
+
+      const bucketByKey = new Map(monthlyBuckets.map((b) => [b.key, b]));
+      for (const rec of recentApprovedPayments) {
+        if (!rec.PaymentDate) continue;
+        const dt = new Date(rec.PaymentDate);
+        const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+        const bucket = bucketByKey.get(key);
+        if (bucket) {
+          bucket.revenue += Math.max(0, Number(rec.AmountPaid) || 0);
+        }
+      }
+    } catch (e) {
+      console.warn("Monthly revenue trend aggregate warning:", e);
+    }
+
+    const monthlyRevenue = monthlyBuckets.map(({ name, revenue }) => ({
+      name,
+      revenue: Math.round(revenue),
+    }));
 
     const studentDistribution = [
       { name: "Primary", value: primaryCount || 1 },

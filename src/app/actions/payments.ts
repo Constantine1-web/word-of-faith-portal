@@ -211,7 +211,7 @@ export async function approvePaymentRecord(paymentId: number) {
   try {
     const payment = await prisma.payment_Record.findUnique({
       where: { PaymentID: paymentId },
-      include: { Student: true },
+      include: { Student: { include: { Class: true } } },
     });
 
     if (!payment) {
@@ -236,7 +236,14 @@ export async function approvePaymentRecord(paymentId: number) {
       }),
     ]);
 
-    const allocation = computePaymentAllocationBreakdown(payment.AmountPaid);
+    const classSchedule = await getFeeScheduleForClass(
+      payment.Student?.Class?.ClassName,
+      payment.Student?.Class?.Level
+    );
+    const allocation = computePaymentAllocationBreakdown(
+      payment.AmountPaid,
+      classSchedule?.maintenanceFeeNaira ?? DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA
+    );
     await writeAuditLog({
       actorUserId: actor.UserID,
       actorRoles: Array.from(actor.roles).join(","),
