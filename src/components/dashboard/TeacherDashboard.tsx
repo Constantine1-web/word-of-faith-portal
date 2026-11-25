@@ -74,19 +74,25 @@ export default function TeacherDashboard({
   const [activeTab, setActiveTab] = useState<TeacherTab>(
     normalizeTeacherTab(initialTab) || "subject-scores"
   );
+  const [prevInitialTab, setPrevInitialTab] = useState(initialTab);
+  if (initialTab !== prevInitialTab) {
+    setPrevInitialTab(initialTab);
+    const normalizedNext = normalizeTeacherTab(initialTab);
+    if (normalizedNext) {
+      setActiveTab(normalizedNext);
+    }
+  }
 
   useEffect(() => {
-    const normalizedInitial = normalizeTeacherTab(initialTab);
-    if (normalizedInitial) {
-      setActiveTab(normalizedInitial);
-    } else if (typeof window !== "undefined") {
-      const normalizedUrl = normalizeTeacherTab(
-        new URLSearchParams(window.location.search).get("tab")
-      );
-      if (normalizedUrl) {
-        setActiveTab(normalizedUrl);
-      }
-    }
+    if (normalizeTeacherTab(initialTab) || typeof window === "undefined") return;
+    const normalizedUrl = normalizeTeacherTab(
+      new URLSearchParams(window.location.search).get("tab")
+    );
+    if (!normalizedUrl) return;
+    const rafId = window.requestAnimationFrame(() => {
+      setActiveTab(normalizedUrl);
+    });
+    return () => window.cancelAnimationFrame(rafId);
   }, [initialTab]);
 
   // Class List PDF Sync Modal
@@ -171,7 +177,29 @@ export default function TeacherDashboard({
   };
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
+    (async () => {
+      const [res, qRes] = await Promise.all([
+        getTeacherDashboardData(),
+        getTeacherCustomCbtQuestions(),
+      ]);
+      if (cancelled) return;
+      if (res.success && res.subjectAllocations) {
+        setDashboardData(res);
+        if (res.subjectAllocations.length > 0) {
+          setSelectedAllocationId((prev) => prev || res.subjectAllocations[0].id.toString());
+        }
+      } else {
+        setError(res.error || "Failed to load dashboard data");
+      }
+      if (qRes.success) {
+        setCustomQuestions(qRes.questions || []);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleCreateCustomQuestion = async (e: React.FormEvent) => {
@@ -1647,7 +1675,7 @@ export default function TeacherDashboard({
         </div>
       )}
 
-      {/* Form Master Remarks & Affective / Psychomotor Domain Modal */}
+      {/* Class Teacher Remarks & Affective / Psychomotor Domain Modal */}
       {selectedStudentForRemark && (
         <div className="portal-modal-overlay">
           <div className="portal-modal-card" style={{ padding: "clamp(1rem, 3vw, 2rem)", maxWidth: "620px" }}>
@@ -1866,7 +1894,7 @@ export default function TeacherDashboard({
         </div>
       )}
 
-      {/* Form Master Class List PDF Sync Modal */}
+      {/* Class Teacher Class List PDF Sync Modal */}
       <ClassListSyncModal
         isOpen={showSyncModal}
         onClose={() => setShowSyncModal(false)}

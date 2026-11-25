@@ -38,6 +38,7 @@ import {
   FiCreditCard,
 } from "react-icons/fi";
 import StudentIdCardStudio, { type StudentIdCardRecord } from "@/components/portal/StudentIdCardStudio";
+import { escapeHtml } from "@/lib/html-escape";
 
 export default function StudentsClient({
   initialStudents,
@@ -303,7 +304,7 @@ export default function StudentsClient({
       gender: editingStudent.Gender || "Unspecified",
       dateOfBirth: editingStudent.DateOfBirth
         ? new Date(editingStudent.DateOfBirth).toISOString().split("T")[0]
-        : "2012-01-01",
+        : "",
       classId: Number(editingStudent.ClassID),
       enrolmentStatus: editingStudent.EnrolmentStatus || "ACTIVE",
       parentName: editingStudent.ParentName || "",
@@ -392,11 +393,17 @@ export default function StudentsClient({
   }) => {
     const win = window.open("", "_blank", "width=760,height=650");
     if (!win) return;
+    const safeId = escapeHtml(slip.wofsStudentId);
+    const safeName = escapeHtml(slip.studentName);
+    const safeClass = escapeHtml(slip.className);
+    const safeCode = escapeHtml(slip.plainCode);
+    const safeExp = escapeHtml(slip.expiresAt);
+    const safeUrl = escapeHtml(slip.inviteUrl);
     win.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Registration Slip — ${slip.wofsStudentId}</title>
+          <title>Registration Slip — ${safeId}</title>
           <style>
             body { font-family: 'Segoe UI', Arial, sans-serif; padding: 32px; color: #0f172a; }
             .slip { border: 2px solid #0A2540; border-radius: 12px; padding: 28px; max-width: 620px; margin: 0 auto; }
@@ -413,15 +420,15 @@ export default function StudentsClient({
               <p class="school">Word of Faith Schools</p>
               <p class="sub">OFFICIAL STUDENT PORTAL REGISTRATION INVITATION SLIP</p>
             </div>
-            <p><strong>Student Name:</strong> ${slip.studentName}</p>
-            <p><strong>Assigned Class:</strong> ${slip.className}</p>
-            <p><strong>Permanent WOFS Student ID:</strong> <code style="font-size: 16px; font-weight: bold;">${slip.wofsStudentId}</code></p>
+            <p><strong>Student Name:</strong> ${safeName}</p>
+            <p><strong>Assigned Class:</strong> ${safeClass}</p>
+            <p><strong>Permanent WOFS Student ID:</strong> <code style="font-size: 16px; font-weight: bold;">${safeId}</code></p>
             <div class="box">
               <div style="font-size: 12px; text-transform: uppercase; color: #475569; font-weight: bold;">Single-Use Registration Invitation Code</div>
-              <div class="code">${slip.plainCode}</div>
-              <div style="font-size: 12px; color: #64748b; margin-top: 6px;">Valid until: ${slip.expiresAt} &middot; Redeemable once at <strong>/portal/register</strong></div>
+              <div class="code">${safeCode}</div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 6px;">Valid until: ${safeExp} &middot; Redeemable once at <strong>/portal/register</strong></div>
             </div>
-            <p style="font-size: 12px; color: #475569;">Direct Claim Link: ${slip.inviteUrl}</p>
+            <p style="font-size: 12px; color: #475569;">Direct Claim Link: ${safeUrl}</p>
           </div>
           <script>window.onload = () => window.print();</script>
         </body>

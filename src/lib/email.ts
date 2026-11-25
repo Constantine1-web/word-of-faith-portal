@@ -1,31 +1,30 @@
 import nodemailer from "nodemailer";
 import { escapeHtml, sanitizeEmailHeader } from "./security";
 
-const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
-const smtpPort = parseInt(process.env.SMTP_PORT || "465", 10);
-const smtpUser = process.env.SMTP_USER?.trim() || "";
-const smtpPass = process.env.SMTP_PASSWORD?.trim() || process.env.SMTP_PASS?.trim() || "";
-const smtpFrom = process.env.SMTP_FROM?.trim() || smtpUser || "noreply@wordoffaith.edu.ng";
+function resolveSmtpConfig() {
+  const host = process.env.SMTP_HOST?.trim() || "smtp.gmail.com";
+  const port = parseInt(process.env.SMTP_PORT || "465", 10);
+  const user = process.env.SMTP_USER?.trim() || "";
+  const pass = process.env.SMTP_PASSWORD?.trim() || process.env.SMTP_PASS?.trim() || "";
+  const from = process.env.SMTP_FROM?.trim() || user || "noreply@wordoffaith.edu.ng";
+  return { host, port, user, pass, from };
+}
 
-// Resilient Nodemailer transport configured with SSL / TLS options
-const transporter = nodemailer.createTransport({
-  host: smtpHost,
-  port: smtpPort,
-  secure: smtpPort === 465,
-  auth: smtpUser && smtpPass
-    ? {
-        user: smtpUser,
-        pass: smtpPass,
-      }
-    : undefined,
-  tls: {
-    rejectUnauthorized: process.env.NODE_ENV === "production",
-    minVersion: "TLSv1.2",
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 5000,
-  socketTimeout: 15000,
-});
+function buildSmtpTransporter(host: string, port: number, user: string, pass: string) {
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: user && pass ? { user, pass } : undefined,
+    tls: {
+      rejectUnauthorized: process.env.NODE_ENV === "production",
+      minVersion: "TLSv1.2",
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 5000,
+    socketTimeout: 15000,
+  });
+}
 
 /**
  * Dispatches transactional email via Resend HTTP REST API.
@@ -87,24 +86,39 @@ export async function sendEmail({
     }
   }
 
-  if (!smtpUser || !smtpPass) {
+  const { host, port, user, pass, from } = resolveSmtpConfig();
+  if (!user || !pass) {
     console.warn("[Email] Skipped SMTP dispatch: SMTP_USER / SMTP_PASSWORD not configured in environment.");
     return { success: false, error: "SMTP credentials not configured" };
   }
 
-  // Fallback to Nodemailer SMTP
+  // Fallback to Nodemailer SMTP (with automatic port 465 <-> 587 retry on socket failure)
+  const primaryTransporter = buildSmtpTransporter(host, port, user, pass);
   try {
-    const info = await transporter.sendMail({
-      from: `Word of Faith Schools <${smtpFrom}>`,
+    const info = await primaryTransporter.sendMail({
+      from: `Word of Faith Schools <${from}>`,
       to: safeTo,
       subject: safeSubject,
       html,
     });
-    console.log("[Email] Dispatched via SMTP: %s", info.messageId);
+    console.log("[Email] Dispatched via SMTP (%d): %s", port, info.messageId);
     return { success: true, messageId: info.messageId };
-  } catch (error: any) {
-    console.error("[Email] SMTP sending error:", error?.message || error);
-    return { success: false, error };
+  } catch (primaryErr: any) {
+    const fallbackPort = port === 465 ? 587 : 465;
+    try {
+      const secondaryTransporter = buildSmtpTransporter(host, fallbackPort, user, pass);
+      const retryInfo = await secondaryTransporter.sendMail({
+        from: `Word of Faith Schools <${from}>`,
+        to: safeTo,
+        subject: safeSubject,
+        html,
+      });
+      console.log("[Email] Dispatched via fallback SMTP (%d): %s", fallbackPort, retryInfo.messageId);
+      return { success: true, messageId: retryInfo.messageId };
+    } catch (error: any) {
+      console.error("[Email] SMTP sending error:", primaryErr?.message || error?.message || error);
+      return { success: false, error };
+    }
   }
 }
 
@@ -510,8 +524,8 @@ export async function sendDirectStudentCommunication(params: {
 }
 
 /**
- * Dispatches an official Teacher & Form Master Onboarding Email with login credentials,
- * assigned Form Master Class Arm, and mapped Subject + Class Arm allocations.
+ * Dispatches an official Teacher & Class Teacher Onboarding Email with login credentials,
+ * assigned Class Teacher Arm, and mapped Subject + Class Arm allocations.
  */
 export async function sendTeacherOnboardingEmail(params: {
   email: string;
@@ -584,6 +598,235 @@ export async function sendTeacherOnboardingEmail(params: {
     subject: "Welcome to Word of Faith Schools Portal — Staff Login & Academic Allocations",
     html,
   });
+}
+
+/**
+ * Dispatches an official HTML Fee Clearance & Payment Confirmation Email
+ * when a student's fee payment is verified (Bursar bank teller approval or Paystack online gateway).
+ */
+export async function sendFeePaymentApprovedNotification(params: {
+  recipients: string[];
+  studentName: string;
+  admissionNo: string;
+  className?: string | null;
+  termLabel?: string | null;
+  reference: string;
+  amountPaidNaira: number;
+  channel: string;
+  schoolShareNaira?: number;
+  providerShareNaira?: number;
+  gatewayFeeNaira?: number;
+  remainingBalanceNaira?: number;
+}) {
+  const uniqueEmails = Array.from(
+    new Set(
+      (params.recipients || [])
+        .map((e) => (e || "").trim().toLowerCase())
+        .filter((e) => e.includes("@"))
+    )
+  );
+  if (uniqueEmails.length === 0) {
+    return { sentCount: 0 };
+  }
+
+  const safeStudent = escapeHtml(params.studentName || "Student");
+  const safeAdmission = escapeHtml(params.admissionNo || "N/A");
+  const safeClass = escapeHtml(params.className || "Assigned Class");
+  const safeTerm = escapeHtml(params.termLabel || "Current Academic Term");
+  const safeRef = escapeHtml(params.reference || "WOF-PAY");
+  const safeChannel = escapeHtml(params.channel || "PORTAL");
+  const formattedAmount = `₦${Math.max(0, Number(params.amountPaidNaira) || 0).toLocaleString()}`;
+  const remaining = Math.max(0, Number(params.remainingBalanceNaira) || 0);
+  const clearanceLine =
+    remaining > 0
+      ? `Your partial payment has been verified and credited. Remaining balance for full term clearance: <strong>₦${remaining.toLocaleString()}</strong>.`
+      : `Financial clearance for terminal results and academic access is now <strong>ACTIVE</strong>.`;
+  const itemizationHtml =
+    typeof params.schoolShareNaira === "number" && typeof params.providerShareNaira === "number"
+      ? `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #6ee7b7; font-size: 13px;">
+          <div><strong>School Fees Credited (Tuition &amp; Levies):</strong> ₦${params.schoolShareNaira.toLocaleString()}</div>
+          <div><strong>Portal / ICT Service Fee:</strong> ₦${params.providerShareNaira.toLocaleString()}</div>
+          ${params.gatewayFeeNaira && params.gatewayFeeNaira > 0 ? `<div><strong>Gateway Convenience Charge:</strong> ₦${params.gatewayFeeNaira.toLocaleString()}</div>` : ""}
+        </div>`
+      : "";
+  const baseUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://wofs.vercel.app").replace(/\/$/, "");
+  const safeResultsUrl = escapeHtml(`${baseUrl}/portal/results`);
+  const safeHistoryUrl = escapeHtml(`${baseUrl}/portal/fees/history`);
+
+  const subject = `Fee Payment Verified — ${params.studentName} (${params.admissionNo})`;
+  const html = `
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #ffffff;">
+      <div style="background: #143424; color: #ffffff; padding: 24px 28px; border-bottom: 4px solid #D4AF37;">
+        <h2 style="margin: 0; font-size: 20px;">Word of Faith Group of Schools</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #d1fae5;">Bursary Office — Official Fee Clearance Receipt</p>
+      </div>
+      <div style="padding: 28px; color: #1f2937; line-height: 1.6;">
+        <p style="margin-top: 0;">Dear Parent / Guardian &amp; Student,</p>
+        <p>We confirm that a school fee payment for <strong>${safeStudent}</strong> has been verified and <strong>APPROVED</strong> for <strong>${safeTerm}</strong>. ${clearanceLine}</p>
+        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; padding: 18px; border-radius: 8px; margin: 20px 0; font-size: 14px;">
+          <div style="margin-bottom: 6px;"><strong>Student Name:</strong> ${safeStudent}</div>
+          <div style="margin-bottom: 6px;"><strong>WOFS Student ID:</strong> <span style="font-family: monospace; font-weight: bold; color: #065f46;">${safeAdmission}</span></div>
+          <div style="margin-bottom: 6px;"><strong>Class:</strong> ${safeClass}</div>
+          <div style="margin-bottom: 6px;"><strong>Academic Term:</strong> ${safeTerm}</div>
+          <div style="margin-bottom: 6px;"><strong>Transaction Reference:</strong> <span style="font-family: monospace;">${safeRef}</span></div>
+          <div style="margin-bottom: 6px;"><strong>Payment Channel:</strong> ${safeChannel}</div>
+          <div><strong>Principal Amount Credited:</strong> <strong style="color: #15803d; font-size: 16px;">${escapeHtml(formattedAmount)}</strong></div>
+          ${itemizationHtml}
+        </div>
+        <p style="margin: 24px 0;">
+          <a href="${safeHistoryUrl}" style="background: #143424; color: #ffffff; text-decoration: none; padding: 11px 20px; border-radius: 8px; font-weight: bold; display: inline-block; margin-right: 10px;">
+            View Payment Receipt
+          </a>
+          <a href="${safeResultsUrl}" style="background: #0a2540; color: #ffffff; text-decoration: none; padding: 11px 20px; border-radius: 8px; font-weight: bold; display: inline-block;">
+            Open Term Results
+          </a>
+        </p>
+        <p style="margin-bottom: 0; font-size: 13px; color: #475569;">Thank you for your prompt payment.<br/><strong>Bursary Department</strong><br/>Word of Faith Group of Schools</p>
+      </div>
+    </div>
+  `;
+
+  const results = await Promise.allSettled(
+    uniqueEmails.map((to) => sendEmail({ to, subject, html }))
+  );
+  const sentCount = results.filter(
+    (r) => r.status === "fulfilled" && r.value?.success
+  ).length;
+  return { sentCount };
+}
+
+/**
+ * Dispatches an official email alert when a Bursar rejects a submitted bank teller or reverses a payment.
+ */
+export async function sendFeePaymentRejectedNotification(params: {
+  recipients: string[];
+  studentName: string;
+  admissionNo: string;
+  termLabel?: string | null;
+  reference: string;
+  amountPaidNaira: number;
+  reason: string;
+}) {
+  const uniqueEmails = Array.from(
+    new Set(
+      (params.recipients || [])
+        .map((e) => (e || "").trim().toLowerCase())
+        .filter((e) => e.includes("@"))
+    )
+  );
+  if (uniqueEmails.length === 0) {
+    return { sentCount: 0 };
+  }
+
+  const safeStudent = escapeHtml(params.studentName || "Student");
+  const safeAdmission = escapeHtml(params.admissionNo || "N/A");
+  const safeTerm = escapeHtml(params.termLabel || "Current Academic Term");
+  const safeRef = escapeHtml(params.reference || "WOF-PAY");
+  const safeReason = escapeHtml(params.reason || "Receipt could not be verified by Bursary.");
+  const formattedAmount = `₦${Math.max(0, Number(params.amountPaidNaira) || 0).toLocaleString()}`;
+  const baseUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://wofs.vercel.app").replace(/\/$/, "");
+  const safeFeesUrl = escapeHtml(`${baseUrl}/portal/fees`);
+
+  const subject = `Action Required: Payment Submission Not Verified — ${params.studentName} (${params.admissionNo})`;
+  const html = `
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; border: 1px solid #fecaca; border-radius: 12px; overflow: hidden; background: #ffffff;">
+      <div style="background: #7f1d1d; color: #ffffff; padding: 22px 26px; border-bottom: 4px solid #D4AF37;">
+        <h2 style="margin: 0; font-size: 20px;">Word of Faith Group of Schools</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #fecaca;">Bursary Notice — Receipt Verification Update</p>
+      </div>
+      <div style="padding: 26px; color: #1f2937; line-height: 1.6;">
+        <p style="margin-top: 0;">Dear Parent / Guardian &amp; Student,</p>
+        <p>The submitted payment record for <strong>${safeStudent}</strong> (<strong>${safeAdmission}</strong>) for <strong>${safeTerm}</strong> could not be approved.</p>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 16px; border-radius: 8px; margin: 18px 0; font-size: 14px;">
+          <div style="margin-bottom: 6px;"><strong>Reference:</strong> <span style="font-family: monospace;">${safeRef}</span></div>
+          <div style="margin-bottom: 6px;"><strong>Submitted Amount:</strong> ${escapeHtml(formattedAmount)}</div>
+          <div><strong>Bursary Reason:</strong> ${safeReason}</div>
+        </div>
+        <p>Please sign in to the portal to upload a clear, valid bank teller / transfer receipt or complete instant Paystack checkout:</p>
+        <p style="margin: 22px 0;">
+          <a href="${safeFeesUrl}" style="background: #0a2540; color: #ffffff; text-decoration: none; padding: 11px 20px; border-radius: 8px; font-weight: bold; display: inline-block;">
+            Return to Fees Portal
+          </a>
+        </p>
+        <p style="margin-bottom: 0; font-size: 13px; color: #475569;">Regards,<br/><strong>Bursary Department</strong><br/>Word of Faith Group of Schools</p>
+      </div>
+    </div>
+  `;
+
+  const results = await Promise.allSettled(
+    uniqueEmails.map((to) => sendEmail({ to, subject, html }))
+  );
+  const sentCount = results.filter(
+    (r) => r.status === "fulfilled" && r.value?.success
+  ).length;
+  return { sentCount };
+}
+
+/**
+ * Dispatches an official Terminal Result Publication Email when the Principal
+ * publishes a class broadsheet for an academic term.
+ */
+export async function sendResultPublishedNotification(params: {
+  recipients: string[];
+  studentName: string;
+  admissionNo: string;
+  className: string;
+  termName?: string | null;
+  sessionName?: string | null;
+}) {
+  const uniqueEmails = Array.from(
+    new Set(
+      (params.recipients || [])
+        .map((e) => (e || "").trim().toLowerCase())
+        .filter((e) => e.includes("@"))
+    )
+  );
+  if (uniqueEmails.length === 0) {
+    return { sentCount: 0 };
+  }
+
+  const safeStudent = escapeHtml(params.studentName || "Student");
+  const safeAdmission = escapeHtml(params.admissionNo || "N/A");
+  const safeClass = escapeHtml(params.className || "Class");
+  const termFull = [params.sessionName, params.termName].filter(Boolean).join(" — ") || "Current Academic Term";
+  const safeTermFull = escapeHtml(termFull);
+  const baseUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://wofs.vercel.app").replace(/\/$/, "");
+  const safeResultsUrl = escapeHtml(`${baseUrl}/portal/results`);
+
+  const subject = `Official Term Results Published — ${params.studentName} (${params.className})`;
+  const html = `
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #ffffff;">
+      <div style="background: linear-gradient(135deg, #0a2540 0%, #143424 100%); color: #ffffff; padding: 24px 28px; border-bottom: 4px solid #D4AF37;">
+        <h2 style="margin: 0; font-size: 20px;">Word of Faith Group of Schools</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #d1fae5;">Office of the Principal — Terminal Report Card Release</p>
+      </div>
+      <div style="padding: 28px; color: #1f2937; line-height: 1.6;">
+        <p style="margin-top: 0;">Dear Parent / Guardian &amp; Student,</p>
+        <p>Official terminal examination results and report cards for <strong>${safeClass}</strong> (<strong>${safeTermFull}</strong>) have been signed off and <strong>PUBLISHED</strong>.</p>
+        <div style="background: #f8fafc; border-left: 4px solid #143424; padding: 16px 18px; border-radius: 6px; margin: 20px 0; font-size: 14px;">
+          <div style="margin-bottom: 6px;"><strong>Student Name:</strong> ${safeStudent}</div>
+          <div style="margin-bottom: 6px;"><strong>WOFS Student ID:</strong> <span style="font-family: monospace; font-weight: bold; color: #0a2540;">${safeAdmission}</span></div>
+          <div style="margin-bottom: 6px;"><strong>Class Arm:</strong> ${safeClass}</div>
+          <div><strong>Academic Session &amp; Term:</strong> ${safeTermFull}</div>
+        </div>
+        <p>Sign in to the portal using your WOFS Student ID (or registered email) to view and print the official Report Card:</p>
+        <p style="margin: 24px 0;">
+          <a href="${safeResultsUrl}" style="background: #143424; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: bold; display: inline-block;">
+            Check Official Term Results
+          </a>
+        </p>
+        <p style="margin-bottom: 0; font-size: 13px; color: #475569;">Warm regards,<br/><strong>Office of the Principal</strong><br/>Word of Faith Group of Schools</p>
+      </div>
+    </div>
+  `;
+
+  const results = await Promise.allSettled(
+    uniqueEmails.map((to) => sendEmail({ to, subject, html }))
+  );
+  const sentCount = results.filter(
+    (r) => r.status === "fulfilled" && r.value?.success
+  ).length;
+  return { sentCount };
 }
 
 

@@ -2,8 +2,30 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import prisma from "@/lib/db";
 import { writeAuditLog } from "@/lib/authz";
+import {
+  ensureStudentTermInvoice,
+  recordPaymentCreditInTx,
+  recordPaymentReversalInTx,
+} from "@/lib/payment-ledger";
+import { getPortalBankConfig } from "@/lib/portal-settings";
+import {
+  sendFeePaymentApprovedNotification,
+  sendFeePaymentRejectedNotification,
+} from "@/lib/email";
 
-const MINIMUM_TERM_FEE_NAIRA = 65000;
+function collectEmails(student: {
+  ParentEmail?: string | null;
+  User?: { Email?: string | null } | null;
+  ParentLinks?: Array<{ Parent?: { User?: { Email?: string | null } | null } | null }>;
+} | null | undefined): string[] {
+  const emails: string[] = [];
+  if (student?.ParentEmail) emails.push(student.ParentEmail);
+  if (student?.User?.Email) emails.push(student.User.Email);
+  for (const l of student?.ParentLinks || []) {
+    if (l?.Parent?.User?.Email) emails.push(l.Parent.User.Email);
+  }
+  return emails;
+}
 
 export async function POST(req: Request) {
   try {
@@ -29,8 +51,9 @@ export async function POST(req: Request) {
     }
 
     const event = JSON.parse(text);
+    const eventType = String(event?.event || "");
 
-    if (event.event === "charge.success") {
+    if (eventType === "charge.success") {
       const reference = String(event.data?.reference || "").trim();
       if (!reference) {
         return NextResponse.json({ message: "Missing transaction reference" }, { status: 400 });
@@ -38,7 +61,20 @@ export async function POST(req: Request) {
 
       const payment = await prisma.payment_Record.findUnique({
         where: { Reference: reference },
-        include: { Student: true },
+        include: {
+          Term: true,
+          Student: {
+            include: {
+              Class: true,
+              User: { select: { Email: true } },
+              ParentLinks: {
+                include: {
+                  Parent: { include: { User: { select: { Email: true } } } },
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!payment) {
@@ -50,13 +86,14 @@ export async function POST(req: Request) {
         return NextResponse.json({ message: "Invalid currency" }, { status: 400 });
       }
 
-      const paidKobo = BigInt(Math.round(Number(event.data?.amount || 0)));
-      const expectedKobo =
+      const totalPaidOnGatewayKobo = BigInt(Math.round(Number(event.data?.amount || 0)));
+      const principalExpectedKobo =
         payment.AmountKobo > BigInt(0)
           ? payment.AmountKobo
-          : BigInt(Math.round(Math.max(payment.AmountPaid || MINIMUM_TERM_FEE_NAIRA, MINIMUM_TERM_FEE_NAIRA) * 100));
+          : BigInt(Math.round((payment.AmountPaid || 0) * 100));
+      const expectedTotalChargedKobo = principalExpectedKobo + (payment.gatewayFeeKobo || BigInt(0));
 
-      if (paidKobo < expectedKobo) {
+      if (expectedTotalChargedKobo <= BigInt(0) || totalPaidOnGatewayKobo < expectedTotalChargedKobo) {
         await writeAuditLog({
           actorId: null,
           action: "WEBHOOK_AMOUNT_MISMATCH_BLOCKED",
@@ -64,52 +101,240 @@ export async function POST(req: Request) {
           entityId: payment.PaymentID,
           newValue: {
             reference,
-            paidKobo: paidKobo.toString(),
-            expectedKobo: expectedKobo.toString(),
+            totalPaidOnGatewayKobo: totalPaidOnGatewayKobo.toString(),
+            expectedTotalChargedKobo: expectedTotalChargedKobo.toString(),
           },
         });
         return NextResponse.json({ message: "Amount mismatch" }, { status: 400 });
       }
 
+      const bankConfig = await getPortalBankConfig();
+      const hasSubaccount = Boolean(bankConfig.paystackSubaccountCode);
+      const actualPaystackFeeKobo =
+        event.data?.fees !== undefined && event.data?.fees !== null
+          ? BigInt(Math.max(0, Math.round(Number(event.data.fees))))
+          : payment.gatewayFeeKobo || BigInt(0);
+
+      let ledgerResult: Awaited<ReturnType<typeof recordPaymentCreditInTx>> | null = null;
+
       try {
-        await prisma.$transaction([
-          prisma.webhookEvent.create({
+        await prisma.$transaction(async (tx) => {
+          // Atomic single-winner lock via WebhookEvent PK/Unique constraint
+          await tx.webhookEvent.create({
             data: {
               provider: "PAYSTACK",
               eventKey: reference,
               processedAt: new Date(),
             },
-          }),
-          prisma.payment_Record.update({
+          });
+
+          let invoiceId = payment.InvoiceID;
+          if (!invoiceId && payment.Term) {
+            const ensured = await ensureStudentTermInvoice(tx, {
+              studentId: payment.StudentID,
+              termId: payment.TermID,
+              termLabel: `${payment.Term.SessionName} (${payment.Term.TermName})`,
+              className: payment.Student?.Class?.ClassName,
+              level: payment.Student?.Class?.Level,
+            });
+            invoiceId = ensured.invoice.id;
+          }
+
+          await tx.payment_Record.update({
             where: { Reference: reference },
             data: {
+              InvoiceID: invoiceId,
               Status: "Approved",
               Channel: "PAYSTACK",
+              gatewayFeeKobo: actualPaystackFeeKobo,
               ReviewedAt: new Date(),
             },
-          }),
-          prisma.student.update({
-            where: { StudentID: payment.StudentID },
-            data: { HasPaidFees: true },
-          }),
-          prisma.enrollment.updateMany({
+          });
+
+          ledgerResult = await recordPaymentCreditInTx(tx, {
+            paymentId: payment.PaymentID,
+            invoiceId,
+            studentId: payment.StudentID,
+            termId: payment.TermID,
+            principalKobo: principalExpectedKobo,
+            gatewayFeeKobo: actualPaystackFeeKobo,
+            settlementChannel: hasSubaccount ? "PAYSTACK_SUBACCOUNT" : "SCHOOL_COLLECTION",
+            reference,
+            notes: "Verified via Paystack HMAC webhook (Model A ₦800 ICT Fee)",
+            actorId: null,
+          });
+
+          await tx.enrollment.updateMany({
             where: { StudentID: payment.StudentID, TermID: payment.TermID },
             data: { Status: "ACTIVE" },
-          }),
-        ]);
-      } catch (txErr: any) {
-        // Unique constraint violation on WebhookEvent.eventKey (P2002) means already processed
-        if (txErr?.code === "P2002") {
+          });
+        });
+      } catch (txErr: unknown) {
+        if ((txErr as { code?: string })?.code === "P2002") {
           return NextResponse.json({ message: "Event already processed" }, { status: 200 });
         }
         throw txErr;
       }
+
+      if (ledgerResult) {
+        const l = ledgerResult as Awaited<ReturnType<typeof recordPaymentCreditInTx>>;
+        await writeAuditLog({
+          actorId: null,
+          action: "PAYSTACK_WEBHOOK_APPROVED",
+          entity: "Payment_Record",
+          entityId: payment.PaymentID,
+          newValue: {
+            reference,
+            principalKobo: principalExpectedKobo.toString(),
+            gatewayFeeKobo: actualPaystackFeeKobo.toString(),
+            schoolShareKobo: l.schoolShareKobo.toString(),
+            providerShareKobo: l.providerShareKobo.toString(),
+            modelCode: l.modelCode,
+          },
+        });
+
+        const studentDisplayName =
+          payment.Student?.PreferredName ||
+          [payment.Student?.FirstName, payment.Student?.LastName].filter(Boolean).join(" ") ||
+          "Student";
+        const termLabel = payment.Term
+          ? `${payment.Term.SessionName} (${payment.Term.TermName})`
+          : "Current Academic Term";
+
+        await sendFeePaymentApprovedNotification({
+          recipients: collectEmails(payment.Student),
+          studentName: studentDisplayName,
+          admissionNo: payment.Student?.AdmissionNo || "N/A",
+          className: payment.Student?.Class?.ClassName,
+          termLabel,
+          reference,
+          amountPaidNaira: Number(principalExpectedKobo) / 100,
+          channel: "PAYSTACK",
+          schoolShareNaira: Number(l.schoolShareKobo) / 100,
+          providerShareNaira: Number(l.providerShareKobo) / 100,
+          gatewayFeeNaira: Number(actualPaystackFeeKobo) / 100,
+        }).catch((err) => console.warn("[Webhook Email] Notification warning:", err));
+      }
+
+      return NextResponse.json({ message: "Success" });
     }
 
-    return NextResponse.json({ message: "Success" });
+    // Refund & Chargeback Dispute Handling
+    if (
+      eventType === "refund.processed" ||
+      eventType === "charge.dispute.create" ||
+      eventType === "charge.dispute.resolve"
+    ) {
+      const reference = String(
+        event.data?.transaction_reference ||
+          event.data?.transaction?.reference ||
+          event.data?.reference ||
+          ""
+      ).trim();
+
+      if (!reference) {
+        return NextResponse.json({ message: "No reference on reversal event" }, { status: 200 });
+      }
+
+      const eventKey = `${eventType}:${String(event.data?.id || reference)}`;
+      const payment = await prisma.payment_Record.findUnique({
+        where: { Reference: reference },
+        include: {
+          Term: true,
+          Student: {
+            include: {
+              User: { select: { Email: true } },
+              ParentLinks: { include: { Parent: { include: { User: { select: { Email: true } } } } } },
+            },
+          },
+        },
+      });
+
+      if (!payment) {
+        return NextResponse.json({ message: "Payment reference not found" }, { status: 200 });
+      }
+
+      const isDisputeWon =
+        eventType === "charge.dispute.resolve" &&
+        String(event.data?.status || "").toLowerCase() === "won";
+
+      if (isDisputeWon) {
+        await writeAuditLog({
+          actorId: null,
+          action: "PAYSTACK_DISPUTE_WON",
+          entity: "Payment_Record",
+          entityId: payment.PaymentID,
+          newValue: { reference, eventKey },
+        });
+        return NextResponse.json({ message: "Dispute won recorded" });
+      }
+
+      const nextStatus = eventType === "refund.processed" ? "Refunded" : "Disputed";
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.webhookEvent.create({
+            data: {
+              provider: "PAYSTACK",
+              eventKey,
+              processedAt: new Date(),
+            },
+          });
+
+          await tx.payment_Record.update({
+            where: { PaymentID: payment.PaymentID },
+            data: {
+              Status: nextStatus,
+              RejectionReason: `Automated Paystack ${eventType} event recorded.`,
+              ReviewedAt: new Date(),
+            },
+          });
+
+          await recordPaymentReversalInTx(tx, {
+            paymentId: payment.PaymentID,
+            studentId: payment.StudentID,
+            termId: payment.TermID,
+            invoiceId: payment.InvoiceID,
+            gatewayFeeKobo: payment.gatewayFeeKobo,
+            reference,
+            notes: `Paystack ${eventType} (${eventKey})`,
+            actorId: null,
+          });
+        });
+
+        await writeAuditLog({
+          actorId: null,
+          action: `PAYSTACK_${nextStatus.toUpperCase()}`,
+          entity: "Payment_Record",
+          entityId: payment.PaymentID,
+          newValue: { reference, eventType, eventKey },
+        });
+
+        const studentDisplayName =
+          payment.Student?.PreferredName ||
+          [payment.Student?.FirstName, payment.Student?.LastName].filter(Boolean).join(" ") ||
+          "Student";
+        await sendFeePaymentRejectedNotification({
+          recipients: collectEmails(payment.Student),
+          studentName: studentDisplayName,
+          admissionNo: payment.Student?.AdmissionNo || "N/A",
+          termLabel: payment.Term ? `${payment.Term.SessionName} (${payment.Term.TermName})` : undefined,
+          reference,
+          amountPaidNaira: payment.AmountPaid,
+          reason: `Transaction marked ${nextStatus} via Paystack (${eventType}). Please contact the Bursary office.`,
+        }).catch(() => {});
+      } catch (txErr: unknown) {
+        if ((txErr as { code?: string })?.code === "P2002") {
+          return NextResponse.json({ message: "Reversal already processed" }, { status: 200 });
+        }
+        throw txErr;
+      }
+
+      return NextResponse.json({ message: "Reversal recorded" });
+    }
+
+    return NextResponse.json({ message: "Event acknowledged" });
   } catch (error) {
     console.error("Paystack webhook error:", error);
     return NextResponse.json({ message: "Error" }, { status: 500 });
   }
 }
-

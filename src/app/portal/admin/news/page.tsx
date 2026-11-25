@@ -1,23 +1,15 @@
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { requireCapability } from "@/lib/authz";
 import { getAdminNewsManagementData } from "@/app/actions/news";
 import NewsCmsClient from "./NewsCmsClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminNewsPage() {
-  const session = await getServerSession(authOptions);
-  const roleUpper = (session?.user?.role || "").toUpperCase();
-  const isAuthorizedAdmin =
-    roleUpper === "ADMIN" ||
-    roleUpper === "SUPER_ADMIN" ||
-    roleUpper === "PRINCIPAL" ||
-    roleUpper === "BURSAR" ||
-    roleUpper === "ADMISSIONS";
-
-  if (!session || !isAuthorizedAdmin) {
-    redirect("/portal/login");
+  try {
+    await requireCapability(["MANAGE_SYSTEM", "MANAGE_STUDENTS"]);
+  } catch {
+    redirect("/portal/unauthorized?zone=news");
   }
 
   const res = await getAdminNewsManagementData();

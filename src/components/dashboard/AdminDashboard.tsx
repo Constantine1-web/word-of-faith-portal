@@ -37,6 +37,12 @@ import {
 
 const COLORS = ['#0A2540', '#14532D', '#22C55E', '#3B82F6', '#F59E0B'];
 
+function parseCustomFutureDate(expiresAt?: string | null): Date | null {
+  if (!expiresAt) return null;
+  const dt = new Date(expiresAt);
+  return dt.getTime() > Date.now() + 120_000 ? dt : null;
+}
+
 export default function AdminDashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -107,7 +113,39 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    fetchStats();
+    let cancelled = false;
+    (async () => {
+      try {
+        const [res, noticeRes] = await Promise.all([
+          getAdminDashboardStats(),
+          getSchoolNotices({ includeExpired: true }),
+        ]);
+        if (cancelled) return;
+        if (noticeRes.success) {
+          setNotices(noticeRes.notices || []);
+          setExpiredNotices(noticeRes.expiredNotices || []);
+        }
+        if (res && res.stats) {
+          setData(res);
+          if (!res.success && res.error) {
+            setErrorMsg(res.error);
+          }
+        } else {
+          setErrorMsg((res as any)?.error || "Unable to fetch live metrics.");
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setErrorMsg(err?.message || "Connection error while loading analytics.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleStartEditNotice = (n: SchoolNoticeItem) => {
@@ -127,13 +165,14 @@ export default function AdminDashboard() {
     );
     setNoticeAudience(n.targetAudience || "All Students & Parents");
 
+    const customDt =
+      n.durationPreset && n.durationPreset !== "custom" ? null : parseCustomFutureDate(n.expiresAt);
     if (n.durationPreset && n.durationPreset !== "custom") {
       setDurationPreset(n.durationPreset);
-    } else if (n.expiresAt && new Date(n.expiresAt).getTime() > Date.now() + 120_000) {
-      const dt = new Date(n.expiresAt);
+    } else if (customDt) {
       setDurationPreset("custom");
       setCustomExpiresAt(
-        new Date(dt.getTime() - dt.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+        new Date(customDt.getTime() - customDt.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
       );
     } else {
       setDurationPreset("7d");

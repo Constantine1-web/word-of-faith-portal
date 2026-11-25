@@ -3,7 +3,7 @@
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireRole, writeAuditLog } from "@/lib/authz";
+import { requireCapability, writeAuditLog } from "@/lib/authz";
 import { sendEmail } from "@/lib/email";
 import { escapeHtml, validateInput } from "@/lib/security";
 
@@ -42,67 +42,90 @@ export async function getContactInquiries(filters?: {
   search?: string;
 }) {
   try {
-    await requireRole(INQUIRY_ADMIN_ROLES);
+    await requireCapability(["MANAGE_STUDENTS", "MANAGE_SYSTEM"]);
 
-    const logsDesc = await prisma.auditLog.findMany({
-      where: {
-        Entity: "ContactMessage",
-        Action: {
-          in: ["PUBLIC_CONTACT_INQUIRY", "CONTACT_INQUIRY_STATUS", "CONTACT_INQUIRY_REPLY"],
-        },
-      },
-      include: {
-        Actor: {
-          select: { UserID: true, Email: true },
-        },
-      },
-      orderBy: { CreatedAt: "desc" },
-      take: 2500,
+    const dbRows = await prisma.contactInquiry.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 500,
     });
 
-    const logs = logsDesc.reverse();
-    const grouped = new Map<string, ContactInquiryItem>();
+    let allInquiries: ContactInquiryItem[] = dbRows.map((row) => ({
+      referenceCode: row.referenceCode,
+      name: row.name,
+      email: row.email,
+      subject: row.subject,
+      message: row.message,
+      ipAddress: row.ipAddress,
+      status: (["NEW", "IN_REVIEW", "REPLIED", "RESOLVED"].includes(row.status)
+        ? row.status
+        : "NEW") as InquiryStatus,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      history: Array.isArray(row.historyJson)
+        ? (row.historyJson as ContactInquiryItem["history"])
+        : [],
+    }));
 
-    for (const log of logs) {
-      const ref = String(log.EntityID || log.id);
-      const val = (log.NewValue || {}) as Record<string, unknown>;
-      const ts = log.CreatedAt.toISOString();
+    // Backwards-compatible fallback if pre-migration AuditLog inquiries exist and ContactInquiry table is empty
+    if (allInquiries.length === 0) {
+      const logsDesc = await prisma.auditLog.findMany({
+        where: {
+          Entity: "ContactMessage",
+          Action: {
+            in: ["PUBLIC_CONTACT_INQUIRY", "CONTACT_INQUIRY_STATUS", "CONTACT_INQUIRY_REPLY"],
+          },
+        },
+        include: {
+          Actor: { select: { UserID: true, Email: true } },
+        },
+        orderBy: { CreatedAt: "desc" },
+        take: 2500,
+      });
 
-      if (log.Action === "PUBLIC_CONTACT_INQUIRY") {
-        grouped.set(ref, {
-          referenceCode: ref,
-          name: String(val.name || "Website Visitor"),
-          email: String(val.email || ""),
-          subject: String(val.subject || "General School Inquiry"),
-          message: String(val.message || ""),
-          ipAddress: log.IpAddress || null,
-          status: "NEW",
-          createdAt: ts,
-          updatedAt: ts,
-          history: [],
-        });
-      } else {
-        const existing = grouped.get(ref);
-        if (existing) {
-          const nextStatus = String(val.status || existing.status).toUpperCase() as InquiryStatus;
-          if (["NEW", "IN_REVIEW", "REPLIED", "RESOLVED"].includes(nextStatus)) {
-            existing.status = nextStatus;
-          }
-          existing.updatedAt = ts;
-          existing.history.push({
-            action: log.Action,
-            actorEmail: log.Actor?.Email || (log.ActorID ? `Staff #${log.ActorID}` : "System"),
-            status: nextStatus,
-            note: String(val.replyMessage || val.note || log.Reason || ""),
+      const logs = logsDesc.reverse();
+      const grouped = new Map<string, ContactInquiryItem>();
+
+      for (const log of logs) {
+        const ref = String(log.EntityID || log.id);
+        const val = (log.NewValue || {}) as Record<string, unknown>;
+        const ts = log.CreatedAt.toISOString();
+
+        if (log.Action === "PUBLIC_CONTACT_INQUIRY") {
+          grouped.set(ref, {
+            referenceCode: ref,
+            name: String(val.name || "Website Visitor"),
+            email: String(val.email || ""),
+            subject: String(val.subject || "General School Inquiry"),
+            message: String(val.message || ""),
+            ipAddress: log.IpAddress || null,
+            status: "NEW",
             createdAt: ts,
+            updatedAt: ts,
+            history: [],
           });
+        } else {
+          const existing = grouped.get(ref);
+          if (existing) {
+            const nextStatus = String(val.status || existing.status).toUpperCase() as InquiryStatus;
+            if (["NEW", "IN_REVIEW", "REPLIED", "RESOLVED"].includes(nextStatus)) {
+              existing.status = nextStatus;
+            }
+            existing.updatedAt = ts;
+            existing.history.push({
+              action: log.Action,
+              actorEmail: log.Actor?.Email || (log.ActorID ? `Staff #${log.ActorID}` : "System"),
+              status: nextStatus,
+              note: String(val.replyMessage || val.note || log.Reason || ""),
+              createdAt: ts,
+            });
+          }
         }
       }
-    }
 
-    const allInquiries = Array.from(grouped.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+      allInquiries = Array.from(grouped.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    }
 
     const summary = {
       total: allInquiries.length,
@@ -149,8 +172,31 @@ const StatusUpdateSchema = z.object({
 
 export async function updateContactInquiryStatus(raw: z.infer<typeof StatusUpdateSchema>) {
   try {
-    const actor = await requireRole(INQUIRY_ADMIN_ROLES);
+    const actor = await requireCapability(["MANAGE_STUDENTS", "MANAGE_SYSTEM"]);
     const data = validateInput(StatusUpdateSchema, raw);
+
+    const existing = await prisma.contactInquiry.findUnique({
+      where: { referenceCode: data.referenceCode },
+    });
+    if (existing) {
+      const prevHist = Array.isArray(existing.historyJson) ? existing.historyJson : [];
+      await prisma.contactInquiry.update({
+        where: { referenceCode: data.referenceCode },
+        data: {
+          status: data.status,
+          historyJson: [
+            ...prevHist,
+            {
+              action: "CONTACT_INQUIRY_STATUS",
+              actorEmail: actor.Email,
+              status: data.status,
+              note: data.note || "",
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+    }
 
     await writeAuditLog({
       actorId: actor.UserID,
@@ -187,7 +233,7 @@ const InquiryReplySchema = z.object({
 
 export async function replyToContactInquiry(raw: z.infer<typeof InquiryReplySchema>) {
   try {
-    const actor = await requireRole(INQUIRY_ADMIN_ROLES);
+    const actor = await requireCapability(["MANAGE_STUDENTS", "MANAGE_SYSTEM"]);
     const data = validateInput(InquiryReplySchema, raw);
 
     const safeName = escapeHtml(data.recipientName);
@@ -213,6 +259,29 @@ export async function replyToContactInquiry(raw: z.infer<typeof InquiryReplySche
         </div>
       `,
     });
+
+    const existing = await prisma.contactInquiry.findUnique({
+      where: { referenceCode: data.referenceCode },
+    });
+    if (existing) {
+      const prevHist = Array.isArray(existing.historyJson) ? existing.historyJson : [];
+      await prisma.contactInquiry.update({
+        where: { referenceCode: data.referenceCode },
+        data: {
+          status: "REPLIED",
+          historyJson: [
+            ...prevHist,
+            {
+              action: "CONTACT_INQUIRY_REPLY",
+              actorEmail: actor.Email,
+              status: "REPLIED",
+              note: data.replyMessage.slice(0, 1000),
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+    }
 
     await writeAuditLog({
       actorId: actor.UserID,

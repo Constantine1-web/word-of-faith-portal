@@ -1,6 +1,5 @@
 "use client";
 
-import { useChat } from "@ai-sdk/react";
 import { useState, useRef, useEffect } from "react";
 import { FiMessageCircle, FiX, FiMaximize2, FiMinimize2, FiPaperclip, FiSend } from "react-icons/fi";
 
@@ -52,9 +51,11 @@ export default function Faithbot() {
   };
 
   useEffect(() => {
-    // Set initial position after mount to avoid hydration mismatch
-    // Raise it up higher from the bottom
-    setBtnPos({ x: 32, y: window.innerHeight - 150 }); 
+    // Set initial position after mount in an async animation frame callback to avoid synchronous effect re-renders
+    const rafId = window.requestAnimationFrame(() => {
+      setBtnPos({ x: 32, y: window.innerHeight - 150 });
+    });
+    return () => window.cancelAnimationFrame(rafId);
   }, []);
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -176,7 +177,7 @@ export default function Faithbot() {
                   prev.map(m => m.id === botId ? { ...m, content: botContent } : m)
                 );
               } else if (data.type === 'error') {
-                let errorMsg = data.error || data.errorText || "An unexpected error occurred.";
+                const errorMsg = data.error || data.errorText || "An unexpected error occurred.";
                 botContent += (botContent ? "\n\n" : "") + `⚠️ ${errorMsg}`;
                 setMessages(prev => 
                   prev.map(m => m.id === botId ? { ...m, content: botContent } : m)

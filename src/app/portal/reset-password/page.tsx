@@ -8,11 +8,15 @@ import styles from "../login/page.module.css";
 import Link from "next/link";
 
 function ResetPasswordContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const emailParam = searchParams.get("email");
+  const emailParam = searchParams.get("email") || "";
+  return <ResetPasswordForm key={emailParam} initialEmail={emailParam} />;
+}
 
-  const [email, setEmail] = useState("");
+function ResetPasswordForm({ initialEmail }: { initialEmail: string }) {
+  const router = useRouter();
+
+  const [email, setEmail] = useState(initialEmail);
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,10 +30,6 @@ function ResetPasswordContent() {
   const [resendCooldown, setResendCooldown] = useState(30);
   const [resending, setResending] = useState(false);
   const [resendMsg, setResendMsg] = useState("");
-
-  useEffect(() => {
-    if (emailParam) setEmail(emailParam);
-  }, [emailParam]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -105,7 +105,7 @@ function ResetPasswordContent() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {!emailParam && (
+          {!initialEmail && (
             <div className={styles.formGroup}>
               <label htmlFor="email" className={styles.label}>Email Address</label>
               <input type="email" id="email" className={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} required />

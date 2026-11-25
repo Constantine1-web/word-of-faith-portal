@@ -402,48 +402,38 @@ export async function checkStudentFeeClearance(studentId: number, termId: number
 }> {
   const student = await prisma.student.findUnique({
     where: { StudentID: studentId },
+    include: { Class: true },
   });
 
   if (!student) {
     throw new AuthorizationError("Student record not found.", 404);
   }
 
-  const invoices = await prisma.invoice.findMany({
-    where: { StudentID: studentId, TermID: termId, IsWaived: false },
-  });
+  const { getStudentTermBillingSummary } = await import("@/lib/payment-ledger");
+  const { getFeeScheduleForClass } = await import("@/lib/fee-schedule");
+  const summary = await getStudentTermBillingSummary(prisma, studentId, termId);
 
-  const payments = await prisma.payment_Record.findMany({
-    where: {
-      StudentID: studentId,
-      TermID: termId,
-      Status: { in: ["Approved", "Successful", "APPROVED", "SUCCESSFUL"] },
-    },
-  });
-
-  const totalBilledKobo = invoices.reduce((acc, inv) => acc + inv.AmountKobo, BigInt(0));
-  const totalPaidKobo = payments.reduce((acc, pay) => {
-    const kobo = pay.AmountKobo > BigInt(0) ? pay.AmountKobo : BigInt(Math.round((pay.AmountPaid || 0) * 100));
-    return acc + kobo;
-  }, BigInt(0));
-
-  // If term invoices exist, clearance is strictly derived from totalPaidKobo >= totalBilledKobo
-  if (invoices.length > 0) {
-    const balanceKobo = totalBilledKobo > totalPaidKobo ? totalBilledKobo - totalPaidKobo : BigInt(0);
+  if (summary.invoice) {
     return {
-      isCleared: totalPaidKobo >= totalBilledKobo,
-      totalBilledKobo,
-      totalPaidKobo,
-      balanceKobo,
+      isCleared: summary.isCleared,
+      totalBilledKobo: summary.totalDueKobo,
+      totalPaidKobo: summary.totalCreditedKobo,
+      balanceKobo: summary.remainingTotalKobo,
     };
   }
 
-  // If no formal invoice rows were generated yet for the term, check verified payments or HasPaidFees
-  const isCleared = payments.length > 0 || student.HasPaidFees;
+  // Fallback if formal Invoice row hasn't been created yet: derive term obligation from class FeeSchedule
+  // (NEVER grant cross-term clearance via legacy global Student.HasPaidFees boolean)
+  const schedule = await getFeeScheduleForClass(student.Class?.ClassName, student.Class?.Level);
+  const totalBilledKobo = schedule.totalKobo;
+  const totalPaidKobo = summary.totalCreditedKobo;
+  const balanceKobo = totalBilledKobo > totalPaidKobo ? totalBilledKobo - totalPaidKobo : BigInt(0);
+
   return {
-    isCleared,
-    totalBilledKobo: BigInt(0),
+    isCleared: totalPaidKobo >= totalBilledKobo && totalBilledKobo > BigInt(0),
+    totalBilledKobo,
     totalPaidKobo,
-    balanceKobo: BigInt(0),
+    balanceKobo,
   };
 }
 

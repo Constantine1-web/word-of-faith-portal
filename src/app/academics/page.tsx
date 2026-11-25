@@ -32,7 +32,7 @@ export default function Academics() {
             <div style={{ color: "var(--color-primary-green)", fontSize: "2.5rem", marginBottom: "1rem" }}><FiAward /></div>
             <h3 style={{ color: "var(--color-navy-blue)", fontSize: "1.5rem", marginBottom: "1rem" }}>Biblical Integration</h3>
             <p style={{ color: "var(--color-gray-600)", lineHeight: 1.6 }}>
-              Every subject, from Science to Arts, is built upon a Biblical Standard Based Education. We don't just teach facts; we teach through the lens of faith.
+              Every subject, from Science to Arts, is built upon a Biblical Standard Based Education. We don&apos;t just teach facts; we teach through the lens of faith.
             </p>
           </div>
 

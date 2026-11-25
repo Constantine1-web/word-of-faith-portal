@@ -41,6 +41,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# local credential dossiers
+# local credential dossiers & database backups
 Word_of_Faith_Portal_Testing_Accounts.pdf
+/backups/
 

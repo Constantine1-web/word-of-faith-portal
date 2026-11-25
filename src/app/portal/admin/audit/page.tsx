@@ -1,23 +1,15 @@
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { requireCapability } from "@/lib/authz";
 import { getAuditLogExplorerData } from "@/app/actions/admin";
 import AuditClient from "./AuditClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminAuditPage() {
-  const session = await getServerSession(authOptions);
-  const roleUpper = (session?.user?.role || "").toUpperCase();
-  const isAuthorizedAdmin =
-    roleUpper === "ADMIN" ||
-    roleUpper === "SUPER_ADMIN" ||
-    roleUpper === "PRINCIPAL" ||
-    roleUpper === "BURSAR" ||
-    roleUpper === "ADMISSIONS";
-
-  if (!session || !isAuthorizedAdmin) {
-    redirect("/portal/login");
+  try {
+    await requireCapability("VIEW_AUDIT");
+  } catch {
+    redirect("/portal/unauthorized?zone=audit");
   }
 
   const res = await getAuditLogExplorerData({ limit: 100 });

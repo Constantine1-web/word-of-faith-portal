@@ -1,21 +1,18 @@
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { requireCapability } from "@/lib/authz";
 import AdminResultsClient from "./AdminResultsClient";
 
 export default async function AdminResultsPage() {
-  const session = await getServerSession(authOptions);
-  const roleUpper = (session?.user?.role || "").toUpperCase();
-  const isAuthorizedAdmin =
-    roleUpper === "ADMIN" ||
-    roleUpper === "SUPER_ADMIN" ||
-    roleUpper === "PRINCIPAL" ||
-    roleUpper === "BURSAR" ||
-    roleUpper === "ADMISSIONS";
-
-  if (!session || !isAuthorizedAdmin) {
-    redirect("/portal/login");
+  try {
+    await requireCapability([
+      "APPROVE_RESULTS",
+      "PUBLISH_RESULTS",
+      "UNLOCK_SHEETS",
+      "CORRECT_SCORES",
+    ]);
+  } catch {
+    redirect("/portal/unauthorized?zone=results");
   }
 
   const allTerms = await prisma.academic_Term.findMany({

@@ -433,6 +433,16 @@ export async function getCbtAnalyticsAndLeaderboard() {
       }
     >();
 
+    const isStaffViewer = [
+      "SUPER_ADMIN",
+      "PRINCIPAL",
+      "ADMIN",
+      "Admin",
+      "TEACHER",
+      "FORM_MASTER",
+      "Teacher",
+    ].some((r) => actor.roles.has(r));
+
     for (const att of allSubmitted) {
       if (!att.student) continue;
       const sId = att.student.StudentID;
@@ -443,10 +453,17 @@ export async function getCbtAnalyticsAndLeaderboard() {
           ? Math.round(att.scoreTenths / 10)
           : Math.round((correctCount / totalQ) * 100);
 
-      const name =
+      const isSelf = Boolean(student && sId === student.StudentID);
+      const rawName =
         att.student.PreferredName ||
         `${att.student.FirstName || ""} ${att.student.LastName || ""}`.trim() ||
         `Student #${sId}`;
+      // Privacy protection: never expose other minors' real full names on peer leaderboards
+      const name = isStaffViewer
+        ? rawName
+        : isSelf
+        ? `${rawName} (You)`
+        : `Scholar #${String(sId).padStart(3, "0")}`;
 
       const entry = studentLeaderboardMap.get(sId) || {
         studentId: sId,
@@ -546,25 +563,50 @@ export async function getSchoolNotices(options?: { includeExpired?: boolean }) {
     BROADCAST_ADMIN_ROLES.some((r) => actor.roles.has(r));
 
   try {
-    const rows = await prisma.auditLog.findMany({
-      where: {
-        Entity: "SchoolNotice",
-        Action: { in: ["SCHOOL_NOTICE_PUBLISHED", "SCHOOL_NOTICE_DELETED"] },
-      },
-      orderBy: { CreatedAt: "desc" },
+    const dbRows = await prisma.schoolNotice.findMany({
+      where: { isDeleted: false },
+      orderBy: { createdAt: "desc" },
       take: 250,
     });
 
+    let allItems: SchoolNoticeItem[] = dbRows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      category: row.category,
+      title: row.title,
+      eventDate: row.eventDate,
+      targetAudience: row.targetAudience,
+      details: row.details,
+      color: row.color,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+      durationPreset: (row.durationPreset as BroadcastDurationPreset) || "7d",
+      durationLabel: row.durationLabel || undefined,
+    }));
+
+    // Backwards-compatible fallback ONLY when the dedicated SchoolNotice table is completely unseeded
+    if (allItems.length === 0) {
+      const legacyAuditRows = await prisma.auditLog.findMany({
+        where: {
+          Entity: "SchoolNotice",
+          Action: { in: ["SCHOOL_NOTICE_PUBLISHED", "SCHOOL_NOTICE_DELETED"] },
+        },
+        orderBy: { CreatedAt: "desc" },
+        take: 100,
+      });
+      allItems = mergeSchoolNoticeAuditEvents(legacyAuditRows);
+    }
+
     const nowMs = Date.now();
-    const allLiveOrExpired = mergeSchoolNoticeAuditEvents(rows);
-    const activeNotices = allLiveOrExpired.filter((n) => !isSchoolNoticeExpired(n, nowMs));
+    const activeNotices = allItems.filter((n) => !isSchoolNoticeExpired(n, nowMs));
     const expiredNotices = canSeeExpired
-      ? allLiveOrExpired.filter((n) => isSchoolNoticeExpired(n, nowMs))
+      ? allItems.filter((n) => isSchoolNoticeExpired(n, nowMs))
       : [];
 
     return {
       success: true,
-      notices: activeNotices,
+      notices: activeNotices.length > 0 ? activeNotices : DEFAULT_SCHOOL_NOTICES,
       expiredNotices,
     };
   } catch {
@@ -612,22 +654,56 @@ export async function publishSchoolNotice(data: {
     };
 
     const noticeId = (data.id || "").trim() || crypto.randomUUID();
-    const nowIso = new Date().toISOString();
+    const eventDateVal = (data.eventDate || "Active Term").trim().slice(0, 60);
+    const targetAudVal = (data.targetAudience || "All Portal Users").trim().slice(0, 80);
+    const colorVal = colorMap[chosenType] || "var(--color-navy-blue)";
+
+    const saved = await prisma.schoolNotice.upsert({
+      where: { id: noticeId },
+      update: {
+        type: chosenType,
+        category: chosenType,
+        title,
+        eventDate: eventDateVal,
+        targetAudience: targetAudVal,
+        details,
+        color: colorVal,
+        durationPreset: expiryInfo.durationPreset,
+        durationLabel: expiryInfo.durationLabel,
+        expiresAt: expiryInfo.expiresAt ? new Date(expiryInfo.expiresAt) : null,
+        isDeleted: false,
+      },
+      create: {
+        id: noticeId,
+        type: chosenType,
+        category: chosenType,
+        title,
+        eventDate: eventDateVal,
+        targetAudience: targetAudVal,
+        details,
+        color: colorVal,
+        durationPreset: expiryInfo.durationPreset,
+        durationLabel: expiryInfo.durationLabel,
+        expiresAt: expiryInfo.expiresAt ? new Date(expiryInfo.expiresAt) : null,
+        isDeleted: false,
+        createdById: actor.UserID,
+      },
+    });
 
     const notice: SchoolNoticeItem = {
-      id: noticeId,
-      type: chosenType,
-      category: chosenType,
-      title,
-      eventDate: (data.eventDate || "Active Term").trim().slice(0, 60),
-      targetAudience: (data.targetAudience || "All Portal Users").trim().slice(0, 80),
-      details,
-      color: colorMap[chosenType] || "var(--color-navy-blue)",
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      expiresAt: expiryInfo.expiresAt,
-      durationPreset: expiryInfo.durationPreset,
-      durationLabel: expiryInfo.durationLabel,
+      id: saved.id,
+      type: saved.type,
+      category: saved.category,
+      title: saved.title,
+      eventDate: saved.eventDate,
+      targetAudience: saved.targetAudience,
+      details: saved.details,
+      color: saved.color,
+      createdAt: saved.createdAt.toISOString(),
+      updatedAt: saved.updatedAt.toISOString(),
+      expiresAt: saved.expiresAt ? saved.expiresAt.toISOString() : null,
+      durationPreset: (saved.durationPreset as BroadcastDurationPreset) || expiryInfo.durationPreset,
+      durationLabel: saved.durationLabel || expiryInfo.durationLabel,
     };
 
     await writeAuditLog({
@@ -637,7 +713,7 @@ export async function publishSchoolNotice(data: {
       entity: "SchoolNotice",
       entityId: noticeId,
       reason: `${data.id ? "Updated" : "Published"} broadcast (${expiryInfo.durationLabel}): ${notice.title}`,
-      newValue: notice,
+      newValue: { id: notice.id, title: notice.title, expiresAt: notice.expiresAt },
     });
 
     revalidatePath("/portal/dashboard");
@@ -658,6 +734,11 @@ export async function deleteSchoolNotice(noticeId: string, reason?: string) {
     if (!cleanId) {
       return { success: false, error: "Notice ID is required." };
     }
+
+    await prisma.schoolNotice.updateMany({
+      where: { id: cleanId },
+      data: { isDeleted: true },
+    });
 
     await writeAuditLog({
       actorId: actor.UserID,

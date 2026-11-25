@@ -65,10 +65,18 @@ export default function AdminResultsClient({
   terms?: any[];
 }) {
   const router = useRouter();
-  const [classes, setClasses] = useState(initialClasses);
-  useEffect(() => {
-    setClasses(initialClasses);
-  }, [initialClasses]);
+  const [classesState, setClassesState] = useState<{ base: any[]; items: any[] }>(() => ({
+    base: initialClasses,
+    items: initialClasses,
+  }));
+  const classes = classesState.base === initialClasses ? classesState.items : initialClasses;
+  const setClasses = (updater: any[] | ((prev: any[]) => any[])) => {
+    setClassesState((prevState) => {
+      const current = prevState.base === initialClasses ? prevState.items : initialClasses;
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return { base: initialClasses, items: next };
+    });
+  };
   const [activeTab, setActiveTab] = useState<
     "broadsheets" | "unlocks" | "upload" | "promotion"
   >("broadsheets");

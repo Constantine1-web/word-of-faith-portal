@@ -49,6 +49,14 @@ function cleanHtmlText(raw: string): string {
     .replace(/&#39;/g, "'");
 }
 
+function getElapsedSince(loadedAtMs: number): number {
+  return loadedAtMs > 0 ? Math.max(0, Date.now() - loadedAtMs) : 0;
+}
+
+function getRemainingSeconds(expiresAtIso: string): number {
+  return Math.max(0, Math.floor((new Date(expiresAtIso).getTime() - Date.now()) / 1000));
+}
+
 export default function QuizClient({ attemptId }: QuizClientProps) {
   const [position, setPosition] = useState(1);
   const [loadingQuestion, setLoadingQuestion] = useState(true);
@@ -139,15 +147,42 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     }
   };
 
-  const questionLoadedAtRef = useRef<number>(Date.now());
+  const questionLoadedAtRef = useRef<number>(0);
   const blurStartedAtRef = useRef<number | null>(null);
+
+  const getTabSessionToken = useCallback(() => {
+    if (typeof window === "undefined") return undefined;
+    const key = `wofs_cbt_tok_${attemptId}`;
+    let tok = window.sessionStorage.getItem(key);
+    if (!tok) {
+      tok = `tab:client-${Math.random().toString(36).slice(2)}`;
+      window.sessionStorage.setItem(key, tok);
+    }
+    return tok;
+  }, [attemptId]);
+
+  const handleFinalSubmit = useCallback(async () => {
+    setLoadingQuestion(true);
+    const res = await submitAttempt(attemptId);
+    if (res.success && res.summary) {
+      setSubmittedResult({
+        summary: res.summary,
+        reviewItems: res.reviewItems || [],
+      });
+    } else if (res.terminated) {
+      setTerminatedReason(res.error || "Attempt was terminated.");
+    } else {
+      setErrorMsg(res.error || "Failed to submit exam.");
+    }
+    setLoadingQuestion(false);
+  }, [attemptId]);
 
   // Fetch ONLY the single active question slot from the server
   const loadQuestionSlot = useCallback(
     async (targetPos: number) => {
       setLoadingQuestion(true);
       setErrorMsg(null);
-      const res = await getQuestion(attemptId, targetPos);
+      const res = await getQuestion(attemptId, targetPos, getTabSessionToken());
       if (res.success && res.question && res.attempt) {
         setAttemptMeta(res.attempt);
         setWatermark(res.watermark || null);
@@ -155,11 +190,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
         setPosition(res.question.position);
         questionLoadedAtRef.current = Date.now();
 
-        const remainingSec = Math.max(
-          0,
-          Math.floor((new Date(res.attempt.expiresAt).getTime() - Date.now()) / 1000)
-        );
-        setTimeLeft(remainingSec);
+        setTimeLeft(getRemainingSeconds(res.attempt.expiresAt));
       } else if (res.terminated || res.dayLocked) {
         setTerminatedReason(res.error || "Attempt terminated due to exam integrity violation.");
       } else if (res.submitted || res.expired) {
@@ -175,22 +206,49 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       }
       setLoadingQuestion(false);
     },
-    [attemptId]
+    [attemptId, getTabSessionToken]
   );
 
   useEffect(() => {
-    loadQuestionSlot(1);
-  }, [loadQuestionSlot]);
+    let cancelled = false;
+    (async () => {
+      const res = await getQuestion(attemptId, 1, getTabSessionToken());
+      if (cancelled) return;
+      if (res.success && res.question && res.attempt) {
+        setAttemptMeta(res.attempt);
+        setWatermark(res.watermark || null);
+        setCurrentQuestion(res.question);
+        setPosition(res.question.position);
+        questionLoadedAtRef.current = Date.now();
+        setTimeLeft(getRemainingSeconds(res.attempt.expiresAt));
+      } else if (res.terminated || res.dayLocked) {
+        setTerminatedReason(res.error || "Attempt terminated due to exam integrity violation.");
+      } else if (res.submitted || res.expired) {
+        const finalRes = await submitAttempt(attemptId);
+        if (!cancelled && finalRes.success && finalRes.summary) {
+          setSubmittedResult({
+            summary: finalRes.summary,
+            reviewItems: finalRes.reviewItems || [],
+          });
+        }
+      } else {
+        setErrorMsg(res.error || "Unable to load question.");
+      }
+      if (!cancelled) {
+        setLoadingQuestion(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attemptId, getTabSessionToken]);
 
   // Server-authoritative countdown timer
   useEffect(() => {
     if (submittedResult || terminatedReason || !attemptMeta) return;
 
     const interval = setInterval(() => {
-      const remaining = Math.max(
-        0,
-        Math.floor((new Date(attemptMeta.expiresAt).getTime() - Date.now()) / 1000)
-      );
+      const remaining = getRemainingSeconds(attemptMeta.expiresAt);
       setTimeLeft(remaining);
       if (remaining <= 0) {
         clearInterval(interval);
@@ -199,7 +257,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [attemptMeta, submittedResult, terminatedReason]);
+  }, [attemptMeta, submittedResult, terminatedReason, handleFinalSubmit]);
 
   // 15-second Server Heartbeat (Section 7.3)
   useEffect(() => {
@@ -215,18 +273,19 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     }, 15000);
 
     return () => clearInterval(hb);
-  }, [attemptId, submittedResult, terminatedReason]);
+  }, [attemptId, submittedResult, terminatedReason, handleFinalSubmit]);
 
   // 10-second Strike 1 Warning Modal Countdown
   useEffect(() => {
     if (!warningModal) return;
-    if (warningModal.countdown <= 0) {
-      setWarningModal(null);
-      return;
-    }
-    const t = setTimeout(() => {
-      setWarningModal((prev) => (prev ? { ...prev, countdown: prev.countdown - 1 } : null));
-    }, 1000);
+    const t = setTimeout(
+      () => {
+        setWarningModal((prev) =>
+          !prev || prev.countdown <= 1 ? null : { ...prev, countdown: prev.countdown - 1 }
+        );
+      },
+      warningModal.countdown <= 0 ? 0 : 1000
+    );
     return () => clearTimeout(t);
   }, [warningModal]);
 
@@ -341,7 +400,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
   const handleSelectOption = async (optionKey: string) => {
     if (!currentQuestion || !attemptMeta || submittedResult || terminatedReason) return;
 
-    const spentMs = Date.now() - questionLoadedAtRef.current;
+    const spentMs = getElapsedSince(questionLoadedAtRef.current);
     setCurrentQuestion((prev) => (prev ? { ...prev, selectedKey: optionKey } : prev));
     setAttemptMeta((prev) =>
       prev
@@ -357,6 +416,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       position: currentQuestion.position,
       selectedKey: optionKey,
       timeSpentMs: spentMs,
+      sessionToken: getTabSessionToken(),
     });
 
     if (res.dayLocked) {
@@ -364,22 +424,6 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     } else if (res.expired) {
       handleFinalSubmit();
     }
-  };
-
-  const handleFinalSubmit = async () => {
-    setLoadingQuestion(true);
-    const res = await submitAttempt(attemptId);
-    if (res.success && res.summary) {
-      setSubmittedResult({
-        summary: res.summary,
-        reviewItems: res.reviewItems || [],
-      });
-    } else if (res.terminated) {
-      setTerminatedReason(res.error || "Attempt was terminated.");
-    } else {
-      setErrorMsg(res.error || "Failed to submit exam.");
-    }
-    setLoadingQuestion(false);
   };
 
   // 1. Terminated & Day-Locked View

@@ -145,6 +145,25 @@ enum BroadsheetStatus {
   PUBLISHED
 }
 
+enum LineItemBeneficiary {
+  SCHOOL
+  PROVIDER
+  GATEWAY
+}
+
+enum LedgerEntryType {
+  CREDIT
+  REVERSAL
+  ADJUSTMENT
+}
+
+enum LedgerSettlementStatus {
+  PENDING_REMITTANCE
+  AUTO_SPLIT
+  REMITTED
+  REVERSED
+}
+
 model Role {
   RoleID      Int    @id @default(autoincrement())
   RoleName    String @unique
@@ -222,7 +241,7 @@ model Student {
   Gender             String?
   ClassID            Int
   Class              Class     @relation(fields: [ClassID], references: [ClassID])
-  DateOfBirth        DateTime
+  DateOfBirth        DateTime?
   ParentContact      String // Parent Phone number
   ParentEmail        String? // Parent Email
   AvatarUrl          String?
@@ -251,6 +270,7 @@ model Student {
   ScratchCards      Scratch_Card[]
   PaymentRecords    Payment_Record[]
   Invoices          Invoice[]
+  LedgerEntries     AllocationLedger[]
   Enrollments       Enrollment[]
   ParentLinks       ParentStudentLink[]
   Attendances       Attendance[]
@@ -347,6 +367,7 @@ model Academic_Term {
   Results            Result[]
   PaymentRecords     Payment_Record[]
   Invoices           Invoice[]
+  LedgerEntries      AllocationLedger[]
   Enrollments        Enrollment[]
   Attendances        Attendance[]
   TeacherMaps        Teacher_Subject_Map[]
@@ -697,46 +718,101 @@ model Invoice {
   id           String   @id @default(uuid())
   StudentID    Int
   TermID       Int
-  Title        String // "2026/2027 First Term Tuition"
-  AmountKobo   BigInt // Integer kobo (e.g. ₦65,000 = 6500000)
+  Title        String // "2026/2027 First Term Fees & Portal/ICT Service Fee"
+  AmountKobo   BigInt // Integer kobo (School Tuition + Levies + Portal/ICT Fee)
+  Status       String   @default("OPEN") // "OPEN", "PARTIAL", "PAID", "VOID"
   DueDate      DateTime
-  IsWaived     Boolean  @default(false)
+  IsWaived     Boolean  @default(false) // Waives School Tuition/Levies ONLY; Portal/ICT Fee (₦800) remains billable
   WaivedBy     Int?
   WaivedReason String?
   CreatedAt    DateTime @default(now())
+  UpdatedAt    DateTime @default(now()) @updatedAt
 
-  Student  Student          @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
-  Term     Academic_Term    @relation(fields: [TermID], references: [TermID])
-  Payments Payment_Record[]
+  Student       Student            @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
+  Term          Academic_Term      @relation(fields: [TermID], references: [TermID])
+  Payments      Payment_Record[]
+  LineItems     InvoiceLineItem[]
+  LedgerEntries AllocationLedger[]
 
   @@index([StudentID, TermID])
 }
 
+model InvoiceLineItem {
+  id          String              @id @default(cuid())
+  invoiceId   String
+  code        String // "TUITION" | "LEVIES" | "PORTAL_ICT_FEE" | "ADJUSTMENT"
+  label       String
+  beneficiary LineItemBeneficiary
+  amountKobo  BigInt
+  isWaivable  Boolean             @default(true)
+  isWaived    Boolean             @default(false)
+  createdAt   DateTime            @default(now())
+
+  Invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, code])
+  @@index([invoiceId, beneficiary])
+}
+
 model Payment_Record {
-  PaymentID       Int           @id @default(autoincrement())
-  Uuid            String?       @unique @default(uuid())
-  StudentID       Int
-  Student         Student       @relation(fields: [StudentID], references: [StudentID])
-  TermID          Int
-  Term            Academic_Term @relation(fields: [TermID], references: [TermID])
-  InvoiceID       String?
-  Invoice         Invoice?      @relation(fields: [InvoiceID], references: [id])
-  AmountPaid      Float         @default(0)
-  AmountKobo      BigInt        @default(0) // v3 Integer kobo
-  Channel         String        @default("BANK_TELLER") // PAYSTACK, BANK_TELLER, CASH_BURSARY
-  ReceiptUrl      String? // Private URL to uploaded receipt
-  ReceiptHash     String? // SHA-256 hash of receipt file to detect duplicates
-  Reference       String?       @unique // Paystack transaction reference
-  Status          String        @default("Pending") // "Pending", "Approved", "Rejected", "Successful"
-  RejectionReason String?
-  SubmittedBy     Int?
-  ReviewedBy      Int?
-  ReviewedAt      DateTime?
-  PaymentDate     DateTime      @default(now())
-  Description     String // e.g., "School Fees", "Uniforms"
+  PaymentID         Int           @id @default(autoincrement())
+  Uuid              String?       @unique @default(uuid())
+  StudentID         Int
+  Student           Student       @relation(fields: [StudentID], references: [StudentID])
+  TermID            Int
+  Term              Academic_Term @relation(fields: [TermID], references: [TermID])
+  InvoiceID         String?
+  Invoice           Invoice?      @relation(fields: [InvoiceID], references: [id])
+  AmountPaid        Float         @default(0)
+  AmountKobo        BigInt        @default(0) // Net principal toward invoice (excludes gateway pass-through)
+  gatewayFeeKobo    BigInt        @default(0) // Gateway convenience fee borne separately by payer
+  Channel           String        @default("BANK_TELLER") // PAYSTACK, BANK_TELLER, CASH_BURSARY
+  ReceiptUrl        String? // Protected download route or legacy key
+  receiptStorageKey String? // Private non-public receipt storage key/payload ref
+  ReceiptHash       String? // SHA-256 hash of receipt file to detect duplicates
+  Reference         String?       @unique // Paystack transaction reference or Order Tracking ID
+  Status            String        @default("Pending") // "Pending", "Approved", "Rejected", "Successful", "Refunded", "Disputed"
+  RejectionReason   String?
+  SubmittedBy       Int?
+  ReviewedBy        Int?
+  ReviewedAt        DateTime?
+  PaymentDate       DateTime      @default(now())
+  Description       String // e.g., "School Fees", "Uniforms"
+
+  LedgerEntries AllocationLedger[]
 
   @@index([StudentID])
   @@index([TermID])
+  @@index([InvoiceID])
+}
+
+model AllocationLedger {
+  id                String                 @id @default(uuid())
+  paymentId         Int
+  invoiceId         String?
+  studentId         Int
+  termId            Int
+  entryType         LedgerEntryType        @default(CREDIT)
+  modelCode         String                 @default("MODEL_A_PER_TERM_800")
+  grossPaidKobo     BigInt // Signed kobo toward invoice principal (+credit, -reversal)
+  gatewayFeeKobo    BigInt                 @default(0) // Separate gateway convenience fee in kobo
+  schoolShareKobo   BigInt // 100% of Tuition & Levies (+ve credit / -ve reversal)
+  providerShareKobo BigInt // ₦800 Portal/ICT Service Fee capped once per student per term
+  settlementChannel String                 @default("SCHOOL_COLLECTION") // PAYSTACK_SUBACCOUNT | SCHOOL_COLLECTION
+  settlementStatus  LedgerSettlementStatus @default(PENDING_REMITTANCE)
+  reference         String?
+  notes             String?
+  createdById       Int?
+  createdAt         DateTime               @default(now())
+
+  Payment Payment_Record @relation(fields: [paymentId], references: [PaymentID])
+  Invoice Invoice?       @relation(fields: [invoiceId], references: [id])
+  Student Student        @relation(fields: [studentId], references: [StudentID])
+  Term    Academic_Term  @relation(fields: [termId], references: [TermID])
+
+  @@index([studentId, termId])
+  @@index([paymentId])
+  @@index([termId, settlementStatus])
 }
 
 model AuditLog {
@@ -943,15 +1019,58 @@ model Admission_Application {
   enrolledStudentId Int?
 }
 
-// Per-level configurable school fee schedule + Portal Maintenance / ICT Fee (stored in kobo)
+// Per-level configurable school fee schedule + Portal/ICT Service Fee (stored in kobo)
 model FeeSchedule {
   id                 String   @id @default(cuid())
   levelGroup         String   @unique // CRECHE_NURSERY | PRIMARY | JSS | SSS
   displayName        String
   tuitionKobo        BigInt
   leviesKobo         BigInt   @default(0)
-  maintenanceFeeKobo BigInt   @default(100000) // Default ₦1,000 Portal Maintenance / ICT Fee
+  maintenanceFeeKobo BigInt   @default(80000) // Default ₦800 Portal / ICT Service Fee (100% Provider)
   isActive           Boolean  @default(true)
   updatedById        Int?
   updatedAt          DateTime @default(now()) @updatedAt
+}
+
+model PortalSetting {
+  key         String   @id
+  valueJson   Json
+  updatedById Int?
+  updatedAt   DateTime @default(now()) @updatedAt
+}
+
+model SchoolNotice {
+  id             String    @id @default(uuid())
+  type           String
+  category       String
+  title          String
+  eventDate      String
+  targetAudience String
+  details        String
+  color          String
+  durationPreset String    @default("7d")
+  durationLabel  String?
+  expiresAt      DateTime?
+  isDeleted      Boolean   @default(false)
+  createdById    Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  @@index([isDeleted, expiresAt])
+}
+
+model ContactInquiry {
+  id            String   @id @default(cuid())
+  referenceCode String   @unique
+  name          String
+  email         String
+  subject       String
+  message       String
+  ipAddress     String?
+  status        String   @default("NEW")
+  historyJson   Json     @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  @@index([status, createdAt])
 }

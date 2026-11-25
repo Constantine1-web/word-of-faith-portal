@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useEffect, useState, useCallback } from "react";
 import {
   getOrCreateStudentFeeOrder,
   initializePayment,
   uploadBankTellerReceipt,
   verifyPaystackPayment,
 } from "@/app/actions/payments";
+import { computePaystackConvenienceFeeKobo } from "@/lib/fee-split";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -16,20 +16,27 @@ import {
   FiCopy,
   FiUploadCloud,
   FiClock,
-  FiFileText,
-  FiAlertCircle,
   FiCreditCard,
   FiCheck,
+  FiUsers,
 } from "react-icons/fi";
 
 export default function PayFeesPage() {
-  const { data: session } = useSession();
   const searchParams = useSearchParams();
   const paymentStatus = searchParams.get("payment");
+  const initialStudentParam = searchParams.get("studentId");
 
+  const [selectedStudentId, setSelectedStudentId] = useState<number | undefined>(() => {
+    const n = Number(initialStudentParam);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  });
   const [activeTab, setActiveTab] = useState<"ONLINE" | "TELLER">("ONLINE");
   const [feeOrder, setFeeOrder] = useState<any>(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
+
+  // Payment mode (Full remaining balance vs Custom Installment >= ₦1,000)
+  const [paymentMode, setPaymentMode] = useState<"FULL" | "PARTIAL">("FULL");
+  const [customAmountNaira, setCustomAmountNaira] = useState<string>("");
 
   // Online gateway state
   const [onlineLoading, setOnlineLoading] = useState(false);
@@ -47,10 +54,9 @@ export default function PayFeesPage() {
   const [copiedTrackingId, setCopiedTrackingId] = useState(false);
   const [copiedAccount, setCopiedAccount] = useState(false);
 
-  useEffect(() => {
-    async function loadOrder() {
+  const loadOrder = useCallback(
+    async (studentIdOverride?: number) => {
       setLoadingOrder(true);
-
       const ref = searchParams.get("reference") || searchParams.get("trxref");
       if (paymentStatus === "verify" && ref) {
         try {
@@ -60,17 +66,57 @@ export default function PayFeesPage() {
         }
       }
 
-      const res = await getOrCreateStudentFeeOrder();
+      const res = await getOrCreateStudentFeeOrder(studentIdOverride);
       if (res.success) {
         setFeeOrder(res);
+        setSelectedStudentId(res.selectedStudentId);
         if (res.hasUploadedReceipt) {
           setActiveTab("TELLER");
         }
       }
       setLoadingOrder(false);
-    }
-    loadOrder();
+    },
+    [paymentStatus, searchParams]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ref = searchParams.get("reference") || searchParams.get("trxref");
+      if (paymentStatus === "verify" && ref) {
+        try {
+          await verifyPaystackPayment(ref);
+        } catch (e) {
+          console.error("Auto verification error:", e);
+        }
+      }
+
+      const res = await getOrCreateStudentFeeOrder(selectedStudentId);
+      if (cancelled) return;
+      if (res.success) {
+        setFeeOrder(res);
+        setSelectedStudentId(res.selectedStudentId);
+        if (res.hasUploadedReceipt) {
+          setActiveTab("TELLER");
+        }
+      }
+      setLoadingOrder(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentStatus, searchParams]);
+
+  const handleSelectWard = async (studentId: number) => {
+    setSelectedStudentId(studentId);
+    setOnlineError("");
+    setTellerError("");
+    setTellerSuccess("");
+    setPaymentMode("FULL");
+    setCustomAmountNaira("");
+    await loadOrder(studentId);
+  };
 
   const handleCopy = (text: string, type: "tracking" | "account") => {
     navigator.clipboard.writeText(text);
@@ -83,20 +129,39 @@ export default function PayFeesPage() {
     }
   };
 
+  const remainingDueNaira = Number(feeOrder?.remainingDueNaira ?? feeOrder?.amount ?? 0);
+  const schoolDueNaira = Number(feeOrder?.schoolDueNaira ?? 0);
+  const portalFeeDueNaira = Number(feeOrder?.portalFeeDueNaira ?? 0);
+  const alreadyPaidNaira = Number(feeOrder?.alreadyPaidNaira ?? 0);
+
+  const chosenPrincipalNaira =
+    paymentMode === "PARTIAL"
+      ? Math.min(
+          remainingDueNaira,
+          Math.max(Math.min(1000, remainingDueNaira), Number(customAmountNaira) || 0)
+        )
+      : remainingDueNaira;
+
+  const principalKobo = BigInt(Math.round(Math.max(0, chosenPrincipalNaira) * 100));
+  const gatewayFeeKobo = computePaystackConvenienceFeeKobo(principalKobo);
+  const gatewayFeeNaira = Number(gatewayFeeKobo) / 100;
+  const totalPaystackChargeNaira = Number(principalKobo + gatewayFeeKobo) / 100;
+
+  // Portion of current payment that clears Portal ICT Fee vs School Fees
+  const currentPortalPortionNaira = Math.min(chosenPrincipalNaira, portalFeeDueNaira);
+  const currentSchoolPortionNaira = Math.max(0, chosenPrincipalNaira - currentPortalPortionNaira);
+
   const handleOnlinePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     setOnlineLoading(true);
     setOnlineError("");
 
-    const termId = feeOrder?.term?.TermID || 1;
-    const amount = feeOrder?.amount || 65000;
-    const trackingId = feeOrder?.trackingId;
-
     const res = await initializePayment({
-      amount,
-      description: "Consolidated School Fees",
-      termId,
-      trackingId,
+      amount: chosenPrincipalNaira,
+      description: `Consolidated School Fees (${feeOrder?.feeBreakdown?.levelDisplayName || "Term"})`,
+      termId: feeOrder?.term?.TermID || 1,
+      trackingId: feeOrder?.trackingId,
+      targetStudentId: selectedStudentId,
     });
 
     if (res.error) {
@@ -124,22 +189,69 @@ export default function PayFeesPage() {
     formData.append("bankName", bankName);
     formData.append("tellerNumber", tellerNumber);
     formData.append("paymentDate", paymentDate);
-    formData.append("amount", String(feeOrder?.amount || 65000));
+    formData.append("amount", String(chosenPrincipalNaira));
+    if (selectedStudentId) {
+      formData.append("studentId", String(selectedStudentId));
+    }
 
     const res = await uploadBankTellerReceipt(formData);
 
     if (res.success) {
       setTellerSuccess(res.message || "Receipt submitted successfully!");
-      setFeeOrder((prev: any) => ({
-        ...prev,
-        hasUploadedReceipt: true,
-        status: "Pending",
-      }));
       setReceiptFile(null);
+      await loadOrder(selectedStudentId);
     } else {
       setTellerError(res.error || "Failed to submit receipt.");
     }
     setTellerLoading(false);
+  };
+
+  const wardsList: Array<{ studentId: number; admissionNo: string; fullName: string; className: string }> =
+    feeOrder?.wards || [];
+
+  const renderWardSwitcher = () => {
+    if (wardsList.length <= 1) return null;
+    return (
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-primary)",
+          borderRadius: "var(--radius-md)",
+          padding: "1rem 1.25rem",
+          marginBottom: "1.5rem",
+        }}
+      >
+        <div style={{ fontSize: "0.8rem", fontWeight: 800, textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.65rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          <FiUsers /> Select Child / Ward to Pay For
+        </div>
+        <div style={{ display: "flex", gap: "0.65rem", flexWrap: "wrap" }}>
+          {wardsList.map((w) => {
+            const active = w.studentId === selectedStudentId;
+            return (
+              <button
+                key={w.studentId}
+                type="button"
+                onClick={() => handleSelectWard(w.studentId)}
+                style={{
+                  padding: "0.55rem 0.95rem",
+                  borderRadius: "var(--radius-md)",
+                  border: active ? "2px solid var(--color-primary-green)" : "1px solid var(--border-primary)",
+                  background: active ? "var(--status-success-bg)" : "var(--bg-secondary)",
+                  color: active ? "var(--status-success-text)" : "var(--text-primary)",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: "0.86rem",
+                  textAlign: "left",
+                }}
+              >
+                <div>{w.fullName}</div>
+                <div style={{ fontSize: "0.74rem", opacity: 0.85 }}>{w.className} · {w.admissionNo}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   if (paymentStatus === "verify") {
@@ -149,7 +261,7 @@ export default function PayFeesPage() {
           <FiCheckCircle />
         </div>
         <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "1rem" }}>Payment Verified!</h1>
-        <p style={{ color: "var(--color-gray-600)", fontSize: "1.1rem" }}>Your school fees transaction has been approved and recorded.</p>
+        <p style={{ color: "var(--color-gray-600)", fontSize: "1.1rem" }}>Your school fees transaction has been verified and recorded.</p>
         <Link href="/portal/fees/status" className="btn btn-primary" style={{ marginTop: "1.5rem" }}>
           View Transaction Status
         </Link>
@@ -160,35 +272,26 @@ export default function PayFeesPage() {
   if (loadingOrder) {
     return (
       <div style={{ padding: "3rem", textAlign: "center", color: "var(--color-gray-600)" }}>
-        Loading your term fee order and financial clearance status...
+        Loading term fee invoice and clearance status...
       </div>
     );
   }
 
-  // If student is ALREADY cleared for this term
   if (feeOrder?.isCleared) {
     return (
-      <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)", maxWidth: "720px", margin: "0 auto" }}>
-        <div style={{
-          background: "var(--color-white)",
-          padding: "clamp(1.5rem, 4vw, 2.5rem)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-floating)",
-          borderTop: "6px solid var(--color-primary-green)",
-          textAlign: "center"
-        }}>
-          <div style={{
-            width: "72px",
-            height: "72px",
-            borderRadius: "50%",
-            background: "var(--status-success-bg)",
-            color: "var(--status-success-text)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "2.5rem",
-            margin: "0 auto 1.5rem"
-          }}>
+      <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)", maxWidth: "740px", margin: "0 auto" }}>
+        {renderWardSwitcher()}
+        <div
+          style={{
+            background: "var(--color-white)",
+            padding: "clamp(1.5rem, 4vw, 2.5rem)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "var(--shadow-floating)",
+            borderTop: "6px solid var(--color-primary-green)",
+            textAlign: "center",
+          }}
+        >
+          <div style={{ width: "72px", height: "72px", borderRadius: "50%", background: "var(--status-success-bg)", color: "var(--status-success-text)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2.5rem", margin: "0 auto 1.5rem" }}>
             <FiCheckCircle />
           </div>
 
@@ -196,25 +299,25 @@ export default function PayFeesPage() {
             Financial Clearance Granted
           </h1>
           <p style={{ color: "var(--color-gray-700)", fontSize: "1.05rem", marginBottom: "1.5rem" }}>
-            Your school fees for <strong>{feeOrder.term?.SessionName} ({feeOrder.term?.TermName})</strong> have been verified and approved by the Bursary.
+            Term fees for <strong>{feeOrder.term?.SessionName} ({feeOrder.term?.TermName})</strong> have been verified and cleared by the Bursary.
           </p>
 
           <div style={{ background: "var(--color-gray-50)", padding: "1.25rem", borderRadius: "var(--radius-md)", marginBottom: "2rem", textAlign: "left", display: "grid", gap: "0.75rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "0.5rem" }}>
-              <span style={{ color: "var(--color-gray-500)" }}>Order Tracking ID:</span>
+              <span style={{ color: "var(--color-gray-500)" }}>Invoice / Reference:</span>
               <strong style={{ color: "var(--color-navy-blue)", fontFamily: "monospace" }}>{feeOrder.trackingId}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "0.5rem" }}>
               <span style={{ color: "var(--color-gray-500)" }}>Student Name:</span>
-              <strong>{feeOrder.student?.PreferredName}</strong>
+              <strong>{feeOrder.student?.PreferredName || feeOrder.student?.AdmissionNo}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "0.5rem" }}>
               <span style={{ color: "var(--color-gray-500)" }}>WOFS Student ID:</span>
               <strong>{feeOrder.student?.AdmissionNo}</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "var(--color-gray-500)" }}>Amount Paid:</span>
-              <strong style={{ color: "var(--color-primary-green)" }}>₦{(feeOrder.amount || 65000).toLocaleString()}</strong>
+              <span style={{ color: "var(--color-gray-500)" }}>Total Principal Cleared:</span>
+              <strong style={{ color: "var(--color-primary-green)" }}>₦{alreadyPaidNaira.toLocaleString()}</strong>
             </div>
           </div>
 
@@ -232,78 +335,58 @@ export default function PayFeesPage() {
   }
 
   const trackingId = feeOrder?.trackingId || "WOF-PAY-PENDING";
-  const amount = feeOrder?.amount || 65000;
+  const bankConfig = feeOrder?.bankConfig || {
+    bankName: "Zenith Bank PLC",
+    accountName: "Word of Faith Schools",
+    accountNumber: "1015694201",
+  };
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "800px", margin: "0 auto" }}>
+    <div style={{ padding: "1.5rem", maxWidth: "820px", margin: "0 auto" }}>
       <div style={{ marginBottom: "1.75rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem" }}>
         <h1 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.75rem" }}>
-          School Fees Clearance & Payment
+          School Fees Clearance &amp; Payment
         </h1>
         <p style={{ color: "var(--color-gray-600)", margin: "0.35rem 0 0 0", fontSize: "0.95rem" }}>
-          {feeOrder?.term?.SessionName} • {feeOrder?.term?.TermName} — Clear fees to unlock term exams, report cards, and results.
+          {feeOrder?.term?.SessionName} • {feeOrder?.term?.TermName} — Clear term invoice to unlock terminal report cards.
         </p>
       </div>
 
+      {renderWardSwitcher()}
+
       {/* Bill & Tracking ID Hero Card */}
-      <div style={{
-        background: "linear-gradient(135deg, #0b2216 0%, #143424 100%)",
-        color: "#ffffff",
-        padding: "1.75rem",
-        borderRadius: "var(--radius-lg)",
-        boxShadow: "var(--shadow-floating)",
-        marginBottom: "2rem",
-        position: "relative",
-        border: "1px solid rgba(212, 175, 55, 0.4)"
-      }}>
+      <div style={{ background: "linear-gradient(135deg, #0b2216 0%, #143424 100%)", color: "#ffffff", padding: "1.75rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-floating)", marginBottom: "2rem", border: "1px solid rgba(212, 175, 55, 0.4)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
           <div>
-            <span style={{
-              display: "inline-block",
-              background: "rgba(212, 175, 55, 0.2)",
-              color: "#fbbf24",
-              border: "1px solid #d97706",
-              padding: "0.2rem 0.65rem",
-              borderRadius: "var(--radius-full)",
-              fontSize: "0.75rem",
-              fontWeight: "bold",
-              marginBottom: "0.5rem"
-            }}>
-              CONSOLIDATED SCHOOL FEES
+            <span style={{ display: "inline-block", background: "rgba(212, 175, 55, 0.2)", color: "#fbbf24", border: "1px solid #d97706", padding: "0.2rem 0.65rem", borderRadius: "var(--radius-full)", fontSize: "0.75rem", fontWeight: "bold", marginBottom: "0.5rem" }}>
+              ITEMIZED TERM FEE INVOICE ({feeOrder?.student?.PreferredName || feeOrder?.student?.AdmissionNo})
             </span>
             <h2 style={{ fontSize: "1.4rem", margin: "0 0 0.25rem 0", color: "#ffffff" }}>
               {feeOrder?.feeBreakdown?.levelDisplayName
-                ? `${feeOrder.feeBreakdown.levelDisplayName} Term Fee`
-                : "Comprehensive Term Fee"}
+                ? `${feeOrder.feeBreakdown.levelDisplayName} Term Invoice`
+                : "Comprehensive Term Invoice"}
             </h2>
             <p style={{ margin: 0, color: "#d1fae5", fontSize: "0.85rem" }}>
-              {feeOrder?.feeBreakdown
-                ? `Tuition: ₦${feeOrder.feeBreakdown.tuitionNaira.toLocaleString()} · Levies: ₦${feeOrder.feeBreakdown.leviesNaira.toLocaleString()} · Portal Maintenance / ICT Fee: ₦${feeOrder.feeBreakdown.maintenanceFeeNaira.toLocaleString()}`
-                : "Includes Tuition, Educational Supplies, PTA, and Standard School Levies."}
+              {feeOrder?.feeBreakdown?.isSchoolFeesWaived
+                ? `Tuition & Levies Waived (Scholarship) · Portal/ICT Service Fee: ₦${feeOrder.feeBreakdown.maintenanceFeeNaira.toLocaleString()}`
+                : `Tuition: ₦${(feeOrder?.feeBreakdown?.tuitionNaira || 0).toLocaleString()} · Levies: ₦${(feeOrder?.feeBreakdown?.leviesNaira || 0).toLocaleString()} · Portal/ICT Fee (1x/term): ₦${(feeOrder?.feeBreakdown?.maintenanceFeeNaira || 800).toLocaleString()}`}
             </p>
+            {alreadyPaidNaira > 0 && (
+              <p style={{ margin: "0.35rem 0 0", color: "#86efac", fontSize: "0.82rem", fontWeight: 700 }}>
+                Already Paid &amp; Credited: ₦{alreadyPaidNaira.toLocaleString()}
+              </p>
+            )}
           </div>
 
           <div style={{ textAlign: "right" }}>
-            <span style={{ fontSize: "0.8rem", color: "#e2e8f0", display: "block" }}>Amount Due:</span>
+            <span style={{ fontSize: "0.8rem", color: "#e2e8f0", display: "block" }}>Remaining Balance Due:</span>
             <span style={{ fontSize: "2rem", fontWeight: "bold", color: "#ffffff" }}>
-              ₦{amount.toLocaleString()}
+              ₦{remainingDueNaira.toLocaleString()}
             </span>
           </div>
         </div>
 
-        {/* Tracking ID Badge Bar */}
-        <div style={{
-          marginTop: "1.25rem",
-          padding: "0.85rem 1.15rem",
-          background: "rgba(0, 0, 0, 0.35)",
-          borderRadius: "var(--radius-md)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: "0.75rem",
-          border: "1px dashed rgba(255, 255, 255, 0.25)"
-        }}>
+        <div style={{ marginTop: "1.25rem", padding: "0.85rem 1.15rem", background: "rgba(0, 0, 0, 0.35)", borderRadius: "var(--radius-md)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", border: "1px dashed rgba(255, 255, 255, 0.25)" }}>
           <div>
             <span style={{ fontSize: "0.75rem", color: "#d1fae5", display: "block" }}>Your Order Tracking ID:</span>
             <strong style={{ fontFamily: "monospace", fontSize: "1.1rem", letterSpacing: "1px", color: "#fef08a" }}>
@@ -313,19 +396,7 @@ export default function PayFeesPage() {
           <button
             type="button"
             onClick={() => handleCopy(trackingId, "tracking")}
-            style={{
-              background: copiedTrackingId ? "#15803d" : "rgba(255, 255, 255, 0.15)",
-              color: "#ffffff",
-              border: "none",
-              padding: "0.4rem 0.85rem",
-              borderRadius: "var(--radius-sm)",
-              fontSize: "0.85rem",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.4rem",
-              transition: "background 0.2s"
-            }}
+            style={{ background: copiedTrackingId ? "#15803d" : "rgba(255, 255, 255, 0.15)", color: "#ffffff", border: "none", padding: "0.4rem 0.85rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.4rem" }}
           >
             {copiedTrackingId ? <FiCheck /> : <FiCopy />}
             {copiedTrackingId ? "Copied!" : "Copy Tracking ID"}
@@ -333,68 +404,69 @@ export default function PayFeesPage() {
         </div>
       </div>
 
-      {/* Payment Channel Tabs */}
+      {/* Installment Selector */}
+      {remainingDueNaira > 1000 && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "1rem 1.25rem", marginBottom: "1.5rem" }}>
+          <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--text-heading)", marginBottom: "0.6rem" }}>
+            Payment Amount Option
+          </div>
+          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600 }}>
+              <input type="radio" name="payMode" checked={paymentMode === "FULL"} onChange={() => setPaymentMode("FULL")} />
+              Full Balance (₦{remainingDueNaira.toLocaleString()})
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem", fontWeight: 600 }}>
+              <input type="radio" name="payMode" checked={paymentMode === "PARTIAL"} onChange={() => setPaymentMode("PARTIAL")} />
+              Partial Installment
+            </label>
+            {paymentMode === "PARTIAL" && (
+              <input
+                type="number"
+                min={1000}
+                max={remainingDueNaira}
+                step={500}
+                placeholder={`₦1,000 – ₦${remainingDueNaira.toLocaleString()}`}
+                value={customAmountNaira}
+                onChange={(e) => setCustomAmountNaira(e.target.value)}
+                className="form-input"
+                style={{ width: "210px" }}
+              />
+            )}
+          </div>
+          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.45rem" }}>
+            The single ₦800 Portal/ICT Service Fee is settled once per term on your first installment; additional installments apply 100% to Tuition &amp; Levies.
+          </div>
+        </div>
+      )}
+
+      {/* Channel Tabs */}
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
         <button
           type="button"
           onClick={() => setActiveTab("ONLINE")}
-          style={{
-            flex: 1,
-            padding: "0.9rem",
-            fontWeight: "bold",
-            borderRadius: "var(--radius-md)",
-            border: activeTab === "ONLINE" ? "2px solid var(--color-primary-green)" : "1px solid var(--color-gray-300)",
-            background: activeTab === "ONLINE" ? "var(--color-white)" : "var(--color-gray-100)",
-            color: activeTab === "ONLINE" ? "var(--color-navy-blue)" : "var(--color-gray-600)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.5rem",
-            boxShadow: activeTab === "ONLINE" ? "var(--shadow-sm)" : "none"
-          }}
+          style={{ flex: 1, padding: "0.9rem", fontWeight: "bold", borderRadius: "var(--radius-md)", border: activeTab === "ONLINE" ? "2px solid var(--color-primary-green)" : "1px solid var(--color-gray-300)", background: activeTab === "ONLINE" ? "var(--color-white)" : "var(--color-gray-100)", color: activeTab === "ONLINE" ? "var(--color-navy-blue)" : "var(--color-gray-600)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
         >
-          <FiCreditCard /> Pay Online (Instant Gateway)
+          <FiCreditCard /> Pay Online (Paystack)
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab("TELLER")}
-          style={{
-            flex: 1,
-            padding: "0.9rem",
-            fontWeight: "bold",
-            borderRadius: "var(--radius-md)",
-            border: activeTab === "TELLER" ? "2px solid var(--color-primary-green)" : "1px solid var(--color-gray-300)",
-            background: activeTab === "TELLER" ? "var(--color-white)" : "var(--color-gray-100)",
-            color: activeTab === "TELLER" ? "var(--color-navy-blue)" : "var(--color-gray-600)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.5rem",
-            boxShadow: activeTab === "TELLER" ? "var(--shadow-sm)" : "none"
-          }}
+          style={{ flex: 1, padding: "0.9rem", fontWeight: "bold", borderRadius: "var(--radius-md)", border: activeTab === "TELLER" ? "2px solid var(--color-primary-green)" : "1px solid var(--color-gray-300)", background: activeTab === "TELLER" ? "var(--color-white)" : "var(--color-gray-100)", color: activeTab === "TELLER" ? "var(--color-navy-blue)" : "var(--color-gray-600)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
         >
           <FiUploadCloud /> Bank Transfer / Teller Upload
         </button>
       </div>
 
-      {/* Tab 1: Pay Online */}
+      {/* Tab 1: Online Gateway */}
       {activeTab === "ONLINE" && (
-        <div style={{
-          background: "var(--color-white)",
-          padding: "2.5rem 2rem",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-sm)",
-          border: "1px solid var(--color-gray-200)"
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "1rem", marginBottom: "1.5rem" }}>
+        <div style={{ background: "var(--color-white)", padding: "2rem", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--color-gray-200)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--color-gray-200)", paddingBottom: "1rem", marginBottom: "1.25rem" }}>
             <h3 style={{ color: "var(--color-navy-blue)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <FiLock style={{ color: "var(--color-primary-green)" }} /> Automated Gateway Checkout
+              <FiLock style={{ color: "var(--color-primary-green)" }} /> Automated Paystack Checkout
             </h3>
             <span style={{ background: "rgba(34, 197, 94, 0.1)", color: "var(--color-primary-green)", padding: "0.25rem 0.75rem", borderRadius: "var(--radius-full)", fontSize: "0.85rem", fontWeight: "bold" }}>
-              Instant Verification
+              Instant Clearance
             </span>
           </div>
 
@@ -404,78 +476,63 @@ export default function PayFeesPage() {
             </div>
           )}
 
-          <p style={{ color: "var(--color-gray-700)", lineHeight: 1.6, marginBottom: "1.5rem" }}>
-            Pay directly on the school portal via your debit card, USSD, or direct bank transfer. Your studentship financial clearance will be granted instantly upon transaction approval.
-          </p>
-
-          <form onSubmit={handleOnlinePayment} style={{ display: "grid", gap: "1.5rem" }}>
+          <form onSubmit={handleOnlinePayment} style={{ display: "grid", gap: "1.25rem" }}>
             <div style={{ background: "var(--color-gray-50)", padding: "1.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
-                <span style={{ color: "var(--color-gray-600)" }}>Tuition, Supplies &amp; School Levies (100% School):</span>
-                <strong>₦{Math.max(0, amount - 1000).toLocaleString()}</strong>
+                <span style={{ color: "var(--color-gray-600)" }}>School Tuition &amp; Levies (100% School):</span>
+                <strong>₦{currentSchoolPortionNaira.toLocaleString()}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
-                <span style={{ color: "var(--color-gray-600)" }}>Portal Maintenance / ICT Fee:</span>
-                <strong>₦{(amount >= 1000 ? 1000 : 0).toLocaleString()}</strong>
+                <span style={{ color: "var(--color-gray-600)" }}>Portal / ICT Service Fee (Once Per Term):</span>
+                <strong>₦{currentPortalPortionNaira.toLocaleString()}</strong>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.92rem" }}>
-                <span style={{ color: "var(--color-gray-600)" }}>Order Tracking Ref:</span>
-                <strong style={{ fontFamily: "monospace" }}>{trackingId}</strong>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
+                <span style={{ color: "var(--color-gray-600)" }}>Paystack Checkout Convenience Charge:</span>
+                <strong>₦{gatewayFeeNaira.toLocaleString()}</strong>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--color-gray-200)", paddingTop: "0.5rem", fontSize: "1.1rem" }}>
-                <strong style={{ color: "var(--color-navy-blue)" }}>Total Consolidated Invoice:</strong>
-                <strong style={{ color: "var(--color-primary-green)" }}>₦{amount.toLocaleString()}</strong>
+              <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--color-gray-200)", paddingTop: "0.55rem", fontSize: "1.1rem" }}>
+                <strong style={{ color: "var(--color-navy-blue)" }}>Total Gateway Checkout Amount:</strong>
+                <strong style={{ color: "var(--color-primary-green)" }}>₦{totalPaystackChargeNaira.toLocaleString()}</strong>
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={onlineLoading}
+              disabled={onlineLoading || chosenPrincipalNaira <= 0}
               className="btn btn-primary"
-              style={{ padding: "1rem", fontSize: "1.1rem", display: "flex", justifyContent: "center", alignItems: "center", gap: "0.5rem" }}
+              style={{ padding: "1rem", fontSize: "1.05rem", display: "flex", justifyContent: "center", alignItems: "center", gap: "0.5rem" }}
             >
-              {onlineLoading ? "Redirecting to Gateway..." : `Proceed to Pay ₦${amount.toLocaleString()}`}
+              {onlineLoading ? "Redirecting to Paystack..." : `Proceed to Pay ₦${totalPaystackChargeNaira.toLocaleString()}`}
             </button>
           </form>
         </div>
       )}
 
-      {/* Tab 2: Bank Teller & Receipt Upload */}
+      {/* Tab 2: Bank Teller Upload */}
       {activeTab === "TELLER" && (
-        <div style={{
-          background: "var(--bg-card)",
-          padding: "clamp(1rem, 2.5vw, 2rem)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-sm)",
-          border: "1px solid var(--border-subtle)"
-        }}>
-          {/* Official Bank Account Details */}
-          <div style={{
-            background: "var(--status-success-bg)",
-            border: "1px solid var(--status-success-border)",
-            padding: "1.5rem",
-            borderRadius: "var(--radius-md)",
-            marginBottom: "1.75rem"
-          }}>
+        <div style={{ background: "var(--bg-card)", padding: "clamp(1rem, 2.5vw, 2rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
+          <div style={{ background: "var(--status-success-bg)", border: "1px solid var(--status-success-border)", padding: "1.5rem", borderRadius: "var(--radius-md)", marginBottom: "1.75rem" }}>
             <h4 style={{ color: "var(--status-success-text)", margin: "0 0 0.75rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <FiCheckCircle /> Official School Bank Account Details
             </h4>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
               <div>
                 <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block" }}>Bank:</span>
-                <strong style={{ color: "var(--text-primary)", fontSize: "1rem" }}>Zenith Bank PLC</strong>
+                <strong style={{ color: "var(--text-primary)", fontSize: "1rem" }}>{bankConfig.bankName}</strong>
               </div>
               <div>
                 <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block" }}>Account Name:</span>
-                <strong style={{ color: "var(--text-primary)", fontSize: "1rem" }}>Word of Faith Schools</strong>
+                <strong style={{ color: "var(--text-primary)", fontSize: "1rem" }}>{bankConfig.accountName}</strong>
               </div>
               <div>
                 <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "block" }}>Account Number:</span>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <strong style={{ color: "var(--status-success-text)", fontSize: "1.1rem", letterSpacing: "1px", fontFamily: "monospace" }}>1015694201</strong>
+                  <strong style={{ color: "var(--status-success-text)", fontSize: "1.1rem", letterSpacing: "1px", fontFamily: "monospace" }}>
+                    {bankConfig.accountNumber}
+                  </strong>
                   <button
                     type="button"
-                    onClick={() => handleCopy("1015694201", "account")}
+                    onClick={() => handleCopy(bankConfig.accountNumber, "account")}
                     title="Copy Account Number"
                     style={{ background: "none", border: "none", cursor: "pointer", color: "var(--status-success-text)" }}
                   >
@@ -485,37 +542,18 @@ export default function PayFeesPage() {
               </div>
             </div>
 
-            <div style={{
-              marginTop: "1rem",
-              background: "var(--bg-card)",
-              padding: "0.75rem 1rem",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--status-success-border)",
-              fontSize: "0.85rem",
-              color: "var(--status-success-text)"
-            }}>
-              <strong>Mandatory Narration / Remark:</strong> Please enter <code>{trackingId}</code> in your bank transfer remark so the system can automatically match your payment.
+            <div style={{ marginTop: "1rem", background: "var(--bg-card)", padding: "0.75rem 1rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--status-success-border)", fontSize: "0.85rem", color: "var(--status-success-text)" }}>
+              <strong>Transfer Amount:</strong> ₦{chosenPrincipalNaira.toLocaleString()} (School: ₦{currentSchoolPortionNaira.toLocaleString()} + Portal/ICT Fee: ₦{currentPortalPortionNaira.toLocaleString()}) · <strong>Remark:</strong> <code>{trackingId}</code>
             </div>
           </div>
 
-          {/* Pending Upload Alert if student already submitted */}
           {feeOrder?.hasUploadedReceipt && (
-            <div style={{
-              background: "var(--status-warning-bg)",
-              border: "1px solid var(--status-warning-border)",
-              color: "var(--status-warning-text)",
-              padding: "1rem 1.25rem",
-              borderRadius: "var(--radius-md)",
-              marginBottom: "1.5rem",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.75rem"
-            }}>
+            <div style={{ background: "var(--status-warning-bg)", border: "1px solid var(--status-warning-border)", color: "var(--status-warning-text)", padding: "1rem 1.25rem", borderRadius: "var(--radius-md)", marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <FiClock style={{ fontSize: "1.5rem", flexShrink: 0 }} />
               <div>
-                <strong>Receipt Currently Under Bursary Audit</strong>
+                <strong>Receipt Under Bursary Review</strong>
                 <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.85rem" }}>
-                  A receipt has been uploaded for Tracking ID <code>{trackingId}</code>. Once the Bursar or Admin verifies it, your studentship will be cleared. You can upload a replacement below if needed.
+                  Receipt for Tracking ID <code>{trackingId}</code> is queued for verification (₦{(feeOrder.pendingSubmittedAmountNaira || chosenPrincipalNaira).toLocaleString()}). You can replace it below if needed.
                 </p>
               </div>
             </div>
@@ -533,85 +571,37 @@ export default function PayFeesPage() {
             </div>
           )}
 
-          {/* Receipt Upload Form */}
           <form onSubmit={handleTellerUpload} style={{ display: "grid", gap: "1.25rem" }}>
             <div>
               <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: "bold", color: "var(--color-gray-800)" }}>
-                Upload Bank Receipt / Transfer Screenshot (Image or PDF) *
+                Upload Bank Receipt / Transfer Screenshot (PNG, JPEG, WEBP, or PDF) *
               </label>
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp,application/pdf"
                 required={!feeOrder?.hasUploadedReceipt}
                 onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
-                style={{
-                  width: "100%",
-                  padding: "0.75rem",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px dashed var(--color-primary-green)",
-                  background: "var(--color-gray-50)",
-                  cursor: "pointer"
-                }}
+                style={{ width: "100%", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px dashed var(--color-primary-green)", background: "var(--color-gray-50)", cursor: "pointer" }}
               />
               <small style={{ color: "var(--color-gray-500)", display: "block", marginTop: "0.25rem" }}>
-                Max file size: 5MB. Duplicates are cryptographically detected and rejected.
+                Max 5MB. Verified privately by Bursary (stored outside public folders).
               </small>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
               <div>
-                <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: "bold", color: "var(--color-gray-800)" }}>
-                  Paying Bank Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Zenith Bank, GTBank, OPay"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "var(--radius-md)",
-                    border: "1px solid var(--color-gray-300)"
-                  }}
-                />
+                <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: "bold", color: "var(--color-gray-800)" }}>Paying Bank Name *</label>
+                <input type="text" required placeholder="e.g. Zenith Bank, GTBank, OPay" value={bankName} onChange={(e) => setBankName(e.target.value)} style={{ width: "100%", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-300)" }} />
               </div>
 
               <div>
-                <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: "bold", color: "var(--color-gray-800)" }}>
-                  Teller Number / Session ID
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 202604081234..."
-                  value={tellerNumber}
-                  onChange={(e) => setTellerNumber(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "var(--radius-md)",
-                    border: "1px solid var(--color-gray-300)"
-                  }}
-                />
+                <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: "bold", color: "var(--color-gray-800)" }}>Teller Number / Session ID</label>
+                <input type="text" placeholder="e.g. 202604081234..." value={tellerNumber} onChange={(e) => setTellerNumber(e.target.value)} style={{ width: "100%", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-300)" }} />
               </div>
 
               <div>
-                <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: "bold", color: "var(--color-gray-800)" }}>
-                  Date of Payment *
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "0.75rem",
-                    borderRadius: "var(--radius-md)",
-                    border: "1px solid var(--color-gray-300)"
-                  }}
-                />
+                <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: "bold", color: "var(--color-gray-800)" }}>Date of Payment *</label>
+                <input type="date" required value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} style={{ width: "100%", padding: "0.75rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-300)" }} />
               </div>
             </div>
 
@@ -619,17 +609,9 @@ export default function PayFeesPage() {
               type="submit"
               disabled={tellerLoading}
               className="btn btn-primary"
-              style={{
-                padding: "1rem",
-                fontSize: "1.05rem",
-                marginTop: "0.5rem",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem"
-              }}
+              style={{ padding: "1rem", fontSize: "1.05rem", marginTop: "0.5rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
             >
-              <FiUploadCloud /> {tellerLoading ? "Submitting Receipt..." : "Submit Receipt for Bursary Verification"}
+              <FiUploadCloud /> {tellerLoading ? "Uploading Receipt..." : `Submit ₦${chosenPrincipalNaira.toLocaleString()} Receipt for Verification`}
             </button>
           </form>
         </div>

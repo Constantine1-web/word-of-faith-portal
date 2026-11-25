@@ -3,11 +3,10 @@
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import crypto from "crypto";
-import fs from "fs/promises";
-import path from "path";
 import {
   requireActiveUser,
   requireCapability,
+  requireStudentOwnershipOrAdmin,
   assertSeparationOfDuties,
   writeAuditLog,
 } from "@/lib/authz";
@@ -15,9 +14,31 @@ import { SAFE_USER_SELECT } from "@/lib/security";
 import {
   ensureAndListFeeSchedules,
   getFeeScheduleForClass,
-  resolveFeeLevelGroup,
   type FeeLevelGroup,
 } from "@/lib/fee-schedule";
+import {
+  allocateTermPaymentKobo,
+  computePaystackConvenienceFeeKobo,
+  PORTAL_ICT_SERVICE_FEE_KOBO,
+} from "@/lib/fee-split";
+import {
+  APPROVED_PAYMENT_STATUSES,
+  ensureStudentTermInvoice,
+  getStudentTermBillingSummary,
+  persistPrivateReceiptArtifact,
+  recordPaymentCreditInTx,
+  recordPaymentReversalInTx,
+  validateReceiptBinary,
+} from "@/lib/payment-ledger";
+import {
+  getPortalBankConfig,
+  savePortalBankConfig,
+  type PortalBankConfig,
+} from "@/lib/portal-settings";
+import {
+  sendFeePaymentApprovedNotification,
+  sendFeePaymentRejectedNotification,
+} from "@/lib/email";
 
 function getPaystackSecretKey(): string {
   const key = process.env.PAYSTACK_SECRET_KEY?.trim();
@@ -31,29 +52,85 @@ async function requirePaymentManager() {
   return requireCapability(["MANAGE_FINANCE", "APPROVE_PAYMENTS"]);
 }
 
-const DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA = 1000;
+function collectStudentEmails(student: {
+  ParentEmail?: string | null;
+  User?: { Email?: string | null } | null;
+  ParentLinks?: Array<{ Parent?: { User?: { Email?: string | null } | null } | null }>;
+} | null | undefined): string[] {
+  const emails: string[] = [];
+  if (student?.ParentEmail) emails.push(student.ParentEmail);
+  if (student?.User?.Email) emails.push(student.User.Email);
+  if (Array.isArray(student?.ParentLinks)) {
+    for (const link of student.ParentLinks) {
+      if (link?.Parent?.User?.Email) {
+        emails.push(link.Parent.User.Email);
+      }
+    }
+  }
+  return emails;
+}
 
-function computePaymentAllocationBreakdown(
-  grossAmountNaira: number,
-  maintenanceFeeRate: number = DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA
+function serializeFeeAllocationPreview(
+  payment: {
+    AmountPaid: number;
+    AmountKobo?: bigint | number | null;
+    gatewayFeeKobo?: bigint | number | null;
+    LedgerEntries?: Array<{
+      entryType: string;
+      grossPaidKobo: bigint;
+      gatewayFeeKobo: bigint;
+      schoolShareKobo: bigint;
+      providerShareKobo: bigint;
+      settlementChannel: string;
+      settlementStatus: string;
+      id: string;
+    }>;
+  }
 ) {
-  const total = Math.max(0, Number(grossAmountNaira) || 0);
-  const maintenanceFee = total >= maintenanceFeeRate ? maintenanceFeeRate : 0;
-  const tuitionAndSchoolLevies = Math.max(0, total - maintenanceFee);
-  const providerShare80 = Math.round(maintenanceFee * 0.8);
-  const schoolMaintenanceShare20 = maintenanceFee - providerShare80;
+  const entries = payment.LedgerEntries || [];
+  if (entries.length > 0) {
+    let principal = BigInt(0);
+    let gateway = BigInt(0);
+    let school = BigInt(0);
+    let provider = BigInt(0);
+    for (const e of entries) {
+      principal += e.grossPaidKobo;
+      gateway += e.gatewayFeeKobo;
+      school += e.schoolShareKobo;
+      provider += e.providerShareKobo;
+    }
+    return {
+      principalNaira: Number(principal) / 100,
+      schoolShareNaira: Number(school) / 100,
+      providerShareNaira: Number(provider) / 100,
+      gatewayFeeNaira: Number(gateway) / 100,
+      hasLedgerEntry: true,
+      ledgerIds: entries.map((e) => e.id),
+      settlementChannel: entries[0]?.settlementChannel || "SCHOOL_COLLECTION",
+    };
+  }
+
+  const principalKobo =
+    payment.AmountKobo && BigInt(payment.AmountKobo) > BigInt(0)
+      ? BigInt(payment.AmountKobo)
+      : BigInt(Math.round((Number(payment.AmountPaid) || 0) * 100));
+  const sim = allocateTermPaymentKobo({
+    grossPrincipalPaidKobo: principalKobo,
+    targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+  });
   return {
-    totalAmount: total,
-    tuitionAndSchoolLevies,
-    maintenanceFee,
-    providerShare80,
-    schoolMaintenanceShare20,
-    totalSchoolRetention: tuitionAndSchoolLevies + schoolMaintenanceShare20,
+    principalNaira: sim.grossPrincipalPaidNaira,
+    schoolShareNaira: sim.schoolShareNaira,
+    providerShareNaira: sim.providerShareNaira,
+    gatewayFeeNaira: Number(payment.gatewayFeeKobo || 0) / 100,
+    hasLedgerEntry: false,
+    ledgerIds: [] as string[],
+    settlementChannel: "SCHOOL_COLLECTION",
   };
 }
 
 // ==========================================
-// ADMIN / BURSAR: AUDIT QUEUE & FEE CLEARANCE
+// ADMIN / BURSAR: CONFIG, SCHEDULES & AUDIT
 // ==========================================
 
 export async function getFeeSchedules() {
@@ -62,10 +139,14 @@ export async function getFeeSchedules() {
     const schedules = await ensureAndListFeeSchedules();
     return {
       success: true,
-      schedules: schedules.map(({ totalKobo, ...rest }) => rest),
+      schedules: schedules.map(({ totalKobo: _t, tuitionKobo: _tk, leviesKobo: _lk, portalFeeKobo: _pk, ...rest }) => rest),
     };
-  } catch (error: any) {
-    return { success: false, error: error.message || "Failed to load fee schedules", schedules: [] };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load fee schedules",
+      schedules: [],
+    };
   }
 }
 
@@ -111,7 +192,7 @@ export async function updateFeeSchedule(data: {
         levelGroup: data.levelGroup,
         tuitionNaira: tuition,
         leviesNaira: levies,
-        maintenanceFeeNaira: maintenance,
+        portalIctFeeNaira: maintenance,
         totalNaira: tuition + levies + maintenance,
       },
     });
@@ -131,9 +212,48 @@ export async function updateFeeSchedule(data: {
         totalNaira: tuition + levies + maintenance,
       },
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("updateFeeSchedule error:", error);
-    return { success: false, error: error.message || "Failed to update fee schedule." };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update fee schedule.",
+    };
+  }
+}
+
+export async function getPortalBankConfigAction() {
+  try {
+    await requireActiveUser();
+    const config = await getPortalBankConfig();
+    return { success: true, config };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unauthorized",
+    };
+  }
+}
+
+export async function updatePortalBankConfigAction(input: Partial<PortalBankConfig>) {
+  try {
+    const actor = await requirePaymentManager();
+    const saved = await savePortalBankConfig(input, actor.UserID);
+    await writeAuditLog({
+      actorId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "PORTAL_BANK_CONFIG_UPDATED",
+      entity: "PortalSetting",
+      entityId: "BANK_PAYMENT_CONFIG",
+      newValue: saved,
+    });
+    revalidatePath("/portal/admin/payments");
+    revalidatePath("/portal/fees");
+    return { success: true, config: saved };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to save bank settings.",
+    };
   }
 }
 
@@ -144,10 +264,14 @@ export async function getAdminPaymentAuditList(filters?: {
 }) {
   try {
     await requirePaymentManager();
-    let whereClause: any = {};
+    const whereClause: Record<string, unknown> = {};
 
     if (filters?.status && filters.status !== "ALL") {
-      whereClause.Status = filters.status;
+      if (filters.status.toUpperCase() === "APPROVED") {
+        whereClause.Status = { in: [...APPROVED_PAYMENT_STATUSES] };
+      } else {
+        whereClause.Status = filters.status;
+      }
     }
 
     if (filters?.termId) {
@@ -155,42 +279,79 @@ export async function getAdminPaymentAuditList(filters?: {
     }
 
     if (filters?.search) {
+      const q = filters.search.trim();
       whereClause.OR = [
-        { Reference: { contains: filters.search.trim(), mode: "insensitive" } },
-        { Student: { PreferredName: { contains: filters.search.trim(), mode: "insensitive" } } },
-        { Student: { AdmissionNo: { contains: filters.search.trim(), mode: "insensitive" } } },
+        { Reference: { contains: q, mode: "insensitive" } },
+        { Student: { PreferredName: { contains: q, mode: "insensitive" } } },
+        { Student: { AdmissionNo: { contains: q, mode: "insensitive" } } },
       ];
     }
 
-    const rawPayments = await prisma.payment_Record.findMany({
-      where: whereClause,
-      include: {
-        Student: {
-          include: { Class: true, User: { select: SAFE_USER_SELECT } },
+    const [rawPayments, pendingCount, approvedTotal, bankConfig, remittanceAuditRows] = await Promise.all([
+      prisma.payment_Record.findMany({
+        where: whereClause,
+        include: {
+          Student: {
+            include: { Class: true, User: { select: SAFE_USER_SELECT } },
+          },
+          Term: true,
+          Invoice: { include: { LineItems: true } },
+          LedgerEntries: true,
         },
-        Term: true,
-      },
-      orderBy: { PaymentDate: "desc" },
-    });
+        orderBy: { PaymentDate: "desc" },
+      }),
+      prisma.payment_Record.count({ where: { Status: "Pending" } }),
+      prisma.payment_Record.aggregate({
+        where: { Status: { in: [...APPROVED_PAYMENT_STATUSES] } },
+        _sum: { AmountPaid: true },
+      }),
+      getPortalBankConfig(),
+      prisma.auditLog.findMany({
+        where: { Action: "PROVIDER_REMITTANCE_SETTLED" },
+        select: { NewValue: true },
+        take: 200,
+      }),
+    ]);
 
-    const schedules = await ensureAndListFeeSchedules();
-    const scheduleByGroup = new Map(schedules.map((s) => [s.levelGroup, s]));
+    const settledLedgerIds = new Set<string>();
+    for (const r of remittanceAuditRows) {
+      const val = (r.NewValue || {}) as { ledgerIds?: string[] };
+      if (Array.isArray(val.ledgerIds)) {
+        for (const id of val.ledgerIds) settledLedgerIds.add(String(id));
+      }
+    }
 
-    // Convert BigInt AmountKobo to Number for React Server Action JSON serialization
-    const payments = rawPayments.map((p: any) => {
-      const grp = resolveFeeLevelGroup(p.Student?.Class?.ClassName, p.Student?.Class?.Level);
-      const maintRate = scheduleByGroup.get(grp)?.maintenanceFeeNaira ?? DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA;
+    const payments = rawPayments.map((p) => {
+      const alloc = serializeFeeAllocationPreview(p);
+      const safeReceiptEndpoint = p.ReceiptUrl || p.receiptStorageKey ? `/api/receipts/${p.PaymentID}` : null;
       return {
         ...p,
         AmountKobo: Number(p.AmountKobo || 0),
-        allocation: computePaymentAllocationBreakdown(p.AmountPaid, maintRate),
+        gatewayFeeKobo: Number(p.gatewayFeeKobo || 0),
+        ReceiptUrl: safeReceiptEndpoint,
+        Invoice: p.Invoice
+          ? {
+              ...p.Invoice,
+              AmountKobo: Number(p.Invoice.AmountKobo),
+              LineItems: p.Invoice.LineItems.map((li) => ({
+                ...li,
+                amountKobo: Number(li.amountKobo),
+              })),
+            }
+          : null,
+        LedgerEntries: p.LedgerEntries.map((le) => ({
+          ...le,
+          grossPaidKobo: Number(le.grossPaidKobo),
+          gatewayFeeKobo: Number(le.gatewayFeeKobo),
+          schoolShareKobo: Number(le.schoolShareKobo),
+          providerShareKobo: Number(le.providerShareKobo),
+          isRemitted:
+            le.settlementStatus === "AUTO_SPLIT" ||
+            le.settlementStatus === "REMITTED" ||
+            settledLedgerIds.has(le.id),
+        })),
+        allocation: alloc,
       };
-    });
-
-    const pendingCount = await prisma.payment_Record.count({ where: { Status: "Pending" } });
-    const approvedTotal = await prisma.payment_Record.aggregate({
-      where: { Status: "Approved" },
-      _sum: { AmountPaid: true },
     });
 
     return {
@@ -198,10 +359,14 @@ export async function getAdminPaymentAuditList(filters?: {
       payments,
       pendingCount,
       totalRevenue: approvedTotal._sum.AmountPaid || 0,
+      bankConfig,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("getAdminPaymentAuditList error:", error);
-    return { success: false, error: error.message || "Failed to fetch payment records" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to fetch payment records",
+    };
   }
 }
 
@@ -211,63 +376,130 @@ export async function approvePaymentRecord(paymentId: number) {
   try {
     const payment = await prisma.payment_Record.findUnique({
       where: { PaymentID: paymentId },
-      include: { Student: { include: { Class: true } } },
+      include: {
+        Term: true,
+        Student: {
+          include: {
+            Class: true,
+            User: { select: SAFE_USER_SELECT },
+            ParentLinks: {
+              include: { Parent: { include: { User: { select: { Email: true } } } } },
+            },
+          },
+        },
+      },
     });
 
     if (!payment) {
       return { success: false, error: "Payment record not found." };
     }
 
-    // Section B.2 & B.5 Separation of Duties: Submitter cannot approve their own payment
+    // Separation of Duties: Submitter cannot approve their own submission
     assertSeparationOfDuties(actor.UserID, payment.SubmittedBy, "payment submission");
 
-    await prisma.$transaction([
-      prisma.payment_Record.update({
+    if (payment.Status === "Approved" || payment.Status === "Successful") {
+      return { success: true, alreadyApproved: true };
+    }
+
+    const principalKobo =
+      payment.AmountKobo > BigInt(0)
+        ? payment.AmountKobo
+        : BigInt(Math.round((Number(payment.AmountPaid) || 0) * 100));
+
+    let ledgerEntry: Awaited<ReturnType<typeof recordPaymentCreditInTx>> | null = null;
+    let remainingAfterKobo = BigInt(0);
+
+    await prisma.$transaction(async (tx) => {
+      let invoiceId = payment.InvoiceID;
+      if (!invoiceId && payment.Term) {
+        const ensured = await ensureStudentTermInvoice(tx, {
+          studentId: payment.StudentID,
+          termId: payment.TermID,
+          termLabel: `${payment.Term.SessionName} (${payment.Term.TermName})`,
+          className: payment.Student?.Class?.ClassName,
+          level: payment.Student?.Class?.Level,
+        });
+        invoiceId = ensured.invoice.id;
+      }
+
+      await tx.payment_Record.update({
         where: { PaymentID: paymentId },
         data: {
+          InvoiceID: invoiceId,
           Status: "Approved",
           ReviewedBy: actor.UserID,
           ReviewedAt: new Date(),
         },
-      }),
-      prisma.student.update({
-        where: { StudentID: payment.StudentID },
-        data: { HasPaidFees: true },
-      }),
-    ]);
+      });
 
-    const classSchedule = await getFeeScheduleForClass(
-      payment.Student?.Class?.ClassName,
-      payment.Student?.Class?.Level
-    );
-    const allocation = computePaymentAllocationBreakdown(
-      payment.AmountPaid,
-      classSchedule?.maintenanceFeeNaira ?? DEFAULT_PORTAL_MAINTENANCE_FEE_NAIRA
-    );
-    await writeAuditLog({
-      actorUserId: actor.UserID,
-      actorRoles: Array.from(actor.roles).join(","),
-      action: "PAYMENT_APPROVE",
-      targetTable: "Payment_Record",
-      targetId: String(paymentId),
-      beforeState: { status: payment.Status },
-      afterState: {
-        status: "Approved",
+      ledgerEntry = await recordPaymentCreditInTx(tx, {
+        paymentId: payment.PaymentID,
+        invoiceId,
         studentId: payment.StudentID,
-        amountPaid: payment.AmountPaid,
-        tuitionSchool100: allocation.tuitionAndSchoolLevies,
-        maintenanceFee: allocation.maintenanceFee,
-        providerShare80: allocation.providerShare80,
-        schoolMaintenanceShare20: allocation.schoolMaintenanceShare20,
-      },
+        termId: payment.TermID,
+        principalKobo,
+        gatewayFeeKobo: payment.gatewayFeeKobo || BigInt(0),
+        settlementChannel: "SCHOOL_COLLECTION",
+        reference: payment.Reference,
+        notes: `Manual ${payment.Channel} payment verified by ${actor.Email}`,
+        actorId: actor.UserID,
+      });
+
+      const summary = await getStudentTermBillingSummary(tx, payment.StudentID, payment.TermID);
+      remainingAfterKobo = summary.remainingTotalKobo;
     });
+
+    if (ledgerEntry) {
+      const l = ledgerEntry as Awaited<ReturnType<typeof recordPaymentCreditInTx>>;
+      await writeAuditLog({
+        actorUserId: actor.UserID,
+        actorRoles: Array.from(actor.roles).join(","),
+        action: "PAYMENT_APPROVE",
+        targetTable: "Payment_Record",
+        targetId: String(paymentId),
+        beforeState: { status: payment.Status },
+        afterState: {
+          status: "Approved",
+          studentId: payment.StudentID,
+          principalKobo: principalKobo.toString(),
+          schoolShareKobo: l.schoolShareKobo.toString(),
+          providerShareKobo: l.providerShareKobo.toString(),
+          modelCode: l.modelCode,
+        },
+      });
+
+      const studentDisplayName =
+        payment.Student?.PreferredName ||
+        [payment.Student?.FirstName, payment.Student?.LastName].filter(Boolean).join(" ") ||
+        "Student";
+      const termLabel = payment.Term
+        ? `${payment.Term.SessionName} (${payment.Term.TermName})`
+        : "Current Academic Term";
+      await sendFeePaymentApprovedNotification({
+        recipients: collectStudentEmails(payment.Student),
+        studentName: studentDisplayName,
+        admissionNo: payment.Student?.AdmissionNo || "N/A",
+        className: payment.Student?.Class?.ClassName,
+        termLabel,
+        reference: payment.Reference || `PAY-${payment.PaymentID}`,
+        amountPaidNaira: Number(principalKobo) / 100,
+        channel: payment.Channel || "BANK_TELLER",
+        schoolShareNaira: Number(l.schoolShareKobo) / 100,
+        providerShareNaira: Number(l.providerShareKobo) / 100,
+        gatewayFeeNaira: Number(payment.gatewayFeeKobo || 0) / 100,
+        remainingBalanceNaira: Number(remainingAfterKobo) / 100,
+      }).catch((err) => console.warn("[Email] Payment approval notification warning:", err));
+    }
 
     revalidatePath("/portal/admin/payments");
     revalidatePath("/portal/fees");
     return { success: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("approvePaymentRecord error:", error);
-    return { success: false, error: error.message || "Failed to approve payment" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to approve payment",
+    };
   }
 }
 
@@ -277,39 +509,374 @@ export async function rejectPaymentRecord(paymentId: number, rejectionReason?: s
   try {
     const payment = await prisma.payment_Record.findUnique({
       where: { PaymentID: paymentId },
+      include: {
+        Term: true,
+        Student: {
+          include: {
+            User: { select: SAFE_USER_SELECT },
+            ParentLinks: {
+              include: { Parent: { include: { User: { select: { Email: true } } } } },
+            },
+          },
+        },
+      },
     });
 
-    await prisma.payment_Record.update({
-      where: { PaymentID: paymentId },
-      data: {
-        Status: "Rejected",
-        RejectionReason: rejectionReason || "Receipt could not be verified by Bursary. Please upload a clear teller or transfer receipt.",
-        ReviewedBy: actor.UserID,
-        ReviewedAt: new Date(),
-      },
+    if (!payment) {
+      return { success: false, error: "Payment record not found." };
+    }
+
+    const cleanReason =
+      rejectionReason?.trim() ||
+      "Receipt could not be verified by Bursary. Please upload a clear teller or transfer receipt.";
+
+    const wasApproved =
+      payment.Status === "Approved" ||
+      payment.Status === "Successful" ||
+      payment.Status === "APPROVED" ||
+      payment.Status === "SUCCESSFUL";
+
+    await prisma.$transaction(async (tx) => {
+      await tx.payment_Record.update({
+        where: { PaymentID: paymentId },
+        data: {
+          Status: "Rejected",
+          RejectionReason: cleanReason,
+          ReviewedBy: actor.UserID,
+          ReviewedAt: new Date(),
+        },
+      });
+
+      if (wasApproved) {
+        await recordPaymentReversalInTx(tx, {
+          paymentId: payment.PaymentID,
+          studentId: payment.StudentID,
+          termId: payment.TermID,
+          invoiceId: payment.InvoiceID,
+          gatewayFeeKobo: payment.gatewayFeeKobo,
+          reference: payment.Reference,
+          notes: `Payment rejected/reversed after approval: ${cleanReason}`,
+          actorId: actor.UserID,
+        });
+      }
     });
 
     await writeAuditLog({
       actorUserId: actor.UserID,
       actorRoles: Array.from(actor.roles).join(","),
-      action: "PAYMENT_REJECT",
+      action: wasApproved ? "PAYMENT_REVERT_AND_REJECT" : "PAYMENT_REJECT",
       targetTable: "Payment_Record",
       targetId: String(paymentId),
-      beforeState: { status: payment?.Status },
-      afterState: { status: "Rejected", reason: rejectionReason },
+      beforeState: { status: payment.Status },
+      afterState: { status: "Rejected", reason: cleanReason, ledgerReversed: wasApproved },
     });
+
+    const studentDisplayName =
+      payment.Student?.PreferredName ||
+      [payment.Student?.FirstName, payment.Student?.LastName].filter(Boolean).join(" ") ||
+      "Student";
+    await sendFeePaymentRejectedNotification({
+      recipients: collectStudentEmails(payment.Student),
+      studentName: studentDisplayName,
+      admissionNo: payment.Student?.AdmissionNo || "N/A",
+      termLabel: payment.Term ? `${payment.Term.SessionName} (${payment.Term.TermName})` : undefined,
+      reference: payment.Reference || `PAY-${payment.PaymentID}`,
+      amountPaidNaira: payment.AmountPaid,
+      reason: cleanReason,
+    }).catch((err) => console.warn("[Email] Payment rejection notification warning:", err));
 
     revalidatePath("/portal/admin/payments");
     revalidatePath("/portal/fees");
     return { success: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("rejectPaymentRecord error:", error);
-    return { success: false, error: error.message || "Failed to reject payment" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to reject payment",
+    };
+  }
+}
+
+export async function recordCashBursaryPayment(data: {
+  studentAdmissionOrId: string | number;
+  termId?: number;
+  amountNaira: number;
+  receiptNo?: string;
+  notes?: string;
+}) {
+  try {
+    const actor = await requireCapability("APPROVE_PAYMENTS");
+    const cleanInput = String(data.studentAdmissionOrId || "").trim();
+    const numericId = Number(cleanInput);
+    const student = await prisma.student.findFirst({
+      where: Number.isInteger(numericId) && numericId > 0
+        ? { StudentID: numericId }
+        : { AdmissionNo: { equals: cleanInput, mode: "insensitive" } },
+      include: {
+        Class: true,
+        User: { select: SAFE_USER_SELECT },
+        ParentLinks: { include: { Parent: { include: { User: { select: { Email: true } } } } } },
+      },
+    });
+    if (!student) return { success: false, error: "Student not found." };
+
+    const term =
+      (data.termId
+        ? await prisma.academic_Term.findUnique({ where: { TermID: Number(data.termId) } })
+        : null) ||
+      (await prisma.academic_Term.findFirst({ where: { IsActive: true } }));
+    if (!term) return { success: false, error: "Active academic term not found." };
+
+    const amountNaira = Number(data.amountNaira);
+    if (!Number.isFinite(amountNaira) || amountNaira <= 0 || amountNaira > 10_000_000) {
+      return { success: false, error: "Invalid cash receipt amount." };
+    }
+    const principalKobo = BigInt(Math.round(amountNaira * 100));
+    const ref =
+      data.receiptNo?.trim() ||
+      `WOF-CASH-${term.TermID}-${Date.now()}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+
+    let createdPaymentId = 0;
+    let ledger: Awaited<ReturnType<typeof recordPaymentCreditInTx>> | null = null;
+    let remainingAfterKobo = BigInt(0);
+
+    await prisma.$transaction(async (tx) => {
+      const ensured = await ensureStudentTermInvoice(tx, {
+        studentId: student.StudentID,
+        termId: term.TermID,
+        termLabel: `${term.SessionName} (${term.TermName})`,
+        className: student.Class?.ClassName,
+        level: student.Class?.Level,
+      });
+
+      const rec = await tx.payment_Record.create({
+        data: {
+          StudentID: student.StudentID,
+          TermID: term.TermID,
+          InvoiceID: ensured.invoice.id,
+          AmountPaid: amountNaira,
+          AmountKobo: principalKobo,
+          gatewayFeeKobo: BigInt(0),
+          Channel: "CASH_BURSARY",
+          Reference: ref,
+          Status: "Approved",
+          Description:
+            data.notes?.trim() ||
+            `Cash Bursary Payment (${term.SessionName} - ${term.TermName})`,
+          SubmittedBy: actor.UserID,
+          ReviewedBy: actor.UserID,
+          ReviewedAt: new Date(),
+        },
+      });
+      createdPaymentId = rec.PaymentID;
+
+      ledger = await recordPaymentCreditInTx(tx, {
+        paymentId: rec.PaymentID,
+        invoiceId: ensured.invoice.id,
+        studentId: student.StudentID,
+        termId: term.TermID,
+        principalKobo,
+        gatewayFeeKobo: BigInt(0),
+        settlementChannel: "SCHOOL_COLLECTION",
+        reference: ref,
+        notes: `Recorded as Cash-at-Bursary by ${actor.Email}`,
+        actorId: actor.UserID,
+      });
+
+      const summary = await getStudentTermBillingSummary(tx, student.StudentID, term.TermID);
+      remainingAfterKobo = summary.remainingTotalKobo;
+    });
+
+    if (ledger) {
+      const l = ledger as Awaited<ReturnType<typeof recordPaymentCreditInTx>>;
+      await writeAuditLog({
+        actorUserId: actor.UserID,
+        actorRoles: Array.from(actor.roles).join(","),
+        action: "CASH_BURSARY_RECORDED",
+        targetTable: "Payment_Record",
+        targetId: String(createdPaymentId),
+        afterState: {
+          studentId: student.StudentID,
+          reference: ref,
+          principalKobo: principalKobo.toString(),
+          schoolShareKobo: l.schoolShareKobo.toString(),
+          providerShareKobo: l.providerShareKobo.toString(),
+        },
+      });
+
+      const studentDisplayName =
+        student.PreferredName || [student.FirstName, student.LastName].filter(Boolean).join(" ") || "Student";
+      await sendFeePaymentApprovedNotification({
+        recipients: collectStudentEmails(student),
+        studentName: studentDisplayName,
+        admissionNo: student.AdmissionNo,
+        className: student.Class?.ClassName,
+        termLabel: `${term.SessionName} (${term.TermName})`,
+        reference: ref,
+        amountPaidNaira: amountNaira,
+        channel: "CASH_BURSARY",
+        schoolShareNaira: Number(l.schoolShareKobo) / 100,
+        providerShareNaira: Number(l.providerShareKobo) / 100,
+        remainingBalanceNaira: Number(remainingAfterKobo) / 100,
+      }).catch(() => {});
+    }
+
+    revalidatePath("/portal/admin/payments");
+    return { success: true, reference: ref, paymentId: createdPaymentId };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to record cash payment",
+    };
+  }
+}
+
+export async function waiveStudentSchoolFees(data: {
+  studentAdmissionOrId: string | number;
+  termId?: number;
+  isWaived: boolean;
+  reason: string;
+}) {
+  try {
+    const actor = await requirePaymentManager();
+    const reason = (data.reason || "").trim();
+    if (reason.length < 4) {
+      return { success: false, error: "Please provide a brief reason for modifying school fee waiver status." };
+    }
+
+    const cleanInput = String(data.studentAdmissionOrId || "").trim();
+    const numericId = Number(cleanInput);
+    const student = await prisma.student.findFirst({
+      where: Number.isInteger(numericId) && numericId > 0
+        ? { StudentID: numericId }
+        : { AdmissionNo: { equals: cleanInput, mode: "insensitive" } },
+      include: { Class: true },
+    });
+    if (!student) return { success: false, error: "Student not found." };
+
+    const term =
+      (data.termId
+        ? await prisma.academic_Term.findUnique({ where: { TermID: Number(data.termId) } })
+        : null) ||
+      (await prisma.academic_Term.findFirst({ where: { IsActive: true } }));
+    if (!term) return { success: false, error: "Academic term not found." };
+
+    await prisma.$transaction(async (tx) => {
+      const ensured = await ensureStudentTermInvoice(tx, {
+        studentId: student.StudentID,
+        termId: term.TermID,
+        termLabel: `${term.SessionName} (${term.TermName})`,
+        className: student.Class?.ClassName,
+        level: student.Class?.Level,
+      });
+
+      const portalItem = ensured.invoice.LineItems.find((li) => li.code === "PORTAL_ICT_FEE");
+      const portalFeeKobo = portalItem ? portalItem.amountKobo : PORTAL_ICT_SERVICE_FEE_KOBO;
+
+      // Waive ONLY Tuition & School Levies; Portal/ICT Service Fee (₦800) remains billable per Owner rule
+      await tx.invoiceLineItem.updateMany({
+        where: { invoiceId: ensured.invoice.id, beneficiary: "SCHOOL" },
+        data: {
+          isWaived: data.isWaived,
+          amountKobo: data.isWaived
+            ? BigInt(0)
+            : undefined,
+        },
+      });
+
+      if (!data.isWaived) {
+        await tx.invoiceLineItem.updateMany({
+          where: { invoiceId: ensured.invoice.id, code: "TUITION" },
+          data: { amountKobo: ensured.schedule.tuitionKobo, isWaived: false },
+        });
+        await tx.invoiceLineItem.updateMany({
+          where: { invoiceId: ensured.invoice.id, code: "LEVIES" },
+          data: { amountKobo: ensured.schedule.leviesKobo, isWaived: false },
+        });
+      }
+
+      const newAmountKobo = data.isWaived ? portalFeeKobo : ensured.schedule.totalKobo;
+      await tx.invoice.update({
+        where: { id: ensured.invoice.id },
+        data: {
+          IsWaived: data.isWaived,
+          WaivedBy: data.isWaived ? actor.UserID : null,
+          WaivedReason: data.isWaived ? reason : null,
+          AmountKobo: newAmountKobo,
+        },
+      });
+
+      const summary = await getStudentTermBillingSummary(tx, student.StudentID, term.TermID);
+      if (term.IsActive) {
+        await tx.student.update({
+          where: { StudentID: student.StudentID },
+          data: { HasPaidFees: summary.isCleared },
+        });
+      }
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: data.isWaived ? "SCHOOL_FEES_WAIVED_ICT_RETAINED" : "SCHOOL_FEE_WAIVER_REMOVED",
+      entity: "Invoice",
+      entityId: `${student.StudentID}:${term.TermID}`,
+      reason,
+      newValue: {
+        studentId: student.StudentID,
+        admissionNo: student.AdmissionNo,
+        termId: term.TermID,
+        isWaived: data.isWaived,
+        portalIctFeeStillRequiredNaira: 800,
+      },
+    });
+
+    revalidatePath("/portal/admin/payments");
+    revalidatePath("/portal/fees");
+    return {
+      success: true,
+      message: data.isWaived
+        ? `School Tuition/Levies waived for ${student.AdmissionNo}. The ₦800 Portal/ICT Service Fee remains payable.`
+        : `School fee waiver cleared for ${student.AdmissionNo}.`,
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update fee waiver",
+    };
+  }
+}
+
+export async function markProviderRemittanceSettled(ledgerIds: string[], referenceNote: string) {
+  try {
+    const actor = await requirePaymentManager();
+    const cleanIds = (ledgerIds || []).map((id) => String(id).trim()).filter(Boolean).slice(0, 500);
+    if (cleanIds.length === 0) {
+      return { success: false, error: "Select at least one ledger entry to mark remitted." };
+    }
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: "PROVIDER_REMITTANCE_SETTLED",
+      entity: "AllocationLedger",
+      entityId: `${cleanIds.length}-entries`,
+      reason: referenceNote?.trim() || "Marked Provider ₦800 share remitted",
+      newValue: { ledgerIds: cleanIds, settledAt: new Date().toISOString() },
+    });
+
+    revalidatePath("/portal/admin/payments");
+    return { success: true, count: cleanIds.length };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to record remittance",
+    };
   }
 }
 
 // ==========================================
-// STUDENT: INITIATE PAYMENT & UPLOAD RECEIPT
+// STUDENT & MULTI-WARD PARENT FEE PORTAL
 // ==========================================
 
 export async function generateOrderTrackingId(termName?: string, sessionName?: string) {
@@ -323,15 +890,13 @@ export async function generateOrderTrackingId(termName?: string, sessionName?: s
   return `WOF-PAY-${cleanYear}${termCode}-${randomHex}`;
 }
 
-async function resolveActorTargetStudent(actor: { UserID: number; Email: string }) {
+async function resolveActorWardsList(actor: { UserID: number; Email: string }) {
   const direct = await prisma.student.findFirst({
     where: { UserID: actor.UserID },
-    include: {
-      Class: true,
-      User: { select: SAFE_USER_SELECT },
-    },
+    include: { Class: true, User: { select: SAFE_USER_SELECT } },
   });
-  if (direct) return direct;
+  const map = new Map<number, NonNullable<typeof direct>>();
+  if (direct) map.set(direct.StudentID, direct);
 
   const parent = await prisma.parent.findUnique({
     where: { UserID: actor.UserID },
@@ -339,39 +904,85 @@ async function resolveActorTargetStudent(actor: { UserID: number; Email: string 
       Children: {
         include: {
           Student: {
-            include: {
-              Class: true,
-              User: { select: SAFE_USER_SELECT },
-            },
+            include: { Class: true, User: { select: SAFE_USER_SELECT } },
           },
         },
+        orderBy: { StudentID: "asc" },
       },
     },
   });
-  if (parent && parent.Children.length > 0) {
-    return parent.Children[0].Student;
+  if (parent) {
+    for (const link of parent.Children) {
+      if (link.Student) map.set(link.Student.StudentID, link.Student);
+    }
   }
 
   if (actor.Email) {
-    const byParentEmail = await prisma.student.findFirst({
+    const byEmail = await prisma.student.findMany({
       where: {
-        ParentEmail: {
-          equals: actor.Email.trim(),
-          mode: "insensitive",
-        },
+        ParentEmail: { equals: actor.Email.trim(), mode: "insensitive" },
       },
-      include: {
-        Class: true,
-        User: { select: SAFE_USER_SELECT },
-      },
+      include: { Class: true, User: { select: SAFE_USER_SELECT } },
+      orderBy: { StudentID: "asc" },
     });
-    if (byParentEmail) return byParentEmail;
+    for (const st of byEmail) map.set(st.StudentID, st);
   }
 
-  return null;
+  return Array.from(map.values());
 }
 
-export async function getOrCreateStudentFeeOrder() {
+async function resolveAuthorizedStudentForBilling(
+  actor: { UserID: number; Email: string; roles: Set<string> },
+  requestedStudentId?: number
+) {
+  const wards = await resolveActorWardsList(actor);
+
+  if (requestedStudentId && Number.isInteger(requestedStudentId) && requestedStudentId > 0) {
+    const inWards = wards.find((w) => w.StudentID === requestedStudentId);
+    if (inWards) {
+      return { student: inWards, wards };
+    }
+    // Check ownership/admin via central DAL helper (blocks arbitrary IDOR)
+    const { student } = await requireStudentOwnershipOrAdmin(requestedStudentId, {
+      allowFinance: true,
+    });
+    return { student, wards: wards.length > 0 ? wards : [student] };
+  }
+
+  if (wards.length > 0) {
+    return { student: wards[0], wards };
+  }
+
+  return { student: null, wards: [] };
+}
+
+export async function getActorWardsListAction() {
+  try {
+    const actor = await requireActiveUser();
+    const wards = await resolveActorWardsList(actor);
+    return {
+      success: true,
+      wards: wards.map((w) => ({
+        studentId: w.StudentID,
+        admissionNo: w.AdmissionNo,
+        fullName:
+          w.PreferredName ||
+          [w.FirstName, w.LastName].filter(Boolean).join(" ") ||
+          w.AdmissionNo,
+        className: w.Class?.ClassName || "Assigned Class",
+        level: w.Class?.Level || "School",
+      })),
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      wards: [],
+      error: error instanceof Error ? error.message : "Unauthorized",
+    };
+  }
+}
+
+export async function getOrCreateStudentFeeOrder(targetStudentId?: number, termId?: number) {
   let actor;
   try {
     actor = await requireActiveUser();
@@ -380,61 +991,104 @@ export async function getOrCreateStudentFeeOrder() {
   }
 
   try {
-    const student = await resolveActorTargetStudent(actor);
+    const { student, wards } = await resolveAuthorizedStudentForBilling(
+      actor,
+      targetStudentId ? Number(targetStudentId) : undefined
+    );
 
     if (!student) {
       return { success: false, error: "Student profile not found" };
     }
 
-    const activeTerm = await prisma.academic_Term.findFirst({
-      where: { IsActive: true },
-    }) || await prisma.academic_Term.findFirst({
-      orderBy: { SessionName: "desc" },
-    });
+    const activeTerm =
+      (termId
+        ? await prisma.academic_Term.findUnique({ where: { TermID: Number(termId) } })
+        : null) ||
+      (await prisma.academic_Term.findFirst({ where: { IsActive: true } })) ||
+      (await prisma.academic_Term.findFirst({ orderBy: { SessionName: "desc" } }));
 
     if (!activeTerm) {
       return { success: false, error: "Active academic term not found." };
     }
 
-    // Resolve class-specific fee schedule (Tuition + School Levies + Portal Maintenance / ICT Fee)
-    const schedule = await getFeeScheduleForClass(student.Class?.ClassName, student.Class?.Level);
+    const termLabel = `${activeTerm.SessionName} (${activeTerm.TermName})`;
+    const bankConfig = await getPortalBankConfig();
+
+    const ensured = await ensureStudentTermInvoice(prisma, {
+      studentId: student.StudentID,
+      termId: activeTerm.TermID,
+      termLabel,
+      className: student.Class?.ClassName,
+      level: student.Class?.Level,
+    });
+
+    const summary = await getStudentTermBillingSummary(prisma, student.StudentID, activeTerm.TermID);
+
+    const remainingDueKobo = summary.remainingTotalKobo;
+    const paystackConvenienceFeeKobo = computePaystackConvenienceFeeKobo(remainingDueKobo);
+
     const feeBreakdown = {
-      levelDisplayName: schedule.displayName,
-      tuitionNaira: schedule.tuitionNaira,
-      leviesNaira: schedule.leviesNaira,
-      maintenanceFeeNaira: schedule.maintenanceFeeNaira,
-      totalNaira: schedule.totalNaira,
+      levelDisplayName: ensured.schedule.displayName,
+      tuitionNaira: ensured.invoice.IsWaived ? 0 : ensured.schedule.tuitionNaira,
+      leviesNaira: ensured.invoice.IsWaived ? 0 : ensured.schedule.leviesNaira,
+      maintenanceFeeNaira: Number(summary.portalTargetKobo) / 100,
+      totalNaira: Number(summary.totalDueKobo) / 100,
+      isSchoolFeesWaived: ensured.invoice.IsWaived,
     };
 
-    // 1. Check if student already has an APPROVED payment for this term
-    const approvedPayment = await prisma.payment_Record.findFirst({
-      where: {
-        StudentID: student.StudentID,
-        TermID: activeTerm.TermID,
-        Status: "Approved",
-      },
-      orderBy: { PaymentDate: "desc" },
-    });
+    const wardSummaries = wards.map((w) => ({
+      studentId: w.StudentID,
+      admissionNo: w.AdmissionNo,
+      fullName:
+        w.PreferredName ||
+        [w.FirstName, w.LastName].filter(Boolean).join(" ") ||
+        w.AdmissionNo,
+      className: w.Class?.ClassName || "Assigned Class",
+    }));
 
-    if (approvedPayment) {
+    const lineItemsSerialized = summary.lineItems.map((li) => ({
+      id: li.id,
+      code: li.code,
+      label: li.label,
+      beneficiary: li.beneficiary,
+      amountNaira: Number(li.amountKobo) / 100,
+      isWaived: li.isWaived,
+    }));
+
+    if (summary.isCleared) {
+      const latestApproved = await prisma.payment_Record.findFirst({
+        where: {
+          StudentID: student.StudentID,
+          TermID: activeTerm.TermID,
+          Status: { in: [...APPROVED_PAYMENT_STATUSES] },
+        },
+        orderBy: { PaymentDate: "desc" },
+      });
+
       return {
         success: true,
+        wards: wardSummaries,
+        selectedStudentId: student.StudentID,
         isCleared: true,
         status: "Approved",
-        trackingId: approvedPayment.Reference,
-        amount: approvedPayment.AmountPaid,
+        trackingId: latestApproved?.Reference || `INV-${ensured.invoice.id.slice(0, 8).toUpperCase()}`,
+        amount: Number(summary.totalCreditedKobo) / 100,
+        remainingDueNaira: 0,
+        schoolDueNaira: Number(summary.remainingSchoolKobo) / 100,
+        portalFeeDueNaira: Number(summary.remainingPortalKobo) / 100,
+        alreadyPaidNaira: Number(summary.totalCreditedKobo) / 100,
+        paystackConvenienceFeeNaira: 0,
+        paystackTotalWithGatewayNaira: 0,
+        lineItems: lineItemsSerialized,
         feeBreakdown,
+        bankConfig,
         term: activeTerm,
         student,
-        paymentRecord: {
-          ...approvedPayment,
-          AmountKobo: Number(approvedPayment.AmountKobo || 0),
-        },
       };
     }
 
-    // 2. Check if student has a PENDING payment order for this term
-    const pendingPayment = await prisma.payment_Record.findFirst({
+    // Check existing pending receipt submission or placeholder order
+    let pendingPayment = await prisma.payment_Record.findFirst({
       where: {
         StudentID: student.StudentID,
         TermID: activeTerm.TermID,
@@ -443,75 +1097,72 @@ export async function getOrCreateStudentFeeOrder() {
       orderBy: { PaymentDate: "desc" },
     });
 
-    if (pendingPayment && pendingPayment.Reference) {
-      let currentAmount = pendingPayment.AmountPaid;
-      // Sync unpaid placeholder order if Bursar updated the class fee schedule before receipt upload
-      if (!pendingPayment.ReceiptUrl && Number(pendingPayment.AmountKobo || 0) !== Number(schedule.totalKobo)) {
-        await prisma.payment_Record.update({
+    if (pendingPayment && !pendingPayment.receiptStorageKey && !pendingPayment.ReceiptUrl) {
+      if (Number(pendingPayment.AmountKobo || 0) !== Number(remainingDueKobo)) {
+        pendingPayment = await prisma.payment_Record.update({
           where: { PaymentID: pendingPayment.PaymentID },
           data: {
-            AmountPaid: schedule.totalNaira,
-            AmountKobo: schedule.totalKobo,
-            Description: `${schedule.displayName} Term Fees + Portal Maintenance / ICT Fee (${activeTerm.SessionName} - ${activeTerm.TermName})`,
+            InvoiceID: ensured.invoice.id,
+            AmountPaid: Number(remainingDueKobo) / 100,
+            AmountKobo: remainingDueKobo,
+            Description: `${ensured.schedule.displayName} Term Fees + Portal/ICT Fee (${activeTerm.SessionName} - ${activeTerm.TermName})`,
           },
         });
-        currentAmount = schedule.totalNaira;
       }
-
-      return {
-        success: true,
-        isCleared: false,
-        status: "Pending",
-        trackingId: pendingPayment.Reference,
-        amount: currentAmount,
-        feeBreakdown,
-        hasUploadedReceipt: Boolean(pendingPayment.ReceiptUrl),
-        term: activeTerm,
-        student,
-        paymentRecord: {
-          ...pendingPayment,
-          AmountPaid: currentAmount,
-          AmountKobo: Number(schedule.totalKobo),
-        },
-      };
     }
 
-    // 3. Create a fresh consolidated School Fees order billed from the student's class FeeSchedule
-    const trackingId = await generateOrderTrackingId(activeTerm.TermName, activeTerm.SessionName);
-    const defaultAmount = schedule.totalNaira;
-    const defaultAmountKobo = schedule.totalKobo;
+    const trackingId =
+      pendingPayment?.Reference ||
+      (await generateOrderTrackingId(activeTerm.TermName, activeTerm.SessionName));
 
-    const newPayment = await prisma.payment_Record.create({
-      data: {
-        StudentID: student.StudentID,
-        TermID: activeTerm.TermID,
-        AmountPaid: defaultAmount,
-        AmountKobo: defaultAmountKobo,
-        Channel: "BANK_TELLER",
-        Description: `${schedule.displayName} Term Fees + Portal Maintenance / ICT Fee (${activeTerm.SessionName} - ${activeTerm.TermName})`,
-        Reference: trackingId,
-        Status: "Pending",
-      },
-    });
+    if (!pendingPayment) {
+      pendingPayment = await prisma.payment_Record.create({
+        data: {
+          StudentID: student.StudentID,
+          TermID: activeTerm.TermID,
+          InvoiceID: ensured.invoice.id,
+          AmountPaid: Number(remainingDueKobo) / 100,
+          AmountKobo: remainingDueKobo,
+          gatewayFeeKobo: BigInt(0),
+          Channel: "BANK_TELLER",
+          Description: `${ensured.schedule.displayName} Term Fees + Portal/ICT Fee (${activeTerm.SessionName} - ${activeTerm.TermName})`,
+          Reference: trackingId,
+          Status: "Pending",
+        },
+      });
+    }
 
     return {
       success: true,
+      wards: wardSummaries,
+      selectedStudentId: student.StudentID,
       isCleared: false,
-      status: "Pending",
+      status: summary.totalCreditedKobo > BigInt(0) ? "Partial" : "Pending",
       trackingId,
-      amount: defaultAmount,
+      amount: Number(remainingDueKobo) / 100,
+      remainingDueNaira: Number(remainingDueKobo) / 100,
+      schoolDueNaira: Number(summary.remainingSchoolKobo) / 100,
+      portalFeeDueNaira: Number(summary.remainingPortalKobo) / 100,
+      alreadyPaidNaira: Number(summary.totalCreditedKobo) / 100,
+      paystackConvenienceFeeNaira: Number(paystackConvenienceFeeKobo) / 100,
+      paystackTotalWithGatewayNaira:
+        Number(remainingDueKobo + paystackConvenienceFeeKobo) / 100,
+      hasUploadedReceipt: Boolean(pendingPayment.receiptStorageKey || pendingPayment.ReceiptUrl),
+      pendingSubmittedAmountNaira: pendingPayment.receiptStorageKey || pendingPayment.ReceiptUrl
+        ? Number(pendingPayment.AmountKobo || 0) / 100 || pendingPayment.AmountPaid
+        : null,
+      lineItems: lineItemsSerialized,
       feeBreakdown,
-      hasUploadedReceipt: false,
+      bankConfig,
       term: activeTerm,
       student,
-      paymentRecord: {
-        ...newPayment,
-        AmountKobo: Number(newPayment.AmountKobo || 0),
-      },
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("getOrCreateStudentFeeOrder error:", error);
-    return { success: false, error: error.message || "Failed to load fee order" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load fee order",
+    };
   }
 }
 
@@ -524,7 +1175,11 @@ export async function uploadBankTellerReceipt(formData: FormData) {
   }
 
   try {
-    const student = await resolveActorTargetStudent(actor);
+    const targetStudentIdRaw = Number(formData.get("studentId") || 0);
+    const { student } = await resolveAuthorizedStudentForBilling(
+      actor,
+      Number.isInteger(targetStudentIdRaw) && targetStudentIdRaw > 0 ? targetStudentIdRaw : undefined
+    );
 
     if (!student) {
       return { success: false, error: "Student profile not found" };
@@ -534,125 +1189,191 @@ export async function uploadBankTellerReceipt(formData: FormData) {
     const bankName = (formData.get("bankName") as string)?.trim() || "Commercial Bank";
     const tellerNumber = (formData.get("tellerNumber") as string)?.trim() || "";
     const paymentDateStr = (formData.get("paymentDate") as string)?.trim();
-    const amountStr = (formData.get("amount") as string)?.trim();
+    const amountRaw = Number(formData.get("amount") || 0);
     const receiptFile = formData.get("receipt") as File | null;
 
     if (!receiptFile || receiptFile.size === 0) {
-      return { success: false, error: "Please select a valid receipt or bank teller screenshot/PDF to upload." };
+      return {
+        success: false,
+        error: "Please select a valid receipt or bank teller screenshot/PDF to upload.",
+      };
     }
 
     if (receiptFile.size > 5 * 1024 * 1024) {
       return { success: false, error: "Receipt file size exceeds maximum limit of 5MB." };
     }
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"];
     if (!allowedTypes.includes(receiptFile.type)) {
-      return { success: false, error: "Invalid file format. Only JPEG, PNG, WEBP and PDF files are accepted." };
+      return {
+        success: false,
+        error: "Invalid file format. Only JPEG, PNG, WEBP and PDF files are accepted.",
+      };
     }
 
     const bytes = await receiptFile.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Compute SHA-256 hash to detect duplicate receipts across the school
-    const receiptHash = crypto.createHash("sha256").update(buffer).digest("hex");
+    // Server-side magic-byte signature validation
+    const magicCheck = validateReceiptBinary(buffer, receiptFile.type);
+    if (!magicCheck.valid) {
+      return { success: false, error: magicCheck.error || "Invalid receipt file signature." };
+    }
 
-    // Check if receipt hash already exists in another payment record
+    // Cryptographic duplicate-receipt prevention
+    const receiptHash = crypto.createHash("sha256").update(buffer).digest("hex");
     const duplicateReceipt = await prisma.payment_Record.findFirst({
       where: {
         ReceiptHash: receiptHash,
-        NOT: {
-          Reference: trackingId,
-        },
-      },
-      include: {
-        Student: true,
+        NOT: trackingId ? { Reference: trackingId } : undefined,
       },
     });
 
     if (duplicateReceipt) {
       return {
         success: false,
-        error: "This receipt file has already been uploaded for another transaction. Duplicate receipts cannot be verified.",
+        error:
+          "This receipt file has already been uploaded for another transaction. Duplicate receipts cannot be verified.",
       };
     }
 
-    // Attempt local disk write; fall back to Data URI on read-only serverless filesystems (e.g. Vercel)
-    let publicUrl: string;
-    try {
-      const uploadDir = path.join(process.cwd(), "public", "uploads", "receipts");
-      await fs.mkdir(uploadDir, { recursive: true });
-      const ext = path.extname(receiptFile.name) || (receiptFile.type === "application/pdf" ? ".pdf" : ".jpg");
-      const fileName = `receipt_${student.StudentID}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}${ext}`;
-      const filePath = path.join(uploadDir, fileName);
-      await fs.writeFile(filePath, buffer);
-      publicUrl = `/uploads/receipts/${fileName}`;
-    } catch {
-      publicUrl = `data:${receiptFile.type};base64,${buffer.toString("base64")}`;
+    const activeTerm =
+      (await prisma.academic_Term.findFirst({ where: { IsActive: true } })) ||
+      (await prisma.academic_Term.findFirst({ orderBy: { SessionName: "desc" } }));
+    if (!activeTerm) {
+      return { success: false, error: "Active academic term not found." };
     }
 
-    const amount = parseFloat(amountStr || "65000") || 65000;
-    const amountInKobo = Math.round(amount * 100);
-    const paymentDate = paymentDateStr ? new Date(paymentDateStr) : new Date();
+    const termLabel = `${activeTerm.SessionName} (${activeTerm.TermName})`;
+    const ensured = await ensureStudentTermInvoice(prisma, {
+      studentId: student.StudentID,
+      termId: activeTerm.TermID,
+      termLabel,
+      className: student.Class?.ClassName,
+      level: student.Class?.Level,
+    });
+    const summary = await getStudentTermBillingSummary(prisma, student.StudentID, activeTerm.TermID);
+    const remainingDueNaira = Number(summary.remainingTotalKobo) / 100;
 
-    // Find or update the payment record with this tracking ID
-    let paymentRecord = await prisma.payment_Record.findFirst({
-      where: {
-        Reference: trackingId,
-        StudentID: student.StudentID,
-      },
+    if (summary.isCleared || remainingDueNaira <= 0) {
+      return { success: false, error: "This student's fees are already cleared for the active term." };
+    }
+
+    // Clamp submitted amount between min installment (₦800 or remaining) and remaining invoice balance
+    const minAcceptableNaira = Math.min(800, remainingDueNaira);
+    const cleanAmountNaira =
+      Number.isFinite(amountRaw) && amountRaw >= minAcceptableNaira
+        ? Math.min(Math.round(amountRaw * 100) / 100, remainingDueNaira)
+        : remainingDueNaira;
+    const amountInKobo = BigInt(Math.round(cleanAmountNaira * 100));
+
+    const { storageKey } = await persistPrivateReceiptArtifact({
+      studentId: student.StudentID,
+      ext: magicCheck.ext,
+      mimeType: magicCheck.normalizedMime,
+      buffer,
     });
 
-    if (paymentRecord) {
-      await prisma.payment_Record.update({
-        where: { PaymentID: paymentRecord.PaymentID },
+    const parsedDate = paymentDateStr ? new Date(paymentDateStr) : new Date();
+    const paymentDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+
+    const existingOrder = trackingId
+      ? await prisma.payment_Record.findFirst({
+          where: {
+            Reference: trackingId,
+            StudentID: student.StudentID,
+            Status: "Pending",
+          },
+        })
+      : null;
+
+    let finalRef = trackingId;
+    let paymentId = 0;
+
+    if (existingOrder) {
+      const updated = await prisma.payment_Record.update({
+        where: { PaymentID: existingOrder.PaymentID },
         data: {
-          AmountPaid: amount,
-          AmountKobo: BigInt(amountInKobo),
+          InvoiceID: ensured.invoice.id,
+          AmountPaid: cleanAmountNaira,
+          AmountKobo: amountInKobo,
+          gatewayFeeKobo: BigInt(0),
           Channel: "BANK_TELLER",
-          ReceiptUrl: publicUrl,
+          receiptStorageKey: storageKey,
+          ReceiptUrl: `/api/receipts/${existingOrder.PaymentID}`,
           ReceiptHash: receiptHash,
           Status: "Pending",
-          PaymentDate: paymentDate,
           SubmittedBy: actor.UserID,
-          Description: `School Fees [${bankName} - Ref: ${tellerNumber || "Direct Transfer"}]`,
+          PaymentDate: paymentDate,
+          Description: `Bank Transfer (${bankName}${tellerNumber ? ` · Ref: ${tellerNumber}` : ""})`,
         },
       });
+      paymentId = updated.PaymentID;
+      finalRef = updated.Reference || trackingId;
     } else {
-      const activeTerm = await prisma.academic_Term.findFirst({ where: { IsActive: true } });
-      await prisma.payment_Record.create({
+      finalRef = await generateOrderTrackingId(activeTerm.TermName, activeTerm.SessionName);
+      const created = await prisma.payment_Record.create({
         data: {
           StudentID: student.StudentID,
-          TermID: activeTerm ? activeTerm.TermID : 1,
-          AmountPaid: amount,
-          AmountKobo: BigInt(amountInKobo),
+          TermID: activeTerm.TermID,
+          InvoiceID: ensured.invoice.id,
+          AmountPaid: cleanAmountNaira,
+          AmountKobo: amountInKobo,
+          gatewayFeeKobo: BigInt(0),
           Channel: "BANK_TELLER",
-          ReceiptUrl: publicUrl,
+          receiptStorageKey: storageKey,
           ReceiptHash: receiptHash,
-          Reference: trackingId || `WOF-PAY-${Date.now()}`,
+          Reference: finalRef,
           Status: "Pending",
-          PaymentDate: paymentDate,
           SubmittedBy: actor.UserID,
-          Description: `School Fees [${bankName} - Ref: ${tellerNumber || "Direct Transfer"}]`,
+          PaymentDate: paymentDate,
+          Description: `Bank Transfer (${bankName}${tellerNumber ? ` · Ref: ${tellerNumber}` : ""})`,
         },
       });
+      paymentId = created.PaymentID;
+      await prisma.payment_Record.update({
+        where: { PaymentID: created.PaymentID },
+        data: { ReceiptUrl: `/api/receipts/${created.PaymentID}` },
+      });
     }
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "BANK_TELLER_UPLOADED",
+      entity: "Payment_Record",
+      entityId: paymentId,
+      newValue: {
+        studentId: student.StudentID,
+        reference: finalRef,
+        amountNaira: cleanAmountNaira,
+        receiptHash: receiptHash.slice(0, 16),
+      },
+    });
 
     revalidatePath("/portal/fees");
     revalidatePath("/portal/admin/payments");
 
     return {
       success: true,
-      message: "Receipt uploaded successfully! Your payment is now queued for Bursary verification.",
+      trackingId: finalRef,
+      message: "Receipt uploaded securely! Your payment is now queued for Bursary verification.",
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("uploadBankTellerReceipt error:", error);
-    return { success: false, error: error.message || "Failed to process receipt upload" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to process receipt upload",
+    };
   }
 }
 
-const MINIMUM_TERM_FEE_NAIRA = 65000;
-
-export async function initializePayment(data: { amount: number; description: string; termId: number; trackingId?: string }) {
+export async function initializePayment(data: {
+  amount?: number;
+  description: string;
+  termId?: number;
+  trackingId?: string;
+  targetStudentId?: number;
+}) {
   let actor;
   try {
     actor = await requireActiveUser();
@@ -660,69 +1381,160 @@ export async function initializePayment(data: { amount: number; description: str
     return { error: "Unauthorized" };
   }
 
-  const student = await resolveActorTargetStudent(actor);
-
-  if (!student) {
-    return { error: "Student profile not found" };
-  }
-
-  const reference = data.trackingId?.trim() || `WOF-PAY-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-
   try {
+    const { student } = await resolveAuthorizedStudentForBilling(
+      actor,
+      data.targetStudentId ? Number(data.targetStudentId) : undefined
+    );
+
+    if (!student) {
+      return { error: "Student profile not found" };
+    }
+
     const paystackKey = getPaystackSecretKey();
 
-    // Check if order exists with this reference
-    const existing = await prisma.payment_Record.findUnique({
-      where: { Reference: reference },
-    });
+    const activeTerm =
+      (data.termId
+        ? await prisma.academic_Term.findUnique({ where: { TermID: Number(data.termId) } })
+        : null) ||
+      (await prisma.academic_Term.findFirst({ where: { IsActive: true } }));
 
-    let authoritativeKobo: bigint;
-    let authoritativeNaira: number;
+    if (!activeTerm) {
+      return { error: "Academic term not found." };
+    }
+
+    const termLabel = `${activeTerm.SessionName} (${activeTerm.TermName})`;
+    const ensured = await ensureStudentTermInvoice(prisma, {
+      studentId: student.StudentID,
+      termId: activeTerm.TermID,
+      termLabel,
+      className: student.Class?.ClassName,
+      level: student.Class?.Level,
+    });
+    const summary = await getStudentTermBillingSummary(prisma, student.StudentID, activeTerm.TermID);
+
+    if (summary.isCleared || summary.remainingTotalKobo <= BigInt(0)) {
+      return { error: "All term fees for this student are already paid and cleared." };
+    }
+
+    const remainingKobo = summary.remainingTotalKobo;
+    const requestedNaira = Number(data.amount || 0);
+    const minInstallmentKobo =
+      remainingKobo > BigInt(100_000) ? BigInt(100_000) : remainingKobo;
+
+    let principalKobo = remainingKobo;
+    if (Number.isFinite(requestedNaira) && requestedNaira > 0) {
+      const requestedKobo = BigInt(Math.round(requestedNaira * 100));
+      if (requestedKobo >= minInstallmentKobo && requestedKobo <= remainingKobo) {
+        principalKobo = requestedKobo;
+      }
+    }
+
+    const gatewayFeeKobo = computePaystackConvenienceFeeKobo(principalKobo);
+    const totalGatewayChargeKobo = principalKobo + gatewayFeeKobo;
+    const principalNaira = Number(principalKobo) / 100;
+
+    // Mint clean Paystack checkout reference (never reuse a teller-uploaded Pending ref)
+    let reference = data.trackingId?.trim() || "";
+    const existing = reference
+      ? await prisma.payment_Record.findUnique({ where: { Reference: reference } })
+      : null;
 
     if (existing) {
-      // Prevent IDOR: student cannot attach to or overwrite another student's reference
       if (existing.StudentID !== student.StudentID) {
         return { error: "FORBIDDEN: Payment reference belongs to another student." };
       }
-      if (existing.Status === "Approved") {
+      if (existing.Status === "Approved" || existing.Status === "Successful") {
         return { error: "This fee order has already been paid and approved." };
       }
-      // Never allow client-supplied data.amount to reduce the server-authoritative order amount
-      const classSchedule = await getFeeScheduleForClass(student.Class?.ClassName, student.Class?.Level);
-      const minExpectedNaira = classSchedule.totalNaira;
-      const existingKobo =
-        existing.AmountKobo > BigInt(0)
-          ? existing.AmountKobo
-          : BigInt(Math.round(Math.max(existing.AmountPaid || minExpectedNaira, minExpectedNaira) * 100));
-      authoritativeKobo = existingKobo;
-      authoritativeNaira = Number(existingKobo) / 100;
-
-      await prisma.payment_Record.update({
-        where: { Reference: reference },
-        data: {
-          AmountPaid: authoritativeNaira,
-          AmountKobo: authoritativeKobo,
-          Channel: "PAYSTACK",
-        },
-      });
+      if (existing.receiptStorageKey || existing.ReceiptUrl) {
+        // Generate fresh ref so pending bank teller receipt upload is preserved cleanly
+        reference = await generateOrderTrackingId(activeTerm.TermName, activeTerm.SessionName);
+        await prisma.payment_Record.create({
+          data: {
+            StudentID: student.StudentID,
+            TermID: activeTerm.TermID,
+            InvoiceID: ensured.invoice.id,
+            AmountPaid: principalNaira,
+            AmountKobo: principalKobo,
+            gatewayFeeKobo,
+            Channel: "PAYSTACK",
+            Description: String(data.description || ensured.invoice.Title).slice(0, 200),
+            Reference: reference,
+            Status: "Pending",
+            SubmittedBy: actor.UserID,
+          },
+        });
+      } else {
+        await prisma.payment_Record.update({
+          where: { Reference: reference },
+          data: {
+            InvoiceID: ensured.invoice.id,
+            AmountPaid: principalNaira,
+            AmountKobo: principalKobo,
+            gatewayFeeKobo,
+            Channel: "PAYSTACK",
+          },
+        });
+      }
     } else {
-      const classSchedule = await getFeeScheduleForClass(student.Class?.ClassName, student.Class?.Level);
-      authoritativeNaira = Math.max(Number(data.amount) || classSchedule.totalNaira, classSchedule.totalNaira);
-      authoritativeKobo = BigInt(Math.round(authoritativeNaira * 100));
-
+      reference =
+        reference ||
+        `WOF-PAY-${Date.now()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
       await prisma.payment_Record.create({
         data: {
           StudentID: student.StudentID,
-          TermID: Number(data.termId),
-          AmountPaid: authoritativeNaira,
-          AmountKobo: authoritativeKobo,
+          TermID: activeTerm.TermID,
+          InvoiceID: ensured.invoice.id,
+          AmountPaid: principalNaira,
+          AmountKobo: principalKobo,
+          gatewayFeeKobo,
           Channel: "PAYSTACK",
-          Description: String(data.description || "Consolidated School Fees").slice(0, 200),
+          Description: String(data.description || ensured.invoice.Title).slice(0, 200),
           Reference: reference,
           Status: "Pending",
           SubmittedBy: actor.UserID,
         },
       });
+    }
+
+    const payerEmail =
+      ("User" in student ? student.User?.Email : undefined) || student.ParentEmail || actor.Email;
+    if (!payerEmail || !payerEmail.includes("@")) {
+      return { error: "A valid payer email address is required to launch Paystack checkout." };
+    }
+
+    const bankConfig = await getPortalBankConfig();
+    const allocPreview = allocateTermPaymentKobo({
+      grossPrincipalPaidKobo: principalKobo,
+      targetPortalFeeKobo: summary.portalTargetKobo || PORTAL_ICT_SERVICE_FEE_KOBO,
+      alreadyAllocatedPortalFeeKobo: summary.portalCreditedKobo,
+      gatewayFeeKobo,
+    });
+
+    const paystackPayload: Record<string, unknown> = {
+      email: payerEmail,
+      amount: Number(totalGatewayChargeKobo),
+      currency: "NGN",
+      reference,
+      callback_url: `${bankConfig.portalBaseUrl}/portal/fees?payment=verify&studentId=${student.StudentID}`,
+      metadata: {
+        studentId: student.StudentID,
+        admissionNo: student.AdmissionNo,
+        termId: activeTerm.TermID,
+        principalKobo: principalKobo.toString(),
+        portalShareKobo: allocPreview.providerShareKobo.toString(),
+        schoolShareKobo: allocPreview.schoolShareKobo.toString(),
+        gatewayFeeKobo: gatewayFeeKobo.toString(),
+      },
+    };
+
+    // Optional Paystack Subaccount Auto-Split:
+    // Routes schoolShareKobo (+ gatewayFee depending on subaccount bearer) and ₦800 Provider fee
+    if (bankConfig.paystackSubaccountCode && allocPreview.providerShareKobo > BigInt(0)) {
+      paystackPayload.subaccount = bankConfig.paystackSubaccountCode;
+      paystackPayload.transaction_charge = Number(allocPreview.schoolShareKobo);
+      paystackPayload.bearer = "account";
     }
 
     const response = await fetch("https://api.paystack.co/transaction/initialize", {
@@ -731,13 +1543,7 @@ export async function initializePayment(data: { amount: number; description: str
         Authorization: `Bearer ${paystackKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        email: student.User?.Email,
-        amount: Number(authoritativeKobo),
-        currency: "NGN",
-        reference: reference,
-        callback_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/portal/fees?payment=verify`,
-      }),
+      body: JSON.stringify(paystackPayload),
     });
 
     const paystackData = await response.json();
@@ -746,10 +1552,12 @@ export async function initializePayment(data: { amount: number; description: str
       return { error: paystackData.message || "Failed to initialize payment gateway" };
     }
 
-    return { authorizationUrl: paystackData.data.authorization_url };
-  } catch (error: any) {
+    return { authorizationUrl: paystackData.data.authorization_url, reference };
+  } catch (error: unknown) {
     console.error("Payment init error:", error);
-    return { error: error.message || "An unexpected error occurred" };
+    return {
+      error: error instanceof Error ? error.message : "An unexpected error occurred",
+    };
   }
 }
 
@@ -772,8 +1580,17 @@ export async function verifyPaystackPayment(reference: string) {
     const payment = await prisma.payment_Record.findUnique({
       where: { Reference: cleanRef },
       include: {
+        Term: true,
         Student: {
-          include: { ParentLinks: { include: { Parent: true } } },
+          include: {
+            Class: true,
+            User: { select: SAFE_USER_SELECT },
+            ParentLinks: {
+              include: {
+                Parent: { include: { User: { select: { Email: true } } } },
+              },
+            },
+          },
         },
       },
     });
@@ -782,7 +1599,6 @@ export async function verifyPaystackPayment(reference: string) {
       return { success: false, error: "Payment record not found for this reference." };
     }
 
-    // Enforce ownership or finance admin authorization (blocks IDOR)
     const isFinanceAdmin =
       actor.roles.has("SUPER_ADMIN") ||
       actor.roles.has("PRINCIPAL") ||
@@ -802,16 +1618,17 @@ export async function verifyPaystackPayment(reference: string) {
       return { success: false, error: "FORBIDDEN: You are not authorized to verify this payment." };
     }
 
-    if (payment.Status === "Approved") {
+    if (payment.Status === "Approved" || payment.Status === "Successful") {
       return { success: true, message: "Payment is already verified and approved." };
     }
 
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${paystackKey}`,
-      },
-    });
+    const response = await fetch(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${paystackKey}` },
+      }
+    );
 
     const data = await response.json();
 
@@ -822,7 +1639,6 @@ export async function verifyPaystackPayment(reference: string) {
       };
     }
 
-    // Verify currency and exact amount in kobo
     const gatewayCurrency = String(data.data?.currency || "").toUpperCase();
     if (gatewayCurrency && gatewayCurrency !== "NGN") {
       return {
@@ -831,13 +1647,18 @@ export async function verifyPaystackPayment(reference: string) {
       };
     }
 
-    const paidKobo = BigInt(Math.round(Number(data.data?.amount || 0)));
-    const expectedKobo =
+    const paidTotalOnGatewayKobo = BigInt(Math.round(Number(data.data?.amount || 0)));
+    const principalExpectedKobo =
       payment.AmountKobo > BigInt(0)
         ? payment.AmountKobo
-        : BigInt(Math.round(Math.max(payment.AmountPaid || MINIMUM_TERM_FEE_NAIRA, MINIMUM_TERM_FEE_NAIRA) * 100));
+        : BigInt(Math.round((Number(payment.AmountPaid) || 0) * 100));
+    const expectedTotalWithGatewayKobo =
+      principalExpectedKobo + (payment.gatewayFeeKobo || BigInt(0));
 
-    if (paidKobo < expectedKobo) {
+    if (
+      expectedTotalWithGatewayKobo <= BigInt(0) ||
+      paidTotalOnGatewayKobo < expectedTotalWithGatewayKobo
+    ) {
       await writeAuditLog({
         actorId: actor.UserID,
         action: "PAYMENT_AMOUNT_MISMATCH_BLOCKED",
@@ -845,61 +1666,139 @@ export async function verifyPaystackPayment(reference: string) {
         entityId: payment.PaymentID,
         newValue: {
           reference: cleanRef,
-          paidKobo: paidKobo.toString(),
-          expectedKobo: expectedKobo.toString(),
+          paidTotalOnGatewayKobo: paidTotalOnGatewayKobo.toString(),
+          expectedTotalWithGatewayKobo: expectedTotalWithGatewayKobo.toString(),
         },
       });
       return {
         success: false,
-        error: "SECURITY_VIOLATION: Amount paid on gateway is less than the required invoice amount.",
+        error:
+          "SECURITY_VIOLATION: Amount paid on gateway is less than the required invoice + gateway amount.",
       };
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.webhookEvent.upsert({
-        where: { eventKey: cleanRef },
-        update: {},
-        create: {
-          provider: "PAYSTACK",
-          eventKey: cleanRef,
-          processedAt: new Date(),
+    const bankConfig = await getPortalBankConfig();
+    const hasSubaccount = Boolean(bankConfig.paystackSubaccountCode);
+    const actualPaystackFeeKobo =
+      data.data?.fees !== undefined && data.data?.fees !== null
+        ? BigInt(Math.max(0, Math.round(Number(data.data.fees))))
+        : payment.gatewayFeeKobo || BigInt(0);
+
+    let ledgerEntry: Awaited<ReturnType<typeof recordPaymentCreditInTx>> | null = null;
+    let remainingAfterKobo = BigInt(0);
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Atomic webhook/verify mutex via unique constraint (`P2002` prevents double processing)
+        await tx.webhookEvent.create({
+          data: {
+            provider: "PAYSTACK",
+            eventKey: cleanRef,
+            processedAt: new Date(),
+          },
+        });
+
+        let invoiceId = payment.InvoiceID;
+        if (!invoiceId && payment.Term) {
+          const ensured = await ensureStudentTermInvoice(tx, {
+            studentId: payment.StudentID,
+            termId: payment.TermID,
+            termLabel: `${payment.Term.SessionName} (${payment.Term.TermName})`,
+            className: payment.Student?.Class?.ClassName,
+            level: payment.Student?.Class?.Level,
+          });
+          invoiceId = ensured.invoice.id;
+        }
+
+        await tx.payment_Record.update({
+          where: { Reference: cleanRef },
+          data: {
+            InvoiceID: invoiceId,
+            Status: "Approved",
+            Channel: "PAYSTACK",
+            gatewayFeeKobo: actualPaystackFeeKobo,
+            ReviewedAt: new Date(),
+          },
+        });
+
+        ledgerEntry = await recordPaymentCreditInTx(tx, {
+          paymentId: payment.PaymentID,
+          invoiceId,
+          studentId: payment.StudentID,
+          termId: payment.TermID,
+          principalKobo: principalExpectedKobo,
+          gatewayFeeKobo: actualPaystackFeeKobo,
+          settlementChannel: hasSubaccount ? "PAYSTACK_SUBACCOUNT" : "SCHOOL_COLLECTION",
+          reference: cleanRef,
+          notes: "Verified via callback Paystack verification",
+          actorId: actor.UserID,
+        });
+
+        await tx.enrollment.updateMany({
+          where: { StudentID: payment.StudentID, TermID: payment.TermID },
+          data: { Status: "ACTIVE" },
+        });
+
+        const summary = await getStudentTermBillingSummary(tx, payment.StudentID, payment.TermID);
+        remainingAfterKobo = summary.remainingTotalKobo;
+      });
+    } catch (txErr: unknown) {
+      if ((txErr as { code?: string })?.code === "P2002") {
+        // Webhook won the race concurrently — return cleanly without duplicate logs or emails
+        return { success: true, message: "Payment is already verified and approved!" };
+      }
+      throw txErr;
+    }
+
+    if (ledgerEntry) {
+      const l = ledgerEntry as Awaited<ReturnType<typeof recordPaymentCreditInTx>>;
+      await writeAuditLog({
+        actorId: actor.UserID,
+        action: "PAYSTACK_PAYMENT_VERIFIED",
+        entity: "Payment_Record",
+        entityId: payment.PaymentID,
+        newValue: {
+          reference: cleanRef,
+          principalKobo: principalExpectedKobo.toString(),
+          gatewayFeeKobo: actualPaystackFeeKobo.toString(),
+          schoolShareKobo: l.schoolShareKobo.toString(),
+          providerShareKobo: l.providerShareKobo.toString(),
+          modelCode: l.modelCode,
         },
       });
 
-      await tx.payment_Record.update({
-        where: { Reference: cleanRef },
-        data: {
-          Status: "Approved",
-          Channel: "PAYSTACK",
-          ReviewedAt: new Date(),
-        },
-      });
-
-      await tx.student.update({
-        where: { StudentID: payment.StudentID },
-        data: { HasPaidFees: true },
-      });
-
-      await tx.enrollment.updateMany({
-        where: { StudentID: payment.StudentID, TermID: payment.TermID },
-        data: { Status: "ACTIVE" },
-      });
-    });
-
-    await writeAuditLog({
-      actorId: actor.UserID,
-      action: "PAYSTACK_PAYMENT_VERIFIED",
-      entity: "Payment_Record",
-      entityId: payment.PaymentID,
-      newValue: { reference: cleanRef, paidKobo: paidKobo.toString() },
-    });
+      const studentDisplayName =
+        payment.Student?.PreferredName ||
+        [payment.Student?.FirstName, payment.Student?.LastName].filter(Boolean).join(" ") ||
+        "Student";
+      const termLabel = payment.Term
+        ? `${payment.Term.SessionName} (${payment.Term.TermName})`
+        : "Current Academic Term";
+      await sendFeePaymentApprovedNotification({
+        recipients: collectStudentEmails(payment.Student),
+        studentName: studentDisplayName,
+        admissionNo: payment.Student?.AdmissionNo || "N/A",
+        className: payment.Student?.Class?.ClassName,
+        termLabel,
+        reference: cleanRef,
+        amountPaidNaira: Number(principalExpectedKobo) / 100,
+        channel: "PAYSTACK",
+        schoolShareNaira: Number(l.schoolShareKobo) / 100,
+        providerShareNaira: Number(l.providerShareKobo) / 100,
+        gatewayFeeNaira: Number(actualPaystackFeeKobo) / 100,
+        remainingBalanceNaira: Number(remainingAfterKobo) / 100,
+      }).catch((err) => console.warn("[Email] Paystack verification notification warning:", err));
+    }
 
     revalidatePath("/portal/fees");
     revalidatePath("/portal/admin/payments");
 
     return { success: true, message: "Payment verified and approved successfully!" };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("verifyPaystackPayment error:", error);
-    return { success: false, error: error.message || "Verification request failed" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Verification request failed",
+    };
   }
 }

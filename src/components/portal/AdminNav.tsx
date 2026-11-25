@@ -16,8 +16,30 @@ import {
 } from "react-icons/fi";
 
 /** Admin Control Center sidebar contents (presentational; auth is enforced by the layout). */
-export default function AdminNav({ email, roles }: { email: string; roles: Iterable<string> }) {
+export default function AdminNav({
+  email,
+  roles,
+  capabilities,
+}: {
+  email: string;
+  roles: Iterable<string>;
+  capabilities?: Iterable<string>;
+}) {
   const roleList = Array.from(roles);
+  const capSet = capabilities ? new Set(Array.from(capabilities)) : null;
+  const hasAnyCap = (req?: string[]) => {
+    if (!req || req.length === 0) return true;
+    if (!capSet) return true;
+    return req.some((c) => capSet.has(c));
+  };
+  const showTeacherLink =
+    !capSet ||
+    roleList.some((r) =>
+      ["ADMIN", "SUPER_ADMIN", "PRINCIPAL", "TEACHER", "FORM_MASTER"].includes(
+        String(r).toUpperCase()
+      )
+    );
+
   return (
     <>
       <div style={{ padding: "0 1.5rem", marginBottom: "1.5rem" }}>
@@ -87,216 +109,244 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
         >
           <FiHome color="#4ade80" /> Executive Overview
         </Link>
-        <Link
-          href="/portal/admin/terms"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiCalendar /> Sessions & Term Locks
-        </Link>
-        <Link
-          href="/portal/admin/classes"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiLayers /> Classes &amp; Class Teachers
-        </Link>
-        <Link
-          href="/portal/admin/teachers"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiBriefcase /> Teacher Subject Matrix
-        </Link>
-        <Link
-          href="/portal/admin/admissions"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiCheckSquare /> Admissions Pipeline
-        </Link>
-        <Link
-          href="/portal/admin/students"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiUsers /> Student Directory
-        </Link>
-        <Link
-          href="/portal/admin/payments"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiCreditCard /> Bursary & Fee Audit
-        </Link>
-        <Link
-          href="/portal/admin/cards"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiKey /> Scratch Card Vault
-        </Link>
-        <Link
-          href="/portal/admin/results"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiFileText /> Broadsheet & Results
-        </Link>
-        <Link
-          href="/portal/admin/attendance"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiCalendar /> Attendance Register
-        </Link>
-        <Link
-          href="/portal/admin/cbt"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiCheckSquare /> CBT & Day Locks
-        </Link>
-        <Link
-          href="/portal/admin/users"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiShield /> User Accounts & RBAC
-        </Link>
-        <Link
-          href="/portal/admin/audit"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiShield /> Audit Hash Explorer
-        </Link>
-        <Link
-          href="/portal/admin/inquiries"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiInbox /> Contact Inquiries
-        </Link>
-        <Link
-          href="/portal/admin/news"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiFileText /> Public News &amp; Events
-        </Link>
-        <Link
-          href="/portal/admin/gallery"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.85rem",
-            padding: "0.7rem 1rem",
-            color: "var(--sidebar-muted)",
-            textDecoration: "none",
-            borderRadius: "0.5rem",
-          }}
-        >
-          <FiImage /> Public Photo Gallery
-        </Link>
+        {hasAnyCap(["MANAGE_STRUCTURE", "FREEZE_TERM"]) && (
+          <Link
+            href="/portal/admin/terms"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiCalendar /> Sessions & Term Locks
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_STRUCTURE"]) && (
+          <Link
+            href="/portal/admin/classes"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiLayers /> Classes &amp; Class Teachers
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_USERS", "MANAGE_STRUCTURE"]) && (
+          <Link
+            href="/portal/admin/teachers"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiBriefcase /> Teacher Subject Matrix
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_STUDENTS"]) && (
+          <>
+            <Link
+              href="/portal/admin/admissions"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.85rem",
+                padding: "0.7rem 1rem",
+                color: "var(--sidebar-muted)",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+              }}
+            >
+              <FiCheckSquare /> Admissions Pipeline
+            </Link>
+            <Link
+              href="/portal/admin/students"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.85rem",
+                padding: "0.7rem 1rem",
+                color: "var(--sidebar-muted)",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+              }}
+            >
+              <FiUsers /> Student Directory
+            </Link>
+          </>
+        )}
+        {hasAnyCap(["MANAGE_FINANCE", "APPROVE_PAYMENTS"]) && (
+          <Link
+            href="/portal/admin/payments"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiCreditCard /> Bursary & Fee Audit
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_CARDS"]) && (
+          <Link
+            href="/portal/admin/cards"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiKey /> Scratch Card Vault
+          </Link>
+        )}
+        {hasAnyCap(["APPROVE_RESULTS", "PUBLISH_RESULTS", "UNLOCK_SHEETS", "CORRECT_SCORES"]) && (
+          <Link
+            href="/portal/admin/results"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiFileText /> Broadsheet & Results
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_STUDENTS", "APPROVE_RESULTS"]) && (
+          <Link
+            href="/portal/admin/attendance"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiCalendar /> Attendance Register
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_CBT"]) && (
+          <Link
+            href="/portal/admin/cbt"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiCheckSquare /> CBT & Day Locks
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_USERS"]) && (
+          <Link
+            href="/portal/admin/users"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiShield /> User Accounts & RBAC
+          </Link>
+        )}
+        {hasAnyCap(["VIEW_AUDIT"]) && (
+          <Link
+            href="/portal/admin/audit"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+              padding: "0.7rem 1rem",
+              color: "var(--sidebar-muted)",
+              textDecoration: "none",
+              borderRadius: "0.5rem",
+            }}
+          >
+            <FiShield /> Audit Hash Explorer
+          </Link>
+        )}
+        {hasAnyCap(["MANAGE_STUDENTS", "MANAGE_SYSTEM"]) && (
+          <>
+            <Link
+              href="/portal/admin/inquiries"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.85rem",
+                padding: "0.7rem 1rem",
+                color: "var(--sidebar-muted)",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+              }}
+            >
+              <FiInbox /> Contact Inquiries
+            </Link>
+            <Link
+              href="/portal/admin/news"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.85rem",
+                padding: "0.7rem 1rem",
+                color: "var(--sidebar-muted)",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+              }}
+            >
+              <FiFileText /> Public News &amp; Events
+            </Link>
+            <Link
+              href="/portal/admin/gallery"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.85rem",
+                padding: "0.7rem 1rem",
+                color: "var(--sidebar-muted)",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+              }}
+            >
+              <FiImage /> Public Photo Gallery
+            </Link>
+          </>
+        )}
         <Link
           href="/portal/messages"
           style={{
@@ -312,31 +362,33 @@ export default function AdminNav({ email, roles }: { email: string; roles: Itera
           <FiFileText /> Admin–Teacher Comms
         </Link>
 
-        <div
-          style={{
-            marginTop: "1rem",
-            paddingTop: "1rem",
-            borderTop: "1px solid rgba(255,255,255,0.12)",
-          }}
-        >
-          <Link
-            href="/portal/teacher"
+        {showTeacherLink && (
+          <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.85rem",
-              padding: "0.7rem 1rem",
-              color: "#93c5fd",
-              background: "rgba(59, 130, 246, 0.14)",
-              textDecoration: "none",
-              borderRadius: "0.5rem",
-              fontWeight: 600,
-              fontSize: "0.88rem",
+              marginTop: "1rem",
+              paddingTop: "1rem",
+              borderTop: "1px solid rgba(255,255,255,0.12)",
             }}
           >
-            <FiBookOpen /> Supervisory Teacher View
-          </Link>
-        </div>
+            <Link
+              href="/portal/teacher"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.85rem",
+                padding: "0.7rem 1rem",
+                color: "#93c5fd",
+                background: "rgba(59, 130, 246, 0.14)",
+                textDecoration: "none",
+                borderRadius: "0.5rem",
+                fontWeight: 600,
+                fontSize: "0.88rem",
+              }}
+            >
+              <FiBookOpen /> Supervisory Teacher View
+            </Link>
+          </div>
+        )}
       </nav>
     </>
   );

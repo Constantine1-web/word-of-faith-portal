@@ -255,7 +255,7 @@ export async function getAdminDashboardStats() {
 
 export async function getUsersList(roleFilter?: string) {
   try {
-    await requireAdmin();
+    await requireCapability("MANAGE_USERS");
     const rawUsers = await prisma.user.findMany({
       where: roleFilter ? { Role: { RoleName: roleFilter } } : undefined,
       include: {
@@ -449,7 +449,22 @@ export async function createUserAccount(data: {
       };
     }
 
-    const defaultPassword = data.password || "wofschools2026";
+    const isAutoPassword = !data.password || data.password.trim().length === 0;
+    let defaultPassword = (data.password || "").trim();
+    if (isAutoPassword) {
+      const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+      let randPart = "";
+      for (let i = 0; i < 8; i++) {
+        randPart += alphabet[crypto.randomInt(0, alphabet.length)];
+      }
+      defaultPassword = `Wof@${randPart}!`;
+    } else if (defaultPassword.length < 8) {
+      return {
+        success: false,
+        error: "Password must be at least 8 characters long.",
+      };
+    }
+
     const passwordHash = await bcrypt.hash(defaultPassword, 12);
 
     const user = await prisma.user.create({
@@ -458,6 +473,7 @@ export async function createUserAccount(data: {
         PasswordHash: passwordHash,
         RoleID: role.RoleID,
         IsActive: true,
+        MustChangePassword: isAutoPassword,
       },
       select: {
         UserID: true,
@@ -572,7 +588,19 @@ export async function adminResetPassword(userId: number, newPassword?: string) {
       };
     }
 
-    const pass = newPassword || "wofschools2026";
+    const isAutoReset = !newPassword || newPassword.trim().length === 0;
+    let pass = (newPassword || "").trim();
+    if (isAutoReset) {
+      const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+      let randPart = "";
+      for (let i = 0; i < 8; i++) {
+        randPart += alphabet[crypto.randomInt(0, alphabet.length)];
+      }
+      pass = `Wof@${randPart}!`;
+    } else if (pass.length < 8) {
+      return { success: false, error: "New password must be at least 8 characters long." };
+    }
+
     const passwordHash = await bcrypt.hash(pass, 12);
 
     const updated = await prisma.user.update({
@@ -581,8 +609,9 @@ export async function adminResetPassword(userId: number, newPassword?: string) {
         PasswordHash: passwordHash,
         TokenVersion: { increment: 1 },
         FailedLoginAttempts: 0,
-        LockedUntil: null
-      }
+        LockedUntil: null,
+        MustChangePassword: isAutoReset,
+      },
     });
 
     await writeAuditLog({
@@ -608,7 +637,7 @@ export async function adminResetPassword(userId: number, newPassword?: string) {
 
 export async function getClassesWithAllocations() {
   try {
-    await requireAdmin();
+    await requireCapability(["MANAGE_STRUCTURE", "MANAGE_USERS"]);
     const classes = await prisma.class.findMany({
       include: {
         FormMaster: {
@@ -650,7 +679,7 @@ export async function getClassesWithAllocations() {
 }
 
 export async function addClassArm(className: string, level: string, formMasterId?: number) {
-  await requireAdmin();
+  await requireCapability("MANAGE_STRUCTURE");
 
   try {
     const existing = await prisma.class.findUnique({
@@ -678,7 +707,7 @@ export async function addClassArm(className: string, level: string, formMasterId
 }
 
 export async function assignFormMaster(classId: number, teacherUserId: number | null) {
-  const actor = await requireAdmin();
+  const actor = await requireCapability("MANAGE_STRUCTURE");
 
   try {
     const updated = await prisma.class.update({
@@ -726,7 +755,7 @@ export async function assignSubjectTeacher(data: {
   classId: number;
   termId?: number;
 }) {
-  await requireAdmin();
+  await requireCapability("MANAGE_STRUCTURE");
 
   try {
     // If no term specified, default to active term
@@ -764,7 +793,7 @@ export async function assignSubjectTeacher(data: {
 }
 
 export async function removeSubjectTeacherMap(mapId: number) {
-  await requireAdmin();
+  await requireCapability("MANAGE_STRUCTURE");
 
   try {
     await prisma.teacher_Subject_Map.delete({
@@ -782,7 +811,7 @@ export async function removeSubjectTeacherMap(mapId: number) {
 
 /**
  * Unified One-Step Teacher Enrollment & Academic Allocation Action:
- * Atomically provisions the teacher's User account, assigns their optional Form Master Class Arm,
+ * Atomically provisions the teacher's User account, assigns their optional Class Teacher Arm,
  * maps their Subject + Class Arm allocations for the active term, writes a hash-chained AuditLog,
  * and dispatches an onboarding welcome email via SMTP.
  */
@@ -1008,7 +1037,7 @@ export async function enrollTeacherComplete(data: {
 // ==========================================
 
 export async function getAdmissionApplications() {
-  await requireAdmin();
+  await requireCapability("MANAGE_STUDENTS");
 
   try {
     const applications = await prisma.admission_Application.findMany({
@@ -1028,7 +1057,7 @@ export async function enrollApplicantToStudent(data: {
   parentContact: string;
   parentEmail?: string;
 }) {
-  await requireAdmin();
+  await requireCapability("MANAGE_STUDENTS");
 
   try {
     const app = await prisma.admission_Application.findUnique({
@@ -1141,7 +1170,7 @@ export async function enrollApplicantToStudent(data: {
 }
 
 export async function rejectAdmissionApplication(applicationId: number, reason?: string) {
-  await requireAdmin();
+  await requireCapability("MANAGE_STUDENTS");
 
   try {
     const app = await prisma.admission_Application.findUnique({
@@ -1194,7 +1223,7 @@ export async function addStudent(data: {
   dateOfBirth?: string;
   gender?: string;
 }) {
-  await requireAdmin();
+  await requireCapability("MANAGE_STUDENTS");
 
   try {
     const secrets = generateStudentInvitationSecrets();
@@ -1213,7 +1242,7 @@ export async function addStudent(data: {
           LastName: data.lastName.trim(),
           Gender: data.gender || "Unspecified",
           ClassID: Number(data.classId),
-          DateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : new Date("2012-01-01"),
+          DateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
           ParentContact: data.parentContact?.trim() || "08000000000",
           ParentEmail: cleanEmail,
           PreferredName: `${data.firstName.trim()} ${data.lastName.trim()}`,
@@ -1250,29 +1279,50 @@ export async function addStudent(data: {
 }
 
 export async function deleteStudent(studentId: number) {
-  await requireAdmin();
+  const actor = await requireCapability("MANAGE_STUDENTS");
+  await requireStepUpIfTotpEnabled(actor.UserID, "deleteStudent");
 
   try {
     const student = await prisma.student.findUnique({ where: { StudentID: studentId } });
     if (!student) throw new Error("Student not found.");
 
+    // Soft-withdraw student rather than hard-deleting financial ledgers and academic history
     await prisma.$transaction(async (tx) => {
-      await tx.student.delete({ where: { StudentID: studentId } });
+      await tx.student.update({
+        where: { StudentID: studentId },
+        data: {
+          EnrolmentStatus: "WITHDRAWN",
+          ClaimCodeHash: null,
+          ClaimCodeExpiresAt: null,
+        },
+      });
       if (student.UserID) {
-        await tx.user.delete({ where: { UserID: student.UserID } });
+        await tx.user.update({
+          where: { UserID: student.UserID },
+          data: { IsActive: false, TokenVersion: { increment: 1 } },
+        });
       }
+      await writeAuditLog({
+        tx,
+        actorId: actor.UserID,
+        action: "STUDENT_WITHDRAWN",
+        entity: "Student",
+        entityId: studentId,
+        oldValue: { enrolmentStatus: student.EnrolmentStatus, admissionNo: student.AdmissionNo },
+        newValue: { enrolmentStatus: "WITHDRAWN" },
+      });
     });
 
     revalidatePath("/portal/admin/students");
     return { success: true };
   } catch (error: any) {
     console.error("Delete student error:", error);
-    return { error: error.message || "Failed to delete student." };
+    return { error: error.message || "Failed to withdraw student." };
   }
 }
 
 export async function deleteClass(classId: number) {
-  await requireAdmin();
+  const actor = await requireCapability("MANAGE_STRUCTURE");
 
   try {
     const classRecord = await prisma.class.findUnique({
@@ -1286,6 +1336,14 @@ export async function deleteClass(classId: number) {
     }
 
     await prisma.class.delete({ where: { ClassID: classId } });
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "CLASS_DELETED",
+      entity: "Class",
+      entityId: classId,
+      oldValue: { className: classRecord.ClassName, level: classRecord.Level },
+    });
 
     revalidatePath("/portal/admin/classes");
     return { success: true };
@@ -1304,12 +1362,52 @@ export async function addTeacher(email: string) {
 }
 
 export async function deleteTeacher(userId: number) {
-  await requireAdmin();
+  const actor = await requireCapability("MANAGE_USERS");
+  await requireStepUpIfTotpEnabled(actor.UserID, "deleteTeacher");
 
   try {
+    if (actor.UserID === userId) {
+      throw new Error("You cannot remove your own account.");
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { UserID: userId },
+      include: { Role: true, RoleAssignments: true },
+    });
+    if (!target) throw new Error("Staff account not found.");
+
+    const isPrivilegedTarget =
+      target.Role?.RoleName === "SUPER_ADMIN" ||
+      target.Role?.RoleName === "Admin" ||
+      target.Role?.RoleName === "PRINCIPAL" ||
+      target.RoleAssignments.some((ra) => ["SUPER_ADMIN", "PRINCIPAL"].includes(ra.Role));
+
+    if (isPrivilegedTarget && !actor.roles.has("SUPER_ADMIN") && !actor.roles.has("Admin")) {
+      throw new Error("Only SUPER_ADMIN may remove privileged administrative staff.");
+    }
+
     await prisma.$transaction(async (tx) => {
+      await tx.class.updateMany({
+        where: { FormMasterID: userId },
+        data: { FormMasterID: null },
+      });
       await tx.teacher_Subject_Map.deleteMany({ where: { TeacherID: userId } });
-      await tx.user.delete({ where: { UserID: userId } });
+      await tx.userRoleAssignment.deleteMany({
+        where: { UserID: userId, Role: { in: ["TEACHER", "FORM_MASTER"] } },
+      });
+      await tx.user.update({
+        where: { UserID: userId },
+        data: { IsActive: false, TokenVersion: { increment: 1 } },
+      });
+      await writeAuditLog({
+        tx,
+        actorId: actor.UserID,
+        action: "TEACHER_DEACTIVATED",
+        entity: "User",
+        entityId: userId,
+        oldValue: { email: target.Email, isActive: target.IsActive },
+        newValue: { isActive: false },
+      });
     });
 
     revalidatePath("/portal/admin/teachers");
@@ -1317,7 +1415,7 @@ export async function deleteTeacher(userId: number) {
     return { success: true };
   } catch (error: any) {
     console.error("Delete teacher error:", error);
-    return { error: error.message || "Failed to delete teacher." };
+    return { error: error.message || "Failed to deactivate teacher." };
   }
 }
 

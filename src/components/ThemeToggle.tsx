@@ -1,15 +1,19 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 import { FiSun, FiMoon } from "react-icons/fi";
 
-export default function ThemeToggle() {
-  const [mounted, setMounted] = useState(false);
-  const { theme, resolvedTheme, setTheme } = useTheme();
+const emptySubscribe = () => () => {};
 
-  useEffect(() => setMounted(true), []);
+export default function ThemeToggle() {
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+  const { theme, resolvedTheme, setTheme } = useTheme();
 
   if (!mounted) return <div style={{ width: "130px", height: "40px" }} />;
 

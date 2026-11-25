@@ -1,5 +1,7 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { streamText } from "ai";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
 import { rateLimit } from "@/lib/rateLimit";
 
 export const maxDuration = 60;
@@ -48,6 +50,21 @@ export async function POST(req: Request) {
         JSON.stringify({ error: "No valid user or assistant messages provided." }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
+    }
+
+    const hasImageAttachments = safeRawMessages.some(
+      (m: any) => typeof m.content === "string" && m.content.includes("[ATTACHMENT:")
+    );
+    if (hasImageAttachments) {
+      const session = await getServerSession(authOptions);
+      if (!session?.user) {
+        return new Response(
+          JSON.stringify({
+            error: "Please sign in to your Word of Faith portal account before uploading study images to Faithbot.",
+          }),
+          { status: 401, headers: { "Content-Type": "application/json" } }
+        );
+      }
     }
 
     const apiKey = (

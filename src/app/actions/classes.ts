@@ -140,11 +140,18 @@ export async function commitClassListSync(
           .slice(0, 140);
 
         if (row.isExisting && row.existingStudentId) {
+          const existing = await tx.student.findUnique({
+            where: { StudentID: row.existingStudentId },
+            select: { IdentityVerified: true, UserID: true },
+          });
           await tx.student.update({
             where: { StudentID: row.existingStudentId },
             data: {
               ClassID: classId,
-              PreferredName: safeName,
+              // Preserve student's verified/claimed display name once onboarded
+              ...(existing && !existing.IdentityVerified && !existing.UserID
+                ? { PreferredName: safeName }
+                : {}),
             },
           });
 
@@ -184,7 +191,7 @@ export async function commitClassListSync(
               FirstName: safeName.split(" ")[0] || safeName,
               LastName: safeName.split(" ").slice(1).join(" ") || safeName,
               ClassID: classId,
-              DateOfBirth: new Date("2012-01-01"),
+              DateOfBirth: null,
               ParentContact: "08000000000",
               HasPaidFees: false,
               RegistrationStatus: "INVITED",

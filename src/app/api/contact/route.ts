@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import prisma from "@/lib/db";
 import { rateLimit } from "@/lib/rateLimit";
 import { sendEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/security";
@@ -36,17 +37,28 @@ export async function POST(req: Request) {
     const { name, email, subject, message } = parsed.data;
     const referenceCode = `WOF-INQ-${Date.now().toString().slice(-6)}`;
 
-    // Record inquiry in immutable audit trail so school administrators never miss an inquiry
+    await prisma.contactInquiry.create({
+      data: {
+        referenceCode,
+        name,
+        email: email.toLowerCase(),
+        subject: subject || "General School Inquiry",
+        message,
+        ipAddress: ip,
+        status: "NEW",
+        historyJson: [],
+      },
+    });
+
+    // Record inquiry in immutable audit trail as well
     await writeAuditLog({
       actorId: null,
       action: "PUBLIC_CONTACT_INQUIRY",
       entity: "ContactMessage",
       entityId: referenceCode,
       newValue: {
-        name,
-        email: email.toLowerCase(),
+        referenceCode,
         subject: subject || "General School Inquiry",
-        message: message.slice(0, 1000),
       },
       ipAddress: ip,
     });

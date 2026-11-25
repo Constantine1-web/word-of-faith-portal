@@ -1,13 +1,16 @@
 import { PrismaClient } from "@prisma/client";
 
-const NEON_DATABASE_URL =
-  "postgresql://neondb_owner:npg_HCF5Druwz9kP@ep-young-paper-ayb1ixkz.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require&connect_timeout=30";
-
-const resolvedDatabaseUrl = process.env.DATABASE_URL || NEON_DATABASE_URL;
-
-if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = resolvedDatabaseUrl;
+function resolveDatabaseUrl(): string {
+  const configured = process.env.DATABASE_URL?.trim();
+  if (!configured) {
+    throw new Error(
+      "CRITICAL_CONFIGURATION_ERROR: DATABASE_URL environment variable must be set. Fallback credentials are strictly prohibited."
+    );
+  }
+  return configured;
 }
+
+const resolvedDatabaseUrl = resolveDatabaseUrl();
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 

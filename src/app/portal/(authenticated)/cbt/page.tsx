@@ -44,6 +44,21 @@ const QUANTITATIVE_SUBJECTS = new Set([
   "quantitative",
 ]);
 
+function cleanHtmlText(raw: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/<sub[^>]*>(.*?)<\/sub>/gi, "_($1)")
+    .replace(/<sup[^>]*>(.*?)<\/sup>/gi, "^($1)")
+    .replace(/<u[^>]*>(.*?)<\/u>/gi, "[$1]")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 function formatAllocatedDuration(questionCount: number, secondsPerQuestion: number): string {
   const totalSec = questionCount * secondsPerQuestion;
   const mins = Math.floor(totalSec / 60);
@@ -99,7 +114,32 @@ export default function CBTLandingPage() {
   };
 
   useEffect(() => {
-    loadStatus();
+    let cancelled = false;
+    (async () => {
+      const [res, analyticsRes] = await Promise.all([
+        getCbtStudentStatus(),
+        getCbtAnalyticsAndLeaderboard(),
+      ]);
+      if (cancelled) return;
+      if (analyticsRes.success) {
+        setAnalyticsData(analyticsRes);
+      }
+      if (res.success) {
+        setStudentStatus(res);
+        if (res.isStaffSupervisor) {
+          const staffRes = await getCbtIntegrityDashboard();
+          if (!cancelled && staffRes.success) {
+            setIntegrityData(staffRes);
+          }
+        }
+      }
+      if (!cancelled) {
+        setStatusLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSubjectChange = (newSubject: string) => {
@@ -135,6 +175,9 @@ export default function CBTLandingPage() {
     });
 
     if (res.success && res.attemptId) {
+      if (res.sessionToken && typeof window !== "undefined") {
+        window.sessionStorage.setItem(`wofs_cbt_tok_${res.attemptId}`, res.sessionToken);
+      }
       router.push(`/portal/cbt/quiz?attemptId=${encodeURIComponent(res.attemptId)}`);
     } else {
       setErrorMsg(res.error || "Unable to start CBT attempt.");
@@ -1088,8 +1131,9 @@ export default function CBTLandingPage() {
                   </div>
                   <div
                     style={{ fontSize: "0.92rem", color: "var(--color-gray-900)", fontWeight: 600, marginBottom: "0.65rem", lineHeight: 1.5 }}
-                    dangerouslySetInnerHTML={{ __html: item.stem }}
-                  />
+                  >
+                    {cleanHtmlText(item.stem)}
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 210px), 1fr))", gap: "0.45rem", fontSize: "0.83rem" }}>
                     {(item.options || []).map((opt: any) => {
                       const isCorrectOpt = opt.key.toLowerCase() === item.correctKey?.toLowerCase();

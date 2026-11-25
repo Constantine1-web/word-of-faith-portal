@@ -1,29 +1,53 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { getStudentProfile } from "@/app/actions/studentProfile";
+import { escapeHtml } from "@/lib/html-escape";
 import { useSession } from "next-auth/react";
-import { FiDownload, FiPrinter, FiX, FiCheckCircle, FiShield } from "react-icons/fi";
+import { FiDownload, FiPrinter, FiX, FiCheckCircle, FiUsers } from "react-icons/fi";
 
 export default function FeesHistoryPage() {
   const { data: session } = useSession();
+  const [wards, setWards] = useState<Array<{ studentId: number; admissionNo: string; fullName: string; className: string }>>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<number | undefined>(undefined);
   const [student, setStudent] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      if (session?.user) {
-        const res = await getStudentProfile(parseInt((session.user as any).id));
-        if (res.success) {
-          setStudent(res.student || null);
-          setPayments(res.payments || []);
-        }
-        setLoading(false);
+  const loadWardProfile = useCallback(
+    async (studentId?: number) => {
+      if (!session?.user) return;
+      setLoading(true);
+      const res: any = await getStudentProfile(parseInt(String((session.user as any).id), 10), studentId);
+      if (res.success) {
+        setWards(res.wards || []);
+        setStudent(res.student || null);
+        setSelectedStudentId(res.student?.id);
+        setPayments(res.payments || []);
       }
-    }
-    load();
+      setLoading(false);
+    },
+    [session]
+  );
+
+  useEffect(() => {
+    if (!session?.user) return;
+    let cancelled = false;
+    (async () => {
+      const res: any = await getStudentProfile(parseInt(String((session.user as any).id), 10), undefined);
+      if (cancelled) return;
+      if (res.success) {
+        setWards(res.wards || []);
+        setStudent(res.student || null);
+        setSelectedStudentId(res.student?.id);
+        setPayments(res.payments || []);
+      }
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [session]);
 
   const handlePrintReceipt = (receipt: any) => {
@@ -33,11 +57,20 @@ export default function FeesHistoryPage() {
       return;
     }
 
-    const receiptNo = `WOF/BUR/${new Date(receipt.date).getFullYear()}/${String(receipt.id).padStart(5, "0")}`;
-    const studentName = student?.fullName || student?.preferredName || student?.admissionNo || "Student";
-    const admissionNo = student?.admissionNo || "—";
-    const className = student?.className || "—";
-    const isApproved = receipt.status === "Approved" || receipt.status === "Successful";
+    const receiptNo = escapeHtml(`WOF/BUR/${new Date(receipt.date).getFullYear()}/${String(receipt.id).padStart(5, "0")}`);
+    const studentName = escapeHtml(student?.fullName || student?.preferredName || student?.admissionNo || "Student");
+    const admissionNo = escapeHtml(student?.admissionNo || "—");
+    const className = escapeHtml(student?.className || "—");
+    const levelName = escapeHtml(student?.level || "School");
+    const statusUpper = String(receipt.status || "").toUpperCase();
+    const isApproved = statusUpper === "APPROVED" || statusUpper === "SUCCESSFUL";
+    const safeTerm = escapeHtml(receipt.term || "");
+    const safeSession = escapeHtml(receipt.session || "");
+    const safeRef = escapeHtml(receipt.reference || `TXN-${receipt.id}`);
+    const safeChannel = escapeHtml(receipt.channel || "OFFICIAL");
+    const safeDesc = escapeHtml(receipt.description || "School Fees");
+    const safeAmount = escapeHtml(Number(receipt.amount).toLocaleString());
+    const safeStatus = escapeHtml(statusUpper);
 
     win.document.write(`
       <!DOCTYPE html>
@@ -52,7 +85,7 @@ export default function FeesHistoryPage() {
             .school-sub { font-size: 13px; color: #15803d; font-weight: 700; margin: 4px 0 0 0; }
             .doc-title { display: inline-block; margin-top: 12px; background: #0A2540; color: #fff; padding: 5px 16px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
             .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; background: #f8fafc; padding: 16px 20px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 24px; font-size: 13.5px; }
-            .meta-item strong { color: #0A2540; display: block; font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 2px; }
+            .meta-item strong { display: block; font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 2px; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
             th { background: #f1f5f9; color: #0A2540; text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; border-bottom: 2px solid #cbd5e1; }
             td { padding: 14px 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
@@ -72,35 +105,35 @@ export default function FeesHistoryPage() {
             <div class="meta-grid">
               <div class="meta-item"><strong>Student Name</strong>${studentName}</div>
               <div class="meta-item"><strong>Admission Number</strong>${admissionNo}</div>
-              <div class="meta-item"><strong>Class / Level</strong>${className} (${student?.level || "Secondary"})</div>
-              <div class="meta-item"><strong>Academic Term &amp; Session</strong>${receipt.term} (${receipt.session})</div>
-              <div class="meta-item"><strong>Transaction Reference</strong>${receipt.reference || `TXN-${receipt.id}`}</div>
-              <div class="meta-item"><strong>Payment Date &amp; Channel</strong>${new Date(receipt.date).toLocaleDateString("en-NG", { day: "2-digit", month: "long", year: "numeric" })} (${receipt.channel || "OFFICIAL"})</div>
+              <div class="meta-item"><strong>Class / Level</strong>${className} (${levelName})</div>
+              <div class="meta-item"><strong>Academic Term &amp; Session</strong>${safeTerm} (${safeSession})</div>
+              <div class="meta-item"><strong>Transaction Reference</strong>${safeRef}</div>
+              <div class="meta-item"><strong>Payment Date &amp; Channel</strong>${escapeHtml(new Date(receipt.date).toLocaleDateString("en-NG", { day: "2-digit", month: "long", year: "numeric" }))} (${safeChannel})</div>
             </div>
             <table>
               <thead>
                 <tr>
                   <th>Fee Description</th>
                   <th>Session / Term</th>
-                  <th style="text-align: right;">Amount Paid (NGN)</th>
+                  <th style="text-align: right;">Principal Credited (NGN)</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td><strong>${receipt.description}</strong></td>
-                  <td>${receipt.term} • ${receipt.session}</td>
-                  <td style="text-align: right; font-weight: 700;">₦${Number(receipt.amount).toLocaleString()}</td>
+                  <td><strong>${safeDesc}</strong></td>
+                  <td>${safeTerm} • ${safeSession}</td>
+                  <td style="text-align: right; font-weight: 700;">₦${safeAmount}</td>
                 </tr>
                 <tr class="amount-row">
-                  <td colspan="2">Total Amount Credited</td>
-                  <td style="text-align: right;">₦${Number(receipt.amount).toLocaleString()}.00</td>
+                  <td colspan="2">Total Principal Credited</td>
+                  <td style="text-align: right;">₦${safeAmount}.00</td>
                 </tr>
               </tbody>
             </table>
             <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div class="stamp">${isApproved ? "✓ VERIFIED & CLEARED BY BURSARY" : `STATUS: ${receipt.status.toUpperCase()}`}</div>
+              <div class="stamp">${isApproved ? "✓ VERIFIED & CLEARED BY BURSARY" : `STATUS: ${safeStatus}`}</div>
               <div style="text-align: right; font-size: 12px; color: #475569;">
-                <strong>Generated At:</strong> ${new Date().toLocaleString("en-NG")}
+                <strong>Generated At:</strong> ${escapeHtml(new Date().toLocaleString("en-NG"))}
               </div>
             </div>
             <div class="footer">
@@ -119,13 +152,35 @@ export default function FeesHistoryPage() {
 
   return (
     <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)" }}>
-      <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "2rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem" }}>
+      <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "1.5rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem" }}>
         Payment History &amp; Official Receipts
       </h1>
 
+      {wards.length > 1 && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "1rem 1.25rem", marginBottom: "1.5rem", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontWeight: 700, fontSize: "0.86rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+            <FiUsers /> Viewing Child:
+          </span>
+          {wards.map((w) => (
+            <button
+              key={w.studentId}
+              type="button"
+              onClick={() => {
+                setSelectedReceipt(null);
+                loadWardProfile(w.studentId);
+              }}
+              className={w.studentId === selectedStudentId ? "btn btn-primary" : "btn btn-outline"}
+              style={{ padding: "0.4rem 0.85rem", fontSize: "0.82rem" }}
+            >
+              {w.fullName} ({w.className})
+            </button>
+          ))}
+        </div>
+      )}
+
       <div style={{ background: "var(--color-white)", padding: "clamp(1rem, 2.5vw, 2rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" }}>
         <p style={{ marginBottom: "1.5rem", color: "var(--color-gray-800)" }}>
-          Track all your academic fees, transaction references, and download official school bursary receipts across all terms.
+          Track academic fees, transaction references, and download official school bursary receipts for <strong>{student?.fullName || student?.admissionNo}</strong>.
         </p>
 
         <div className="table-scroll">
@@ -143,90 +198,51 @@ export default function FeesHistoryPage() {
             </thead>
             <tbody>
               {payments.length > 0 ? (
-                payments.map((p) => (
-                  <tr key={p.id} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
-                    <td style={{ padding: "1rem", fontFamily: "monospace", fontSize: "0.84rem", color: "var(--color-gray-600)", fontWeight: 600 }}>
-                      {p.reference || `WOF-REC-${String(p.id).padStart(6, "0")}`}
-                    </td>
-                    <td style={{ padding: "1rem", fontWeight: 600, color: "var(--color-gray-900)" }}>{p.description}</td>
-                    <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>
-                      {p.term} ({p.session})
-                    </td>
-                    <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>
-                      {new Date(p.date).toLocaleDateString("en-NG", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </td>
-                    <td style={{ padding: "1rem", textAlign: "right", fontWeight: "bold", color: "var(--color-navy-blue)" }}>
-                      ₦{Number(p.amount).toLocaleString()}
-                    </td>
-                    <td style={{ padding: "1rem", textAlign: "center" }}>
-                      <span
-                        style={{
-                          padding: "0.25rem 0.75rem",
-                          borderRadius: "var(--radius-full)",
-                          fontSize: "0.82rem",
-                          fontWeight: 700,
-                          backgroundColor:
-                            p.status === "Approved" || p.status === "Successful"
-                              ? "var(--badge-success-bg)"
-                              : p.status === "Rejected"
-                              ? "var(--badge-danger-bg)"
-                              : "var(--badge-warn-bg)",
-                          color:
-                            p.status === "Approved" || p.status === "Successful"
-                              ? "var(--badge-success-text)"
-                              : p.status === "Rejected"
-                              ? "var(--badge-danger-text)"
-                              : "var(--badge-warn-text)",
-                        }}
-                      >
-                        {p.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: "1rem", textAlign: "right" }}>
-                      <div style={{ display: "inline-flex", gap: "0.45rem" }}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedReceipt(p)}
+                payments.map((p) => {
+                  const st = String(p.status || "").toUpperCase();
+                  const ok = st === "APPROVED" || st === "SUCCESSFUL";
+                  return (
+                    <tr key={p.id} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
+                      <td style={{ padding: "1rem", fontFamily: "monospace", fontSize: "0.84rem", color: "var(--color-gray-600)", fontWeight: 600 }}>
+                        {p.reference || `WOF-REC-${String(p.id).padStart(6, "0")}`}
+                      </td>
+                      <td style={{ padding: "1rem", fontWeight: 600, color: "var(--color-gray-900)" }}>{p.description}</td>
+                      <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>
+                        {p.term} ({p.session})
+                      </td>
+                      <td style={{ padding: "1rem", color: "var(--color-gray-600)" }}>
+                        {new Date(p.date).toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" })}
+                      </td>
+                      <td style={{ padding: "1rem", textAlign: "right", fontWeight: "bold", color: "var(--color-navy-blue)" }}>
+                        ₦{Number(p.amount).toLocaleString()}
+                      </td>
+                      <td style={{ padding: "1rem", textAlign: "center" }}>
+                        <span
                           style={{
-                            padding: "0.4rem 0.75rem",
-                            borderRadius: "8px",
-                            border: "1px solid var(--color-gray-300)",
-                            background: "var(--surface-subtle)",
-                            color: "var(--color-gray-900)",
-                            fontSize: "0.8rem",
+                            padding: "0.25rem 0.75rem",
+                            borderRadius: "var(--radius-full)",
+                            fontSize: "0.82rem",
                             fontWeight: 700,
-                            cursor: "pointer",
+                            backgroundColor: ok ? "var(--badge-success-bg)" : st === "REJECTED" || st === "REFUNDED" || st === "DISPUTED" ? "var(--badge-danger-bg)" : "var(--badge-warn-bg)",
+                            color: ok ? "var(--badge-success-text)" : st === "REJECTED" || st === "REFUNDED" || st === "DISPUTED" ? "var(--badge-danger-text)" : "var(--badge-warn-text)",
                           }}
                         >
-                          View
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handlePrintReceipt(p)}
-                          style={{
-                            padding: "0.4rem 0.8rem",
-                            borderRadius: "8px",
-                            border: "none",
-                            background: "var(--brand-secondary)",
-                            color: "var(--brand-secondary-text)",
-                            fontSize: "0.8rem",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "0.35rem",
-                          }}
-                        >
-                          <FiDownload size={13} /> PDF Receipt
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {p.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: "1rem", textAlign: "right" }}>
+                        <div style={{ display: "inline-flex", gap: "0.45rem" }}>
+                          <button type="button" onClick={() => setSelectedReceipt(p)} style={{ padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--color-gray-300)", background: "var(--surface-subtle)", color: "var(--color-gray-900)", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer" }}>
+                            View
+                          </button>
+                          <button type="button" onClick={() => handlePrintReceipt(p)} style={{ padding: "0.4rem 0.8rem", borderRadius: "8px", border: "none", background: "var(--brand-secondary)", color: "var(--brand-secondary-text)", fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+                            <FiDownload size={13} /> PDF Receipt
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan={7} style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)", fontStyle: "italic" }}>
@@ -238,17 +254,8 @@ export default function FeesHistoryPage() {
           </table>
         </div>
 
-        {/* Receipt Preview Modal */}
         {selectedReceipt && (
-          <div
-            style={{
-              marginTop: "2rem",
-              border: "2px solid var(--color-navy-blue)",
-              borderRadius: "12px",
-              padding: "clamp(1rem, 3vw, 1.75rem)",
-              background: "var(--surface-subtle)",
-            }}
-          >
+          <div style={{ marginTop: "2rem", border: "2px solid var(--color-navy-blue)", borderRadius: "12px", padding: "clamp(1rem, 3vw, 1.75rem)", background: "var(--surface-subtle)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem", borderBottom: "2px solid var(--color-primary-green)", paddingBottom: "1rem", marginBottom: "1.25rem" }}>
               <div>
                 <div style={{ fontSize: "0.75rem", fontWeight: 800, color: "var(--color-primary-green)", textTransform: "uppercase" }}>
@@ -259,42 +266,10 @@ export default function FeesHistoryPage() {
                 </h3>
               </div>
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => handlePrintReceipt(selectedReceipt)}
-                  style={{
-                    background: "#15803d",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "0.5rem 0.95rem",
-                    fontWeight: 700,
-                    fontSize: "0.82rem",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.35rem",
-                  }}
-                >
+                <button type="button" onClick={() => handlePrintReceipt(selectedReceipt)} style={{ background: "#15803d", color: "#ffffff", border: "none", borderRadius: "8px", padding: "0.5rem 0.95rem", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
                   <FiPrinter size={14} /> Print / Save as PDF
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedReceipt(null)}
-                  style={{
-                    background: "var(--color-gray-200)",
-                    color: "var(--color-gray-900)",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "0.5rem 0.75rem",
-                    fontWeight: 700,
-                    fontSize: "0.82rem",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.25rem",
-                  }}
-                >
+                <button type="button" onClick={() => setSelectedReceipt(null)} style={{ background: "var(--color-gray-200)", color: "var(--color-gray-900)", border: "none", borderRadius: "8px", padding: "0.5rem 0.75rem", fontWeight: 700, fontSize: "0.82rem", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
                   <FiX size={14} /> Close
                 </button>
               </div>

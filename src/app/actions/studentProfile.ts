@@ -5,15 +5,17 @@ import { getCachedData, setCachedData, invalidateCache } from "@/lib/cache";
 import { rateLimit } from "@/lib/rateLimit";
 import {
   requireActiveUser,
+  checkStudentFeeClearance,
   requireStudentOwnershipOrAdmin,
-  writeAuditLog,
 } from "@/lib/authz";
 import { SAFE_USER_SELECT } from "@/lib/security";
 import { summarizeStudentAttendance } from "@/lib/attendance-summary";
 import { getFeeScheduleForClass } from "@/lib/fee-schedule";
 import { formatCbtSubjectLabel } from "@/lib/cbt-constants";
+import { signStudentVerificationToken } from "@/lib/qr-verify";
+import { APPROVED_PAYMENT_STATUSES } from "@/lib/payment-ledger";
 
-export async function getStudentProfile(userId: number) {
+export async function getStudentProfile(userId: number, targetStudentId?: number) {
   let actor;
   try {
     actor = await requireActiveUser();
@@ -34,35 +36,113 @@ export async function getStudentProfile(userId: number) {
   }
 
   try {
-    const cacheKey = `profile:${userId}`;
+    const cleanTargetId =
+      targetStudentId && Number.isInteger(Number(targetStudentId)) && Number(targetStudentId) > 0
+        ? Number(targetStudentId)
+        : null;
+    const cacheKey = cleanTargetId
+      ? `profile:${userId}:ward:${cleanTargetId}`
+      : `profile:${userId}`;
     const cachedProfile = await getCachedData<any>(cacheKey);
 
-    if (cachedProfile) {
-      return cachedProfile;
+    if (cachedProfile && cachedProfile.success) {
+      return cachedProfile as {
+        success: true;
+        wards: Array<{
+          studentId: number;
+          admissionNo: string;
+          fullName: string;
+          className: string;
+        }>;
+        student: {
+          id: number;
+          uuid: string | null;
+          wofsStudentId: string;
+          admissionNo: string;
+          verificationSig: string;
+          fullName: string;
+          firstName: string | null;
+          lastName: string | null;
+          middleName: string | null;
+          className: string;
+          level: string;
+          sessionName: string;
+          email: string;
+          preferredName: string | null;
+          dob: Date | null;
+          parentName: string | null;
+          parentContact: string;
+          avatarUrl: string | null;
+          identityVerified: boolean;
+          registrationStatus: string;
+        };
+        academics: any[];
+        payments: any[];
+        overview: {
+          termLabel: string;
+          attendance: {
+            totalMarked: number;
+            present: number;
+            late: number;
+            absent: number;
+            excused: number;
+            attendanceRatePct: number | null;
+          };
+          fees: {
+            expectedNaira: number;
+            paidNaira: number;
+            balanceNaira: number;
+            isCleared: boolean;
+          };
+          cbt: {
+            completedAttempts: number;
+            averageScorePct: number;
+            bestScorePct: number;
+            subjectTrends: Array<{
+              subjectCode: string;
+              subjectLabel: string;
+              attempts: number;
+              averageScorePct: number;
+              bestScorePct: number;
+            }>;
+          };
+        };
+      };
     }
 
-    let student = await prisma.student.findUnique({
-      where: { UserID: Number(userId) },
-      include: {
-        User: { select: SAFE_USER_SELECT },
-        Class: {
+    // Collect all linked wards if actor is a parent/guardian
+    const wardsList: Array<{
+      studentId: number;
+      admissionNo: string;
+      fullName: string;
+      className: string;
+    }> = [];
+    const seenWardIds = new Set<number>();
+
+    let student = cleanTargetId
+      ? null
+      : await prisma.student.findUnique({
+          where: { UserID: Number(userId) },
           include: {
-            TeacherMaps: {
+            User: { select: SAFE_USER_SELECT },
+            Class: {
               include: {
-                Subject: true,
-                Teacher: { select: SAFE_USER_SELECT },
+                TeacherMaps: {
+                  include: {
+                    Subject: true,
+                    Teacher: { select: SAFE_USER_SELECT },
+                  },
+                },
               },
             },
+            PaymentRecords: {
+              include: { Term: true },
+              orderBy: { PaymentDate: "desc" },
+            },
           },
-        },
-        PaymentRecords: {
-          include: { Term: true },
-          orderBy: { PaymentDate: "desc" },
-        },
-      },
-    });
+        });
 
-    if (!student && actor.UserID === Number(userId)) {
+    if (actor.UserID === Number(userId)) {
       const parent = await prisma.parent.findUnique({
         where: { UserID: actor.UserID },
         include: {
@@ -88,18 +168,35 @@ export async function getStudentProfile(userId: number) {
                 },
               },
             },
+            orderBy: { StudentID: "asc" },
           },
         },
       });
-      if (parent && parent.Children.length > 0) {
-        student = parent.Children[0].Student as any;
-      } else if (actor.Email) {
-        student = await prisma.student.findFirst({
+      if (parent) {
+        for (const link of parent.Children) {
+          if (link.Student && !seenWardIds.has(link.Student.StudentID)) {
+            seenWardIds.add(link.Student.StudentID);
+            wardsList.push({
+              studentId: link.Student.StudentID,
+              admissionNo: link.Student.AdmissionNo,
+              fullName:
+                link.Student.PreferredName ||
+                `${link.Student.FirstName || ""} ${link.Student.LastName || ""}`.trim() ||
+                link.Student.AdmissionNo,
+              className: link.Student.Class?.ClassName || "Assigned Class",
+            });
+            if (cleanTargetId && link.Student.StudentID === cleanTargetId) {
+              student = link.Student;
+            } else if (!student && !cleanTargetId) {
+              student = link.Student;
+            }
+          }
+        }
+      }
+      if (actor.Email) {
+        const byEmail = await prisma.student.findMany({
           where: {
-            ParentEmail: {
-              equals: actor.Email.trim(),
-              mode: "insensitive",
-            },
+            ParentEmail: { equals: actor.Email.trim(), mode: "insensitive" },
           },
           include: {
             User: { select: SAFE_USER_SELECT },
@@ -118,15 +215,61 @@ export async function getStudentProfile(userId: number) {
               orderBy: { PaymentDate: "desc" },
             },
           },
+          orderBy: { StudentID: "asc" },
         });
+        for (const st of byEmail) {
+          if (!seenWardIds.has(st.StudentID)) {
+            seenWardIds.add(st.StudentID);
+            wardsList.push({
+              studentId: st.StudentID,
+              admissionNo: st.AdmissionNo,
+              fullName:
+                st.PreferredName ||
+                `${st.FirstName || ""} ${st.LastName || ""}`.trim() ||
+                st.AdmissionNo,
+              className: st.Class?.ClassName || "Assigned Class",
+            });
+          }
+          if (cleanTargetId && st.StudentID === cleanTargetId && !student) {
+            student = st;
+          } else if (!student && !cleanTargetId) {
+            student = st;
+          }
+        }
       }
+    }
+
+    if (!student && cleanTargetId) {
+      // Allow authorized admin or verified owner lookup
+      const checked = await requireStudentOwnershipOrAdmin(cleanTargetId, { allowFinance: true });
+      const fetched = await prisma.student.findUnique({
+        where: { StudentID: checked.student.StudentID },
+        include: {
+          User: { select: SAFE_USER_SELECT },
+          Class: {
+            include: {
+              TeacherMaps: {
+                include: {
+                  Subject: true,
+                  Teacher: { select: SAFE_USER_SELECT },
+                },
+              },
+            },
+          },
+          PaymentRecords: {
+            include: { Term: true },
+            orderBy: { PaymentDate: "desc" },
+          },
+        },
+      });
+      student = fetched;
     }
 
     if (!student) {
       if (actor.UserID === Number(userId)) {
         const parentRow = await prisma.parent.findUnique({ where: { UserID: actor.UserID } });
         return {
-          success: true,
+          success: true as const,
           student: {
             id: actor.UserID,
             admissionNo: `STAFF-${String(actor.UserID).padStart(4, "0")}`,
@@ -143,7 +286,7 @@ export async function getStudentProfile(userId: number) {
           payments: [],
         };
       }
-      return { success: false, error: "Student profile not found" };
+      return { success: false as const, error: "Student profile not found" };
     }
 
     const academics = student.Class.TeacherMaps;
@@ -189,14 +332,26 @@ export async function getStudentProfile(userId: number) {
     const attendanceSummary = summarizeStudentAttendance(attendanceRows);
 
     const expectedNaira = classFeeSchedule ? Number(classFeeSchedule.totalNaira || 0) : 0;
+    const approvedSet = new Set<string>(APPROVED_PAYMENT_STATUSES);
     const paidNaira = payments
       .filter(
         (p) =>
-          (p.Status === "Approved" || p.Status === "Successful") &&
+          approvedSet.has(p.Status) &&
           (!activeTerm || p.TermID === activeTerm.TermID)
       )
-      .reduce((acc, p) => acc + Math.max(0, Number(p.AmountPaid) || 0), 0);
-    const balanceNaira = student.HasPaidFees ? 0 : Math.max(0, expectedNaira - paidNaira);
+      .reduce((acc, p) => {
+        const naira = p.AmountKobo && Number(p.AmountKobo) > 0 ? Number(p.AmountKobo) / 100 : Number(p.AmountPaid) || 0;
+        return acc + Math.max(0, naira);
+      }, 0);
+    const clearance = activeTerm
+      ? await checkStudentFeeClearance(student.StudentID, activeTerm.TermID).catch(() => null)
+      : null;
+    const balanceNaira = clearance
+      ? Number(clearance.balanceKobo) / 100
+      : Math.max(0, expectedNaira - paidNaira);
+    const isFeeCleared = clearance
+      ? clearance.isCleared
+      : expectedNaira > 0 && paidNaira >= expectedNaira;
 
     const scoresPct = submittedAttempts.map((a) =>
       Number(((a.scoreTenths || 0) / 10).toFixed(1))
@@ -238,11 +393,13 @@ export async function getStudentProfile(userId: number) {
 
     const finalResponse = {
       success: true,
+      wards: wardsList,
       student: {
         id: student.StudentID,
         uuid: student.Uuid,
         wofsStudentId: student.AdmissionNo,
         admissionNo: student.AdmissionNo,
+        verificationSig: signStudentVerificationToken(student.AdmissionNo),
         fullName,
         firstName: student.FirstName,
         lastName: student.LastName,
@@ -279,10 +436,10 @@ export async function getStudentProfile(userId: number) {
           : "Current Academic Session",
         attendance: attendanceSummary,
         fees: {
-          expectedNaira,
-          paidNaira,
+          expectedNaira: clearance ? Number(clearance.totalBilledKobo) / 100 : expectedNaira,
+          paidNaira: clearance ? Number(clearance.totalPaidKobo) / 100 : paidNaira,
           balanceNaira,
-          isCleared: student.HasPaidFees || (expectedNaira > 0 && balanceNaira <= 0),
+          isCleared: isFeeCleared,
         },
         cbt: {
           completedAttempts,
@@ -296,77 +453,9 @@ export async function getStudentProfile(userId: number) {
     await setCachedData(cacheKey, finalResponse, 300);
 
     return finalResponse;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Failed to get student profile", error);
-    return { success: false, error: "Internal server error" };
-  }
-}
-
-export async function uploadPaymentReceipt(
-  studentId: number,
-  termId: number,
-  description: string,
-  amount: number
-) {
-  let actor;
-  let student;
-  try {
-    const res = await requireStudentOwnershipOrAdmin(Number(studentId), { allowFinance: true });
-    actor = res.actor;
-    student = res.student;
-  } catch (err: any) {
-    return { success: false, error: err?.message || "FORBIDDEN: You cannot submit a receipt for this student." };
-  }
-
-  const rateLimitResult = await rateLimit(`uploadReceipt:${actor.UserID}`, 3, 60);
-  if (!rateLimitResult.success) {
-    return { success: false, error: "Upload rate limit exceeded. Please wait a minute." };
-  }
-
-  const numericAmount = Number(amount);
-  if (!Number.isFinite(numericAmount) || numericAmount <= 0 || numericAmount > 10_000_000) {
-    return { success: false, error: "Invalid payment amount." };
-  }
-
-  const cleanDesc = String(description || "School Fees").trim().slice(0, 200);
-
-  try {
-    const record = await prisma.payment_Record.create({
-      data: {
-        StudentID: student.StudentID,
-        TermID: Number(termId),
-        Description: cleanDesc,
-        AmountPaid: numericAmount,
-        AmountKobo: BigInt(Math.round(numericAmount * 100)),
-        ReceiptUrl: "/uploads/teller-receipt.pdf",
-        Status: "Pending",
-        SubmittedBy: actor.UserID,
-      },
-    });
-
-    await writeAuditLog({
-      actorId: actor.UserID,
-      action: "PAYMENT_RECEIPT_SUBMITTED",
-      entity: "Payment_Record",
-      entityId: record.PaymentID,
-      newValue: {
-        studentId: student.StudentID,
-        termId: Number(termId),
-        amount: numericAmount,
-      },
-    });
-
-    if (student.UserID) {
-      await invalidateCache(`profile:${student.UserID}`);
-    }
-
-    return {
-      success: true,
-      message: "Receipt uploaded successfully and is pending admin verification.",
-    };
-  } catch (error: any) {
-    console.error("Failed to upload receipt", error);
-    return { success: false, error: "Internal server error" };
+    return { success: false as const, error: "Internal server error" };
   }
 }
 

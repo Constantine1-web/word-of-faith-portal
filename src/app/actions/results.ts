@@ -26,7 +26,8 @@ import {
   writeAuditLog,
   sanitizeCsvCell,
 } from "@/lib/authz";
-import { SAFE_USER_SELECT } from "@/lib/security";
+import { SAFE_USER_SELECT, requireStepUpIfTotpEnabled } from "@/lib/security";
+import { sendResultPublishedNotification } from "@/lib/email";
 
 const ScoreRowSchema = z.object({
   studentId: z.number().int().positive(),
@@ -1752,6 +1753,52 @@ export async function publishClassBroadsheetAction(
       });
     });
 
+    // Dispatch automated result-release notifications to registered student & guardian emails
+    try {
+      const studentIds = bsRes.studentSummaries.map((st: any) => st.studentId);
+      if (studentIds.length > 0) {
+        const contactRows = await prisma.student.findMany({
+          where: { StudentID: { in: studentIds } },
+          select: {
+            StudentID: true,
+            AdmissionNo: true,
+            PreferredName: true,
+            FirstName: true,
+            LastName: true,
+            ParentEmail: true,
+            User: { select: { Email: true } },
+            ParentLinks: {
+              include: {
+                Parent: { include: { User: { select: { Email: true } } } },
+              },
+            },
+          },
+        });
+        await Promise.allSettled(
+          contactRows.map((st) => {
+            const recipients: string[] = [];
+            if (st.ParentEmail) recipients.push(st.ParentEmail);
+            if (st.User?.Email) recipients.push(st.User.Email);
+            for (const link of st.ParentLinks || []) {
+              if (link.Parent?.User?.Email) recipients.push(link.Parent.User.Email);
+            }
+            const displayName =
+              st.PreferredName || [st.FirstName, st.LastName].filter(Boolean).join(" ") || "Student";
+            return sendResultPublishedNotification({
+              recipients,
+              studentName: displayName,
+              admissionNo: st.AdmissionNo,
+              className: bsRes.classData.ClassName,
+              termName: bsRes.term?.TermName,
+              sessionName: bsRes.term?.SessionName,
+            });
+          })
+        );
+      }
+    } catch (notifyErr) {
+      console.warn("[Email] Broadsheet publish notification warning:", notifyErr);
+    }
+
     revalidatePath("/portal/admin/results");
     revalidatePath("/portal/dashboard");
     revalidatePath("/portal/results");
@@ -1867,7 +1914,9 @@ export async function uploadManualResult(data: {
 
 export async function uploadBulkResults(csvData: string) {
   try {
-    const { user } = await requireRole(["PRINCIPAL", "SUPER_ADMIN", "TEACHER", "Admin", "Teacher"]);
+    // Bulk legacy CSV import bypasses per-subject teacher sheet locks; restrict strictly to PRINCIPAL / SUPER_ADMIN with CORRECT_SCORES + TOTP step-up.
+    const actor = await requireCapability("CORRECT_SCORES");
+    await requireStepUpIfTotpEnabled(actor.UserID, "BULK_RESULT_UPLOAD");
 
     const lines = csvData.split(/\r?\n/).filter((line) => line.trim() !== "");
     if (lines.length < 2) {
@@ -1927,6 +1976,42 @@ export async function uploadBulkResults(csvData: string) {
         continue;
       }
 
+      // Enforce submission & broadsheet lock gates even for privileged CSV imports
+      const [broadsheet, submission] = await Promise.all([
+        student.ClassID
+          ? prisma.classBroadsheet.findUnique({
+              where: {
+                classArmId_termId: { classArmId: student.ClassID, termId: term.TermID },
+              },
+              select: { status: true },
+            })
+          : null,
+        student.ClassID
+          ? prisma.subject_Submission.findFirst({
+              where: {
+                SubjectID: subject.SubjectID,
+                ClassID: student.ClassID,
+                TermID: term.TermID,
+              },
+              select: { Status: true },
+            })
+          : null,
+      ]);
+
+      if (broadsheet && ["PRINCIPAL_SIGNED_OFF", "PUBLISHED", "LOCKED"].includes(broadsheet.status)) {
+        errors.push(
+          `Row ${i + 1}: Class broadsheet for ${admissionNo} is ${broadsheet.status}. Use audited Score Correction instead.`
+        );
+        continue;
+      }
+
+      if (submission && (submission.Status === "Submitted" || submission.Status === "Approved")) {
+        errors.push(
+          `Row ${i + 1}: Subject sheet (${subjectName}) for ${admissionNo} is ${submission.Status}. Unlock the sheet before importing.`
+        );
+        continue;
+      }
+
       const caTenths = Math.round(caScore * 10);
       const examTenths = Math.round(examScore * 10);
       const totalTenths = caTenths + examTenths;
@@ -1951,7 +2036,7 @@ export async function uploadBulkResults(csvData: string) {
           Remark: remark,
           Status: "ENTERED",
           Source: "IMPORT",
-          UpdatedByID: user.UserID,
+          UpdatedByID: actor.UserID,
           Version: { increment: 1 },
         },
         create: {
@@ -1968,7 +2053,7 @@ export async function uploadBulkResults(csvData: string) {
           Remark: remark,
           Status: "ENTERED",
           Source: "IMPORT",
-          UpdatedByID: user.UserID,
+          UpdatedByID: actor.UserID,
           Version: 1,
         },
       });
@@ -1977,7 +2062,7 @@ export async function uploadBulkResults(csvData: string) {
     }
 
     await writeAuditLog({
-      actorId: user.UserID,
+      actorId: actor.UserID,
       action: "BULK_RESULT_UPLOAD",
       entity: "Result",
       entityId: `term:${term.TermID}`,
@@ -2043,8 +2128,9 @@ export async function previewCbtScoresForSubjectCa(params: {
 
     await requireClassTeacherOrAdmin(classId);
 
-    const [subject, students] = await Promise.all([
+    const [subject, term, students] = await Promise.all([
       prisma.subject.findUnique({ where: { SubjectID: subjectId } }),
+      prisma.academic_Term.findUnique({ where: { TermID: termId } }),
       prisma.student.findMany({
         where: { ClassID: classId },
         include: {
@@ -2058,10 +2144,14 @@ export async function previewCbtScoresForSubjectCa(params: {
     if (!subject) {
       return { success: false, error: "Selected subject not found." };
     }
+    if (!term) {
+      return { success: false, error: "Selected academic term not found." };
+    }
 
     const cbtCodes = mapSubjectNameToCbtCodes(subject.SubjectName);
     const studentIds = students.map((s) => s.StudentID);
 
+    // Scope CA candidate attempts strictly to proctored MOCK exams taken within the target term dates
     const attempts = studentIds.length
       ? await prisma.cbtAttempt.findMany({
           where: {
@@ -2069,6 +2159,12 @@ export async function previewCbtScoresForSubjectCa(params: {
             status: { in: ["SUBMITTED", "EXPIRED"] },
             scoreTenths: { not: null },
             subjectCode: { in: cbtCodes },
+            mode: "MOCK",
+            ...(term.StartDate && term.EndDate
+              ? { startedAt: { gte: term.StartDate, lte: term.EndDate } }
+              : term.StartDate
+              ? { startedAt: { gte: term.StartDate } }
+              : {}),
           },
           orderBy: { scoreTenths: "desc" },
         })

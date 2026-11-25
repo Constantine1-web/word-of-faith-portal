@@ -912,7 +912,7 @@ export default function TeachersClient({
                 </div>
               </div>
 
-              {/* Step 2: Form Master Designation */}
+              {/* Step 2: Class Teacher Designation */}
               <div
                 style={{
                   background: "var(--status-success-bg)",
@@ -1173,7 +1173,7 @@ export default function TeachersClient({
         </div>
       )}
 
-      {/* QUICK FORM MASTER ASSIGNMENT MODAL */}
+      {/* QUICK CLASS TEACHER ASSIGNMENT MODAL */}
       {showFormMasterModal && (
         <div className="portal-modal-overlay">
           <div

@@ -1,21 +1,13 @@
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { requireCapability } from "@/lib/authz";
 import CardsClient from "./CardsClient";
 
 export default async function AdminCardsPage() {
-  const session = await getServerSession(authOptions);
-  const roleUpper = (session?.user?.role || "").toUpperCase();
-  const isAuthorizedAdmin =
-    roleUpper === "ADMIN" ||
-    roleUpper === "SUPER_ADMIN" ||
-    roleUpper === "PRINCIPAL" ||
-    roleUpper === "BURSAR" ||
-    roleUpper === "ADMISSIONS";
-
-  if (!session || !isAuthorizedAdmin) {
-    redirect("/portal/login");
+  try {
+    await requireCapability("MANAGE_CARDS");
+  } catch {
+    redirect("/portal/unauthorized?zone=cards");
   }
 
   const terms = await prisma.academic_Term.findMany({

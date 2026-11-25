@@ -39,7 +39,13 @@ export default async function AdminLayout({
         title="Admin Control Center"
         sidebarBackground="linear-gradient(180deg, #0A2540 0%, #07192C 100%)"
         sidebarWidth="270px"
-        sidebar={<AdminNav email={actor.Email} roles={actor.roles} />}
+        sidebar={
+          <AdminNav
+            email={actor.Email}
+            roles={actor.roles}
+            capabilities={Array.from(actor.capabilities)}
+          />
+        }
       >
         {children}
       </PortalShell>

@@ -2,8 +2,8 @@
 
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { requireRole, writeAuditLog } from "@/lib/authz";
-import { rateLimit } from "@/lib/security";
+import { requireRole, writeAuditLog, checkStudentFeeClearance } from "@/lib/authz";
+import { rateLimit, hashTokenSha256, timingSafeCompare } from "@/lib/security";
 
 const ALLOWED_PARENT_ROLES = ["PARENT", "Parent", "SUPER_ADMIN", "PRINCIPAL", "ADMISSIONS", "Admin"];
 
@@ -169,84 +169,89 @@ export async function getParentDashboardData() {
       }
     }
 
-    const wards = parentProfile.Children.map((c) => {
-      const s = c.Student;
-      const termPayments = activeTerm
-        ? s.PaymentRecords.filter((p) => p.TermID === activeTerm.TermID)
-        : s.PaymentRecords;
-      const isFeeCleared =
-        s.HasPaidFees ||
-        termPayments.some((p) => p.Status === "Approved" || p.Status === "Successful");
+    const wards = await Promise.all(
+      parentProfile.Children.map(async (c) => {
+        const s = c.Student;
+        const termPayments = activeTerm
+          ? s.PaymentRecords.filter((p) => p.TermID === activeTerm.TermID)
+          : s.PaymentRecords;
 
-      // Enforce Result Publication AND Fee Clearance gate before exposing scores to parents
-      const classBroadsheetPublished = Boolean(
-        activeTerm &&
-          (s.Class as any)?.Broadsheets?.some(
-            (b: any) => b.termId === activeTerm.TermID && b.status === "PUBLISHED"
-          )
-      );
-      const isTermPublished = Boolean(activeTerm?.IsLocked || classBroadsheetPublished);
-      const canViewResults = isTermPublished && isFeeCleared;
+        // Derive fee clearance strictly for the active term from invoice + ledger state (no cross-term HasPaidFees leak)
+        const clearance = activeTerm
+          ? await checkStudentFeeClearance(s.StudentID, activeTerm.TermID)
+          : { isCleared: false };
+        const isFeeCleared = Boolean(clearance.isCleared);
 
-      const rawTermResults = activeTerm
-        ? s.Results.filter((r) => r.TermID === activeTerm.TermID)
-        : s.Results;
-      const termResults = canViewResults ? rawTermResults : [];
+        // Enforce ClassBroadsheet PUBLICATION AND Fee Clearance gate before exposing scores to parents
+        const classBroadsheetPublished = Boolean(
+          activeTerm &&
+            (s.Class as any)?.Broadsheets?.some(
+              (b: any) => b.termId === activeTerm.TermID && b.status === "PUBLISHED"
+            )
+        );
+        const isTermPublished = classBroadsheetPublished;
+        const canViewResults = isTermPublished && isFeeCleared;
 
-      const totalScore = termResults.reduce((acc, r) => acc + (r.TotalScore || 0), 0);
-      const averageScore =
-        termResults.length > 0 ? (totalScore / termResults.length).toFixed(1) : "0.0";
+        const rawTermResults = activeTerm
+          ? s.Results.filter((r) => r.TermID === activeTerm.TermID)
+          : s.Results;
+        const termResults = canViewResults ? rawTermResults : [];
 
-      const presentDays = s.Attendances.filter((a) => a.Status === "Present").length;
-      const totalDays = s.Attendances.length;
-      const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
+        const totalScore = termResults.reduce((acc, r) => acc + (r.TotalScore || 0), 0);
+        const averageScore =
+          termResults.length > 0 ? (totalScore / termResults.length).toFixed(1) : "0.0";
 
-      return {
-        studentId: s.StudentID,
-        admissionNo: s.AdmissionNo,
-        fullName:
-          s.PreferredName ||
-          `${s.FirstName || ""} ${s.LastName || ""}`.trim() ||
-          s.AdmissionNo,
-        className: s.Class?.ClassName || "Unassigned",
-        classLevel: s.Class?.Level || "Secondary",
-        formMasterEmail: s.Class?.FormMaster?.Email || "Not Assigned",
-        avatarUrl: s.AvatarUrl || null,
-        isFeeCleared,
-        isResultsPublished: isTermPublished,
-        totalScore,
-        averageScore,
-        results: termResults.map((r) => ({
-          subject: r.Subject?.SubjectName || `Subject ${r.SubjectID}`,
-          caScore: r.CAScore,
-          examScore: r.ExamScore,
-          totalScore: r.TotalScore,
-          grade: r.Grade,
-          remark: r.Remark,
-        })),
-        recentPayments: termPayments.map((p) => ({
-          paymentId: p.PaymentID,
-          amount: p.AmountPaid,
-          channel: p.Channel,
-          status: p.Status,
-          reference: p.Reference,
-          date: p.PaymentDate.toISOString(),
-          description: p.Description,
-        })),
-        attendance: {
-          presentDays,
-          totalDays,
-          attendanceRate,
-        },
-        cbtAttempts: s.CbtAttempts.map((a) => ({
-          id: a.id,
-          subjectCode: a.subjectCode,
-          scorePercent: a.scoreTenths ? Math.round(a.scoreTenths / 10) : 0,
-          status: a.status,
-          date: a.startedAt.toISOString(),
-        })),
-      };
-    });
+        const presentDays = s.Attendances.filter((a) => a.Status === "Present").length;
+        const totalDays = s.Attendances.length;
+        const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 100;
+
+        return {
+          studentId: s.StudentID,
+          admissionNo: s.AdmissionNo,
+          fullName:
+            s.PreferredName ||
+            `${s.FirstName || ""} ${s.LastName || ""}`.trim() ||
+            s.AdmissionNo,
+          className: s.Class?.ClassName || "Unassigned",
+          classLevel: s.Class?.Level || "Secondary",
+          formMasterEmail: s.Class?.FormMaster?.Email || "Not Assigned",
+          avatarUrl: s.AvatarUrl || null,
+          isFeeCleared,
+          isResultsPublished: isTermPublished,
+          totalScore,
+          averageScore,
+          results: termResults.map((r) => ({
+            subject: r.Subject?.SubjectName || `Subject ${r.SubjectID}`,
+            caScore: r.CAScore,
+            examScore: r.ExamScore,
+            totalScore: r.TotalScore,
+            grade: r.Grade,
+            remark: r.Remark,
+          })),
+          recentPayments: termPayments.map((p) => ({
+            paymentId: p.PaymentID,
+            amount: p.AmountPaid,
+            channel: p.Channel,
+            status: p.Status,
+            reference: p.Reference,
+            date: p.PaymentDate.toISOString(),
+            description: p.Description,
+          })),
+          attendance: {
+            presentDays,
+            totalDays,
+            attendanceRate,
+          },
+          cbtAttempts: s.CbtAttempts.map((a) => ({
+            id: a.id,
+            subjectCode: a.subjectCode,
+            scorePercent: a.scoreTenths ? Math.round(a.scoreTenths / 10) : 0,
+            status: a.status,
+            date: a.startedAt.toISOString(),
+          })),
+        };
+      })
+    );
 
     return {
       success: true,
@@ -269,12 +274,14 @@ export async function getParentDashboardData() {
 export async function linkChildByAdmissionNo(
   admissionNo: string,
   dateOfBirthStr: string,
-  relationship = "GUARDIAN"
+  relationship = "GUARDIAN",
+  claimCode?: string
 ) {
   try {
     const actor = await requireRole(ALLOWED_PARENT_ROLES);
     const userId = actor.UserID;
     const cleanAdmissionNo = String(admissionNo || "").trim().slice(0, 50);
+    const cleanClaimCode = String(claimCode || "").trim().toUpperCase().slice(0, 40);
 
     if (!cleanAdmissionNo || !dateOfBirthStr) {
       return { success: false, error: "Registration number and date of birth are required." };
@@ -308,10 +315,11 @@ export async function linkChildByAdmissionNo(
       include: { ParentLinks: true },
     });
 
-    if (!student) {
+    if (!student || !student.DateOfBirth) {
       return {
         success: false,
-        error: "Unable to verify student credentials. Please check the registration number and date of birth.",
+        error:
+          "Unable to verify student date of birth on file. Please obtain an official Claim Code from the Admissions Office.",
       };
     }
 
@@ -331,7 +339,7 @@ export async function linkChildByAdmissionNo(
       };
     }
 
-    // Prevent hijacking a child already linked to a different parent unless parent email matches
+    // Prevent blind AdmissionNo+DOB hijacking: require guardian email match, valid Claim Code, or Admin override
     const alreadyLinkedToOther = student.ParentLinks.some((l) => l.ParentID !== parent!.id);
     const emailMatchesRecord =
       Boolean(student.ParentEmail) &&
@@ -342,11 +350,28 @@ export async function linkChildByAdmissionNo(
       actor.roles.has("ADMISSIONS") ||
       actor.roles.has("Admin");
 
+    let claimCodeVerified = false;
+    if (cleanClaimCode && student.ClaimCodeHash) {
+      const notExpired =
+        !student.ClaimCodeExpiresAt || new Date(student.ClaimCodeExpiresAt) >= new Date();
+      if (notExpired && timingSafeCompare(student.ClaimCodeHash, hashTokenSha256(cleanClaimCode))) {
+        claimCodeVerified = true;
+      }
+    }
+
     if (alreadyLinkedToOther && !emailMatchesRecord && !isAdmin) {
       return {
         success: false,
         error:
           "This student is already linked to a primary guardian account. Please contact the Admissions Office to authorize additional guardian access.",
+      };
+    }
+
+    if (!emailMatchesRecord && !claimCodeVerified && !isAdmin) {
+      return {
+        success: false,
+        error:
+          "Guardian email verification or a valid One-Time Claim Code is required to link this ward. Please enter the student Claim Code or contact the Admissions Office.",
       };
     }
 

@@ -148,9 +148,9 @@ export async function analyzeAttemptWithGemini(
       .join("\n");
 
     const prompt = `You are an expert academic counselor and subject tutor at Word of Faith Schools.
-Analyze this student's completed ${input.examBody} CBT practice session in ${input.subjectCode.toUpperCase()}.
+Analyze this anonymized student's completed ${input.examBody} CBT practice session in ${input.subjectCode.toUpperCase()}.
 
-STUDENT: ${input.studentName || 'Student'}
+CANDIDATE: Portal Learner (${input.attemptId.slice(-6)})
 SCORE: ${input.score} / ${input.total} (${percentage}%)
 
 MISSED QUESTIONS SAMPLE:

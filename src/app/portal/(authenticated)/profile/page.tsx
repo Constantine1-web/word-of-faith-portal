@@ -780,6 +780,7 @@ export default function ProfilePage() {
           students={[
             {
               AdmissionNo: profile.wofsStudentId,
+              verificationSig: profile.verificationSig,
               FirstName: profile.firstName,
               MiddleName: profile.middleName,
               LastName: profile.lastName,

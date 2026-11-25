@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { enrollApplicantToStudent, rejectAdmissionApplication } from "@/app/actions/admin";
+import { escapeHtml } from "@/lib/html-escape";
 import { FiCheckCircle, FiXCircle, FiSearch, FiUserPlus, FiMail, FiPhone, FiCalendar, FiPrinter } from "react-icons/fi";
 
 export default function AdmissionsReviewClient({
@@ -32,11 +33,14 @@ export default function AdmissionsReviewClient({
   }) => {
     const win = window.open("", "_blank", "width=720,height=600");
     if (!win) return;
+    const safeName = escapeHtml(info.studentName);
+    const safeId = escapeHtml(info.wofsStudentId);
+    const safeCode = escapeHtml(info.claimCode);
     win.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Registration Slip — ${info.wofsStudentId}</title>
+          <title>Registration Slip — ${safeId}</title>
           <style>
             body { font-family: 'Segoe UI', Arial, sans-serif; padding: 32px; color: #0f172a; }
             .slip { border: 2px solid #0A2540; border-radius: 12px; padding: 28px; max-width: 580px; margin: 0 auto; }
@@ -51,11 +55,11 @@ export default function AdmissionsReviewClient({
               <h2 style="margin:0;color:#0A2540;">WORD OF FAITH SCHOOLS</h2>
               <p style="margin:4px 0 0;font-size:12px;color:#15803d;font-weight:700;">ADMISSION ENROLMENT &amp; PORTAL INVITATION SLIP</p>
             </div>
-            <p><strong>Student Name:</strong> ${info.studentName}</p>
-            <p><strong>Permanent WOFS Student ID:</strong> <code style="font-size:16px;font-weight:bold;">${info.wofsStudentId}</code></p>
+            <p><strong>Student Name:</strong> ${safeName}</p>
+            <p><strong>Permanent WOFS Student ID:</strong> <code style="font-size:16px;font-weight:bold;">${safeId}</code></p>
             <div class="box">
               <div style="font-size:12px;font-weight:bold;color:#166534;">SINGLE-USE REGISTRATION INVITATION CODE</div>
-              <div class="code">${info.claimCode}</div>
+              <div class="code">${safeCode}</div>
               <div style="font-size:12px;color:#475569;margin-top:6px;">Visit <strong>/portal/register</strong> to claim the student portal account.</div>
             </div>
           </div>

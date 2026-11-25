@@ -124,7 +124,7 @@ export default function ClassesClient({ initialClasses, teachers }: { initialCla
             {classes.length === 0 ? (
               <tr>
                 <td colSpan={5} style={{ padding: "3rem", textAlign: "center", color: "var(--color-gray-500)" }}>
-                  No classes configured. Click "Add Class Arm" to start.
+                  No classes configured. Click &ldquo;Add Class Arm&rdquo; to start.
                 </td>
               </tr>
             ) : (

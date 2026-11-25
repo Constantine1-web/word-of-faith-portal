@@ -18,7 +18,9 @@ import {
 import { rateLimit } from "@/lib/security";
 import { IntegrityEventType, AttemptMode } from "@prisma/client";
 
-// Decision 10.3: 2 Hard Strikes before terminating attempt & locking for the current Lagos day
+// Decision 10.3: 2 Hard Strikes before terminating attempt & locking for the current Lagos day.
+// Commercial Policy: CBT Practice & Mock exams remain free for all registered students;
+// CbtPlan / CbtSubscription tables remain dormant unless formally activated in a future term.
 const CBT_HARD_STRIKES_BEFORE_LOCK = Number(process.env.CBT_HARD_STRIKES_BEFORE_LOCK || 2);
 const DAILY_ATTEMPT_CAP = 5;
 // How many questions to pull from the provider when the cached pool is too small (one call).
@@ -434,6 +436,7 @@ export async function startAttempt(params: {
     const startedAt = new Date();
     const expiresAt = new Date(startedAt.getTime() + durationSec * 1000);
 
+    const activeTabToken = `tab:${crypto.randomUUID()}`;
     const attempt = await prisma.$transaction(async (tx) => {
       const createdAttempt = await tx.cbtAttempt.create({
         data: {
@@ -449,7 +452,7 @@ export async function startAttempt(params: {
           expiresAt,
           dayKey,
           hardStrikes: 0,
-          sessionId: String(actor.UserID),
+          sessionId: activeTabToken,
         },
       });
 
@@ -489,6 +492,7 @@ export async function startAttempt(params: {
     return {
       success: true,
       attemptId: attempt.id,
+      sessionToken: attempt.sessionId,
       expiresAt: attempt.expiresAt.toISOString(),
       questionCount: attempt.questionCount,
       durationSec,
@@ -505,7 +509,11 @@ export async function startAttempt(params: {
  * Section 7.4 & 7.6: Returns ONLY question `position` (1-indexed) of an ACTIVE attempt.
  * Never returns CbtAnswerKey or prefetches other questions.
  */
-export async function getQuestion(attemptId: string, position: number) {
+export async function getQuestion(
+  attemptId: string,
+  position: number,
+  sessionToken?: string
+) {
   try {
     const { student } = await resolveCurrentStudent();
     const { isLocked, lock, dayKey } = await assertNotDayLocked(student.StudentID);
@@ -533,6 +541,28 @@ export async function getQuestion(attemptId: string, position: number) {
 
     if (!attempt || attempt.studentId !== student.StudentID) {
       return { success: false, error: "Forbidden: Attempt does not belong to current student." };
+    }
+
+    if (
+      attempt.mode === "MOCK" &&
+      attempt.sessionId?.startsWith("tab:") &&
+      sessionToken &&
+      sessionToken !== attempt.sessionId
+    ) {
+      await prisma.cbtIntegrityEvent
+        .create({
+          data: {
+            attemptId: attempt.id,
+            type: "MULTI_SESSION",
+            isHard: true,
+            meta: { source: "getQuestion" },
+          },
+        })
+        .catch(() => {});
+      return {
+        success: false,
+        error: "Concurrent exam session detected in another tab or browser.",
+      };
     }
 
     if (attempt.status === "TERMINATED") {
@@ -652,6 +682,7 @@ export async function saveAnswer(params: {
   position: number;
   selectedKey: string;
   timeSpentMs?: number;
+  sessionToken?: string;
 }) {
   try {
     const { student } = await resolveCurrentStudent();
@@ -666,6 +697,28 @@ export async function saveAnswer(params: {
 
     if (!attempt || attempt.studentId !== student.StudentID || attempt.status !== "ACTIVE") {
       return { success: false, error: "Attempt is no longer active." };
+    }
+
+    if (
+      attempt.mode === "MOCK" &&
+      attempt.sessionId?.startsWith("tab:") &&
+      params.sessionToken &&
+      params.sessionToken !== attempt.sessionId
+    ) {
+      await prisma.cbtIntegrityEvent
+        .create({
+          data: {
+            attemptId: attempt.id,
+            type: "MULTI_SESSION",
+            isHard: true,
+            meta: { source: "saveAnswer", position: params.position },
+          },
+        })
+        .catch(() => {});
+      return {
+        success: false,
+        error: "Concurrent exam session detected in another tab or browser.",
+      };
     }
 
     // 5-second grace period on network transit
@@ -958,8 +1011,10 @@ export async function submitAttempt(attemptId: string) {
 
     await prisma.$transaction(async (tx) => {
       for (const item of attempt.items) {
-        const correctKey = (item.question.answerKey?.correctKey || "a").toLowerCase().trim();
-        const isCorrect = Boolean(item.selectedKey && item.selectedKey.toLowerCase() === correctKey);
+        const correctKey = (item.question.answerKey?.correctKey || "").toLowerCase().trim();
+        const isCorrect = Boolean(
+          correctKey && item.selectedKey && item.selectedKey.toLowerCase().trim() === correctKey
+        );
         if (isCorrect) correctCount++;
 
         if (attempt.status === "ACTIVE") {
@@ -1168,7 +1223,7 @@ export async function getAttemptAiAnalysis(attemptId: string) {
       attemptId: attempt.id,
       subjectCode: attempt.subjectCode,
       examBody: attempt.examBody,
-      studentName: student.PreferredName || student.AdmissionNo,
+      studentName: undefined,
       score: correctCount,
       total: attempt.questionCount,
       wrongQuestions,
@@ -1393,8 +1448,10 @@ export async function reapExpiredCbtAttempts(limit = 50) {
 
       await prisma.$transaction(async (tx) => {
         for (const item of attempt.items) {
-          const correctKey = (item.question.answerKey?.correctKey || "a").toLowerCase().trim();
-          const isCorrect = Boolean(item.selectedKey && item.selectedKey.toLowerCase() === correctKey);
+          const correctKey = (item.question.answerKey?.correctKey || "").toLowerCase().trim();
+          const isCorrect = Boolean(
+            correctKey && item.selectedKey && item.selectedKey.toLowerCase().trim() === correctKey
+          );
           if (isCorrect) correctCount++;
 
           await tx.cbtAttemptQuestion.update({

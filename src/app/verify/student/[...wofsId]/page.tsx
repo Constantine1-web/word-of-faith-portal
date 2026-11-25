@@ -1,15 +1,25 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import prisma from "@/lib/db";
+import { rateLimit } from "@/lib/rateLimit";
+import { verifyStudentVerificationToken } from "@/lib/qr-verify";
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiArrowLeft, FiAward } from "react-icons/fi";
 
 export const dynamic = "force-dynamic";
 
 export default async function PublicStudentVerificationPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ wofsId: string[] }>;
+  searchParams: Promise<{ sig?: string | string[] }>;
 }) {
-  const { wofsId: rawSegments } = await params;
+  const [{ wofsId: rawSegments }, resolvedSearch, headersList] = await Promise.all([
+    params,
+    searchParams,
+    headers(),
+  ]);
+
   const wofsId = Array.isArray(rawSegments)
     ? rawSegments
         .map((seg) => decodeURIComponent(seg || ""))
@@ -18,34 +28,41 @@ export default async function PublicStudentVerificationPage({
         .toUpperCase()
     : "";
 
-  // Strictly query ONLY public identity confirmation fields (zero PII: no DOB, phone, email, address, results, or parent info)
-  const student = wofsId
-    ? await prisma.student.findFirst({
-        where: {
-          AdmissionNo: {
-            equals: wofsId,
-            mode: "insensitive",
-          },
-        },
-        select: {
-          AdmissionNo: true,
-          FirstName: true,
-          MiddleName: true,
-          LastName: true,
-          PreferredName: true,
-          AvatarUrl: true,
-          EnrolmentStatus: true,
-          IdentityVerified: true,
-          Class: {
-            select: {
-              ClassName: true,
-              Level: true,
-              Arm: true,
+  const rawSig = Array.isArray(resolvedSearch?.sig) ? resolvedSearch.sig[0] : resolvedSearch?.sig;
+  const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+  const rl = await rateLimit(`qr_verify:${ip}`, 30, 300);
+
+  const isSignatureValid = Boolean(wofsId && rl.success && verifyStudentVerificationToken(wofsId, rawSig));
+
+  // Fail closed unless HMAC QR signature validates cleanly (prevents unauthenticated sequential ID enumeration of minor profiles)
+  const student =
+    wofsId && isSignatureValid
+      ? await prisma.student.findFirst({
+          where: {
+            AdmissionNo: {
+              equals: wofsId,
+              mode: "insensitive",
             },
           },
-        },
-      })
-    : null;
+          select: {
+            AdmissionNo: true,
+            FirstName: true,
+            MiddleName: true,
+            LastName: true,
+            PreferredName: true,
+            AvatarUrl: true,
+            EnrolmentStatus: true,
+            IdentityVerified: true,
+            Class: {
+              select: {
+                ClassName: true,
+                Level: true,
+                Arm: true,
+              },
+            },
+          },
+        })
+      : null;
 
   const activeTerm = await prisma.academic_Term.findFirst({
     where: { IsActive: true },
@@ -132,7 +149,7 @@ export default async function PublicStudentVerificationPage({
         </div>
 
         <div style={{ padding: "1.75rem" }}>
-          {!student ? (
+          {!rl.success ? (
             <div
               style={{
                 background: "var(--status-error-bg)",
@@ -145,11 +162,31 @@ export default async function PublicStudentVerificationPage({
             >
               <FiAlertTriangle size={36} style={{ marginBottom: "0.5rem" }} />
               <h2 style={{ margin: "0 0 0.4rem", fontSize: "1.15rem" }}>
-                Unrecognized Student Identity
+                Verification Rate Limit Reached
               </h2>
               <p style={{ margin: 0, fontSize: "0.92rem" }}>
-                No school record matches ID{" "}
-                <strong style={{ fontFamily: "monospace" }}>{wofsId || "N/A"}</strong>. If you suspect a forged or damaged card, please contact the School Office.
+                Too many verification requests were made from this connection. Please try again in a few minutes.
+              </p>
+            </div>
+          ) : !isSignatureValid || !student ? (
+            <div
+              style={{
+                background: "var(--status-error-bg)",
+                border: "1px solid var(--status-error-border)",
+                color: "var(--status-error-text)",
+                padding: "1.5rem",
+                borderRadius: "var(--radius-md)",
+                textAlign: "center",
+              }}
+            >
+              <FiAlertTriangle size={36} style={{ marginBottom: "0.5rem" }} />
+              <h2 style={{ margin: "0 0 0.4rem", fontSize: "1.15rem" }}>
+                {isSignatureValid ? "Unrecognized Student Identity" : "Signed QR Token Required"}
+              </h2>
+              <p style={{ margin: 0, fontSize: "0.92rem" }}>
+                {isSignatureValid
+                  ? "No active student record was found for this verified credential."
+                  : "This verification page requires a cryptographically signed QR code printed on an official Word of Faith Student ID Card."}
               </p>
             </div>
           ) : (

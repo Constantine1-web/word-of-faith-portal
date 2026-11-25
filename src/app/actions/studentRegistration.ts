@@ -288,8 +288,8 @@ export async function createAdminStudentRecord(data: {
     };
   }
 
-  const parsedDob = data.dateOfBirth ? new Date(data.dateOfBirth) : new Date("2012-01-01");
-  if (Number.isNaN(parsedDob.getTime())) {
+  const parsedDob = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
+  if (parsedDob && Number.isNaN(parsedDob.getTime())) {
     return { success: false, error: "Please provide a valid Date of Birth." };
   }
 
@@ -521,7 +521,8 @@ export async function updateAdminStudentRecord(data: {
         MiddleName: middleName,
         PreferredName: fullDisplayName,
         Gender: data.gender?.trim() || existing.Gender,
-        DateOfBirth: Number.isNaN(parsedDob.getTime()) ? existing.DateOfBirth : parsedDob,
+        DateOfBirth:
+          parsedDob && !Number.isNaN(parsedDob.getTime()) ? parsedDob : existing.DateOfBirth,
         ClassID: Number(data.classId) || existing.ClassID,
         EnrolmentStatus: data.enrolmentStatus || existing.EnrolmentStatus,
         ParentName: data.parentName?.trim() ?? existing.ParentName,
@@ -877,7 +878,7 @@ export async function previewBulkStudentImport(
     const lastName = (cols[1] || "").replace(/^[=+\-@]+/, "").trim();
     const middleName = (cols[2] || "").replace(/^[=+\-@]+/, "").trim();
     const gender = (cols[3] || "Unspecified").trim();
-    const dobStr = (cols[4] || "2012-01-01").trim();
+    const dobStr = (cols[4] || "").trim();
     const rawClassName = (cols[5] || "").trim();
     const parentName = (cols[6] || "").trim();
     const parentContact = (cols[7] || "").trim();
@@ -890,8 +891,8 @@ export async function previewBulkStudentImport(
     if (!firstName) errors.push("Missing First Name");
     if (!lastName) errors.push("Missing Last Name");
 
-    const parsedDob = new Date(dobStr);
-    if (Number.isNaN(parsedDob.getTime())) {
+    const parsedDob = dobStr ? new Date(dobStr) : null;
+    if (dobStr && parsedDob && Number.isNaN(parsedDob.getTime())) {
       errors.push(`Invalid Date of Birth "${dobStr}" (use YYYY-MM-DD)`);
     }
 
@@ -959,9 +960,10 @@ export async function previewBulkStudentImport(
       lastName,
       middleName,
       gender,
-      dateOfBirth: Number.isNaN(parsedDob.getTime())
-        ? dobStr
-        : parsedDob.toISOString().split("T")[0],
+      dateOfBirth:
+        parsedDob && !Number.isNaN(parsedDob.getTime())
+          ? parsedDob.toISOString().split("T")[0]
+          : dobStr,
       classId: matchedClass?.ClassID || null,
       className: matchedClass?.ClassName || "Unassigned",
       parentName,
@@ -1053,8 +1055,8 @@ export async function commitBulkStudentImport(
         continue;
       }
 
-      const parsedDob = new Date(row.dateOfBirth || "2012-01-01");
-      if (Number.isNaN(parsedDob.getTime())) {
+      const parsedDob = row.dateOfBirth ? new Date(row.dateOfBirth) : null;
+      if (parsedDob && Number.isNaN(parsedDob.getTime())) {
         rejectedRows.push({
           rowNumber: row.rowNumber,
           fullName,

@@ -49,7 +49,7 @@ export default function InspirationSlideshow() {
       </div>
       <div className={styles.quoteWrapper}>
         <div className={`${styles.quoteContent} ${fade ? styles.fadeIn : styles.fadeOut}`}>
-          <p className={styles.quoteText}>"{quotes[currentIndex].text}"</p>
+          <p className={styles.quoteText}>&ldquo;{quotes[currentIndex].text}&rdquo;</p>
           <p className={styles.quoteAuthor}>— {quotes[currentIndex].author}</p>
         </div>
       </div>

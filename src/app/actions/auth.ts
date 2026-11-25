@@ -75,11 +75,11 @@ export async function initiateRegistration(admissionNo: string, email: string, c
       };
     }
 
-    // If an unclaimed student record has a ClaimCodeHash, enforce authorization
-    if (student.ClaimCodeHash) {
-      const parentEmail = (student.ParentEmail || "").toLowerCase().trim();
-      const isParentEmailMatch = parentEmail && parentEmail === cleanEmail;
+    // Enforce authorization for claiming any student record (fail-closed if ClaimCodeHash is absent)
+    const parentEmail = (student.ParentEmail || "").toLowerCase().trim();
+    const isParentEmailMatch = Boolean(parentEmail && parentEmail === cleanEmail);
 
+    if (student.ClaimCodeHash) {
       if (!isParentEmailMatch) {
         if (!cleanClaimCode) {
           return {
@@ -104,6 +104,11 @@ export async function initiateRegistration(admissionNo: string, email: string, c
           };
         }
       }
+    } else if (!isParentEmailMatch) {
+      return {
+        success: false,
+        error: "Self-service claim requires an active Claim Code or registration using the primary guardian email on file. Please contact school administration.",
+      };
     }
 
     // 2. Check if email is in use by a DIFFERENT user account
@@ -257,9 +262,7 @@ export async function verifyRegistration(
     const legacyExpectedHash = hashTokenSha256(cleanOtp);
     const otpValid =
       timingSafeCompare(tokenRecord.token, boundExpectedHash) ||
-      (!student.ClaimCodeHash &&
-        (timingSafeCompare(tokenRecord.token, legacyExpectedHash) ||
-          timingSafeCompare(tokenRecord.token, cleanOtp)));
+      (!student.ClaimCodeHash && timingSafeCompare(tokenRecord.token, legacyExpectedHash));
 
     if (!otpValid) {
       const attemptState = await incrementOtpAttemptAndCheckLocked(cleanEmail, "EMAIL_VERIFICATION", 5, 900);
@@ -528,9 +531,7 @@ export async function resetPassword(email: string, otp: string, newPassword: str
     }
 
     const expectedHash = hashTokenSha256(cleanOtp);
-    const otpValid =
-      timingSafeCompare(tokenRecord.token, expectedHash) ||
-      timingSafeCompare(tokenRecord.token, cleanOtp);
+    const otpValid = timingSafeCompare(tokenRecord.token, expectedHash);
 
     if (!otpValid) {
       const attemptState = await incrementOtpAttemptAndCheckLocked(cleanEmail, "PASSWORD_RESET", 5, 900);

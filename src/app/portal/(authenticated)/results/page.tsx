@@ -1,9 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { verifyScratchCard } from "@/app/actions/scratchCards";
-import { useSession } from "next-auth/react";
-import { FiPrinter, FiDownload, FiCheckCircle, FiAward, FiArrowLeft, FiKey } from "react-icons/fi";
+import { getTerms } from "@/app/actions/terms";
+import { getActorWardsListAction } from "@/app/actions/payments";
+import { escapeHtml } from "@/lib/html-escape";
+import { useSearchParams } from "next/navigation";
+import {
+  FiPrinter,
+  FiDownload,
+  FiCheckCircle,
+  FiAward,
+  FiArrowLeft,
+  FiKey,
+  FiUsers,
+} from "react-icons/fi";
 
 function deriveRemark(grade: string, existingRemark?: string | null): string {
   if (existingRemark && existingRemark.trim().length > 0) return existingRemark;
@@ -30,19 +41,71 @@ function deriveRemark(grade: string, existingRemark?: string | null): string {
   }
 }
 
-export default function ResultsPage() {
-  const { data: session } = useSession();
+function ResultsPageInner() {
+  const searchParams = useSearchParams();
+  const initialStudentParam = searchParams.get("studentId");
+
+  const [wards, setWards] = useState<
+    Array<{
+      studentId: number;
+      admissionNo: string;
+      fullName: string;
+      className: string;
+    }>
+  >([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<number | undefined>(() => {
+    const n = Number(initialStudentParam);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  });
+
+  const [terms, setTerms] = useState<
+    Array<{ TermID: number; SessionName: string; TermName: string; IsActive: boolean }>
+  >([]);
   const [pin, setPin] = useState("");
   const [termId, setTermId] = useState(1);
   const [resultData, setResultData] = useState<any>(null);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    let active = true;
+    async function loadMeta() {
+      const [termsRes, wardsRes] = await Promise.all([
+        getTerms(),
+        getActorWardsListAction(),
+      ]);
+      if (!active) return;
+
+      if (termsRes.success && Array.isArray(termsRes.terms) && termsRes.terms.length > 0) {
+        setTerms(termsRes.terms);
+        const activeTerm = termsRes.terms.find((t: any) => t.IsActive) || termsRes.terms[0];
+        if (activeTerm?.TermID) {
+          setTermId(activeTerm.TermID);
+        }
+      }
+
+      if (wardsRes.success && Array.isArray(wardsRes.wards) && wardsRes.wards.length > 0) {
+        setWards(wardsRes.wards);
+        setSelectedStudentId((prev) => prev || wardsRes.wards[0].studentId);
+      }
+    }
+    loadMeta();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const handleCheckResult = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setStatus("Verifying Scratch Card PIN...");
-    const res = await verifyScratchCard(pin.trim(), termId);
+    const res = await verifyScratchCard(
+      pin.trim(),
+      termId,
+      undefined,
+      false,
+      selectedStudentId
+    );
 
     if (res.success) {
       setResultData(res.data);
@@ -67,20 +130,10 @@ export default function ResultsPage() {
     "Student";
 
   const formMasterRemark =
-    resultData?.formMasterReport?.FormMasterRemark ||
-    (averagePct >= 75
-      ? "An exemplary and diligent student who participates actively in class."
-      : averagePct >= 55
-      ? "A commendable effort this term. Keep striving for higher excellence."
-      : "Requires closer study habits and extra attention in core subjects.");
+    resultData?.formMasterReport?.FormMasterRemark?.trim() || "No remark recorded yet.";
 
   const principalRemark =
-    resultData?.formMasterReport?.PrincipalRemark ||
-    (averagePct >= 75
-      ? "Outstanding terminal performance. Keep flying the Word of Faith banner high!"
-      : averagePct >= 50
-      ? "Satisfactory result. Put in more effort next term."
-      : "Must work harder next term.");
+    resultData?.formMasterReport?.PrincipalRemark?.trim() || "No remark recorded yet.";
 
   let parsedAffective: Record<string, number> = {
     punctuality: 5,
@@ -124,14 +177,14 @@ export default function ResultsPage() {
         (res: any, idx: number) => `
         <tr>
           <td style="text-align: center;">${idx + 1}</td>
-          <td><strong>${res.Subject?.SubjectName || `Subject ${res.SubjectID}`}</strong></td>
-          <td style="text-align: center;">${res.CAScore}</td>
-          <td style="text-align: center;">${res.ExamScore}</td>
-          <td style="text-align: center; font-weight: 800;">${res.TotalScore}</td>
+          <td><strong>${escapeHtml(res.Subject?.SubjectName || `Subject ${res.SubjectID}`)}</strong></td>
+          <td style="text-align: center;">${escapeHtml(res.CAScore)}</td>
+          <td style="text-align: center;">${escapeHtml(res.ExamScore)}</td>
+          <td style="text-align: center; font-weight: 800;">${escapeHtml(res.TotalScore)}</td>
           <td style="text-align: center; font-weight: 800; color: ${
             res.Grade === "F" || res.Grade === "F9" ? "#dc2626" : "#15803d"
-          };">${res.Grade}</td>
-          <td>${deriveRemark(res.Grade, res.Remark)}</td>
+          };">${escapeHtml(res.Grade)}</td>
+          <td>${escapeHtml(deriveRemark(res.Grade, res.Remark))}</td>
         </tr>`
       )
       .join("");
@@ -139,22 +192,33 @@ export default function ResultsPage() {
     const affectiveHtml = Object.entries(parsedAffective)
       .map(
         ([k, v]) =>
-          `<span style="display:inline-block;margin-right:10px;margin-bottom:4px;background:#fff;border:1px solid #cbd5e1;padding:3px 8px;border-radius:4px;font-size:11.5px;"><strong style="text-transform:capitalize;">${k}:</strong> ${v}/5</span>`
+          `<span style="display:inline-block;margin-right:10px;margin-bottom:4px;background:#fff;border:1px solid #cbd5e1;padding:3px 8px;border-radius:4px;font-size:11.5px;"><strong style="text-transform:capitalize;">${escapeHtml(k)}:</strong> ${escapeHtml(v)}/5</span>`
       )
       .join("");
 
     const psychomotorHtml = Object.entries(parsedPsychomotor)
       .map(
         ([k, v]) =>
-          `<span style="display:inline-block;margin-right:10px;margin-bottom:4px;background:#fff;border:1px solid #86efac;padding:3px 8px;border-radius:4px;font-size:11.5px;"><strong style="text-transform:capitalize;">${k}:</strong> ${v}/5</span>`
+          `<span style="display:inline-block;margin-right:10px;margin-bottom:4px;background:#fff;border:1px solid #86efac;padding:3px 8px;border-radius:4px;font-size:11.5px;"><strong style="text-transform:capitalize;">${escapeHtml(k)}:</strong> ${escapeHtml(v)}/5</span>`
       )
       .join("");
+
+    const safeAdmissionNo = escapeHtml(resultData.student?.AdmissionNo || "Student");
+    const safeTermName = escapeHtml(resultData.term?.TermName || "Current Term");
+    const safeSessionName = escapeHtml(resultData.term?.SessionName || "Active Session");
+    const safeStudentName = escapeHtml(studentFullName);
+    const safeClass = escapeHtml(
+      `${resultData.student?.Class?.ClassName || "—"} (${resultData.student?.Class?.Level || "Secondary"})`
+    );
+    const safeAttendance = escapeHtml(attendanceLabel);
+    const safeClassTeacherRemark = escapeHtml(formMasterRemark);
+    const safePrincipalRemark = escapeHtml(principalRemark);
 
     win.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Terminal Report Card - ${resultData.student?.AdmissionNo || "Student"}</title>
+          <title>Terminal Report Card - ${safeAdmissionNo}</title>
           <style>
             body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #0f172a; padding: 24px; background: #fff; }
             .sheet { max-width: 820px; margin: 0 auto; border: 2px solid #0A2540; border-radius: 12px; padding: 28px; }
@@ -180,15 +244,15 @@ export default function ResultsPage() {
             <div class="header">
               <h1 class="school-name">Word of Faith Group of Schools</h1>
               <p class="school-motto">Academic Excellence &amp; Godly Character • Official Terminal Report Sheet</p>
-              <span class="badge">${resultData.term?.TermName || "First Term"} (${resultData.term?.SessionName || "2025/2026"})</span>
+              <span class="badge">${safeTermName} (${safeSessionName})</span>
             </div>
             <div class="bio-grid">
-              <div class="bio-item"><strong>Student Name</strong>${studentFullName}</div>
-              <div class="bio-item"><strong>Admission Number</strong>${resultData.student?.AdmissionNo || "—"}</div>
-              <div class="bio-item"><strong>Class / Level</strong>${resultData.student?.Class?.ClassName || "—"} (${resultData.student?.Class?.Level || "Secondary"})</div>
+              <div class="bio-item"><strong>Student Name</strong>${safeStudentName}</div>
+              <div class="bio-item"><strong>Admission Number</strong>${safeAdmissionNo}</div>
+              <div class="bio-item"><strong>Class / Level</strong>${safeClass}</div>
               <div class="bio-item"><strong>Total Marks Obtained</strong>${totalObtained} / ${maxPossible}</div>
               <div class="bio-item"><strong>Terminal Average</strong>${averagePct}%</div>
-              <div class="bio-item"><strong>Term Attendance</strong>${attendanceLabel}</div>
+              <div class="bio-item"><strong>Term Attendance</strong>${safeAttendance}</div>
             </div>
             <table>
               <thead>
@@ -217,15 +281,15 @@ export default function ResultsPage() {
               </div>
             </div>
             <div class="remarks-box">
-              <div><strong>Class Teacher's Remark:</strong> ${formMasterRemark}</div>
-              <div style="margin-bottom: 0;"><strong>Principal's Official Remark:</strong> ${principalRemark}</div>
+              <div><strong>Class Teacher's Remark:</strong> ${safeClassTeacherRemark}</div>
+              <div style="margin-bottom: 0;"><strong>Principal's Official Remark:</strong> ${safePrincipalRemark}</div>
             </div>
             <div style="font-size: 11px; color: #64748b;">
               <strong>Grading Scale:</strong> A (70–100%: Distinction) • B (60–69%: Very Good) • C (50–59%: Credit) • D/E (40–49%: Pass) • F (0–39%: Fail)
             </div>
             <div class="footer-sigs">
               <div><strong>Class Teacher's Signature:</strong> Signed &amp; Verified</div>
-              <div><strong>Date Issued:</strong> ${new Date().toLocaleDateString("en-NG", { day: "2-digit", month: "long", year: "numeric" })}</div>
+              <div><strong>Date Issued:</strong> ${escapeHtml(new Date().toLocaleDateString("en-NG", { day: "2-digit", month: "long", year: "numeric" }))}</div>
               <div><strong>Principal's Stamp &amp; Signature:</strong> Approved</div>
             </div>
           </div>
@@ -238,33 +302,66 @@ export default function ResultsPage() {
 
   return (
     <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)" }}>
-      <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "2rem", borderBottom: "2px solid var(--color-gray-200)", paddingBottom: "1rem" }}>
-        Terminal Results &amp; Report Card
-      </h1>
+      <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>Academic Results Checker</h1>
+      <p style={{ color: "var(--color-gray-500)", marginBottom: "2rem" }}>
+        Verify your 12-digit Scratch Card PIN to view your official WAEC/SSCE &amp; Primary grade sheets.
+      </p>
 
-      <div style={{ background: "var(--color-white)", padding: "clamp(1.25rem, 3vw, 2.25rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)", maxWidth: "920px" }}>
+      <div style={{ background: "var(--color-white)", padding: "clamp(1.25rem, 3vw, 2.5rem)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" }}>
         {!resultData ? (
-          <div>
-            <h2 style={{ marginBottom: "0.5rem", color: "var(--color-primary-green)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <FiKey /> Scratch Card Gateway
+          <div style={{ maxWidth: "460px", margin: "0 auto", textAlign: "center" }}>
+            <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "rgba(21, 128, 61, 0.1)", color: "var(--color-primary-green)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem auto" }}>
+              <FiKey size={28} />
+            </div>
+            <h2 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem", fontSize: "1.4rem" }}>
+              Scratch Card Authentication
             </h2>
             <p style={{ marginBottom: "1.5rem", color: "var(--color-gray-800)" }}>
               Enter your valid Scratch Card PIN to unlock and download your official terminal report sheet.
             </p>
 
-            <form onSubmit={handleCheckResult} style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: "420px" }}>
+            <form onSubmit={handleCheckResult} style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: "420px", margin: "0 auto", textAlign: "left" }}>
+              {wards.length > 1 && (
+                <div>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.5rem", fontWeight: "bold", color: "var(--color-gray-900)" }}>
+                    <FiUsers size={15} /> Select Student / Ward
+                  </label>
+                  <select
+                    value={selectedStudentId ?? ""}
+                    onChange={(e) => setSelectedStudentId(Number(e.target.value))}
+                    style={{ width: "100%", padding: "0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-200)", background: "var(--color-gray-50)", color: "var(--color-gray-900)" }}
+                  >
+                    {wards.map((w) => (
+                      <option key={w.studentId} value={w.studentId}>
+                        {w.fullName} — {w.className} ({w.admissionNo})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "bold", color: "var(--color-gray-900)" }}>
                   Academic Term
                 </label>
                 <select
                   value={termId}
-                  onChange={(e) => setTermId(parseInt(e.target.value))}
+                  onChange={(e) => setTermId(parseInt(e.target.value, 10))}
                   style={{ width: "100%", padding: "0.75rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-200)", background: "var(--color-gray-50)", color: "var(--color-gray-900)" }}
                 >
-                  <option value={1}>First Term (2025/2026)</option>
-                  <option value={2}>Second Term (2025/2026)</option>
-                  <option value={3}>Third Term (2025/2026)</option>
+                  {terms.length > 0 ? (
+                    terms.map((t) => (
+                      <option key={t.TermID} value={t.TermID}>
+                        {t.TermName} ({t.SessionName}){t.IsActive ? " — Active" : ""}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value={1}>First Term</option>
+                      <option value={2}>Second Term</option>
+                      <option value={3}>Third Term</option>
+                    </>
+                  )}
                 </select>
               </div>
               <div>
@@ -273,7 +370,7 @@ export default function ResultsPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. WOF-TEST-7890 or 12-Digit PIN"
+                  placeholder="e.g. 12-Digit PIN"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
                   style={{
@@ -384,7 +481,7 @@ export default function ResultsPage() {
                   fontWeight: 700,
                 }}
               >
-                {resultData.term?.TermName || "First Term"} • {resultData.term?.SessionName || "2025/2026"}
+                {resultData.term?.TermName || "Active Term"} • {resultData.term?.SessionName || "Current Session"}
               </span>
             </div>
 
@@ -604,5 +701,19 @@ export default function ResultsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ResultsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-gray-500)" }}>
+          Loading Terminal Results Checker...
+        </div>
+      }
+    >
+      <ResultsPageInner />
+    </Suspense>
   );
 }

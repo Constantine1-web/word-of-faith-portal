@@ -77,7 +77,7 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
 
     if (res.success && res.term) {
       setTerms(prev => {
-        let updated = makeActive ? prev.map(t => ({ ...t, IsActive: false })) : [...prev];
+        const updated = makeActive ? prev.map(t => ({ ...t, IsActive: false })) : [...prev];
         return [res.term, ...updated];
       });
       setSuccess("Academic term created successfully!");
@@ -171,7 +171,7 @@ export default function TermsClient({ initialTerms }: { initialTerms: any[] }) {
             {terms.length === 0 ? (
               <tr>
                 <td colSpan={6} style={{ padding: "3rem", textAlign: "center", color: "var(--color-gray-500)" }}>
-                  No academic terms configured yet. Click "Add Session / Term" above to get started.
+                  No academic terms configured yet. Click &ldquo;Add Session / Term&rdquo; above to get started.
                 </td>
               </tr>
             ) : (

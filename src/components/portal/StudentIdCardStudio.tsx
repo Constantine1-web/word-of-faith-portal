@@ -8,6 +8,7 @@ import QrCodeSvg from "./QrCodeSvg";
 export interface StudentIdCardRecord {
   StudentID?: number;
   AdmissionNo: string;
+  verificationSig?: string | null;
   FirstName?: string | null;
   MiddleName?: string | null;
   LastName?: string | null;
@@ -405,13 +406,16 @@ export default function StudentIdCardStudio({
   const [includeBacks, setIncludeBacks] = useState(true);
   const [flipSingle, setFlipSingle] = useState(false);
 
-  const buildVerifyPath = (wofsId: string) =>
-    `/verify/student/${wofsId
+  const buildVerifyPath = (wofsId: string, sig?: string | null) => {
+    const base = `/verify/student/${wofsId
       .split("/")
       .map((seg) => encodeURIComponent(seg))
       .join("/")}`;
+    return sig ? `${base}?sig=${encodeURIComponent(sig)}` : base;
+  };
 
-  const buildVerifyUrl = (wofsId: string) => `${origin}${buildVerifyPath(wofsId)}`;
+  const buildVerifyUrl = (wofsId: string, sig?: string | null) =>
+    `${origin}${buildVerifyPath(wofsId, sig)}`;
 
   const isSingle = students.length === 1;
 
@@ -501,7 +505,7 @@ export default function StudentIdCardStudio({
                   <FiRefreshCw size={14} /> {flipSingle ? "Show Both Sides" : "Back Only"}
                 </button>
                 <Link
-                  href={buildVerifyPath(students[0].AdmissionNo)}
+                  href={buildVerifyPath(students[0].AdmissionNo, students[0].verificationSig)}
                   target="_blank"
                   className="btn btn-outline"
                   style={{ fontSize: "0.82rem", padding: "0.45rem 0.75rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
@@ -558,7 +562,7 @@ export default function StudentIdCardStudio({
           }}
         >
           {students.map((st) => {
-            const verifyUrl = buildVerifyUrl(st.AdmissionNo);
+            const verifyUrl = buildVerifyUrl(st.AdmissionNo, st.verificationSig);
             return (
               <div
                 key={st.AdmissionNo}

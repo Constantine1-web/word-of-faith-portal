@@ -43,6 +43,19 @@ import {
   formatStaffRoleLabel,
   isAuthorizedStaffCommRoleSet,
 } from "../../staff-messaging";
+import {
+  PORTAL_ICT_SERVICE_FEE_KOBO,
+  allocateTermPaymentKobo,
+  computePaystackConvenienceFeeKobo,
+  computeTermInvoiceTotals,
+  computeReversalAllocationKobo,
+} from "../../fee-split";
+import {
+  signStudentVerificationToken,
+  verifyStudentVerificationToken,
+  buildSignedStudentVerifyUrl,
+} from "../../qr-verify";
+import { validateReceiptBinary } from "../../payment-ledger";
 
 async function runSecurityRegressionSuite() {
   let passed = 0;
@@ -742,7 +755,85 @@ async function runSecurityRegressionSuite() {
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/16 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // 17. Model A ₦800 Portal/ICT Service Fee, Partial Installments, Waivers, Option A Surcharge & Reversals
+  {
+    const termInvoice = computeTermInvoiceTotals({
+      tuitionKobo: BigInt(6_500_000),
+      leviesKobo: BigInt(0),
+      isSchoolFeesWaived: false,
+    });
+    assert.equal(termInvoice.portalFeeKobo, PORTAL_ICT_SERVICE_FEE_KOBO);
+    assert.equal(termInvoice.totalInvoiceKobo, BigInt(6_580_000));
+
+    // Installment 1 satisfies ₦800 ICT fee first
+    const gw1 = computePaystackConvenienceFeeKobo(BigInt(2_500_000));
+    assert(gw1 > BigInt(0), "Paystack convenience fee must be positive");
+    const firstPart = allocateTermPaymentKobo({
+      grossPrincipalPaidKobo: BigInt(2_500_000),
+      targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+      alreadyAllocatedPortalFeeKobo: BigInt(0),
+      gatewayFeeKobo: gw1,
+    });
+    assert.equal(firstPart.providerShareNaira, 800);
+    assert.equal(firstPart.schoolShareNaira, 24200);
+    assert.equal(firstPart.totalChargedKobo, BigInt(2_500_000) + gw1);
+
+    // Installment 2 in same term takes ₦0 ICT fee (100% School)
+    const secondPart = allocateTermPaymentKobo({
+      grossPrincipalPaidKobo: BigInt(4_080_000),
+      targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+      alreadyAllocatedPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+      gatewayFeeKobo: BigInt(0),
+    });
+    assert.equal(secondPart.providerShareNaira, 0);
+    assert.equal(secondPart.schoolShareNaira, 40800);
+
+    // Scholarship waiver leaves ₦800 ICT fee due
+    const waived = computeTermInvoiceTotals({
+      tuitionKobo: BigInt(8_000_000),
+      leviesKobo: BigInt(500_000),
+      isSchoolFeesWaived: true,
+    });
+    assert.equal(waived.schoolSubtotalKobo, BigInt(0));
+    assert.equal(waived.portalFeeKobo, PORTAL_ICT_SERVICE_FEE_KOBO);
+
+    // Reversal negates credits symmetrically
+    const reversal = computeReversalAllocationKobo({
+      paymentPrincipalKobo: firstPart.grossPrincipalPaidKobo,
+      creditedSchoolKobo: firstPart.schoolShareKobo,
+      creditedProviderKobo: firstPart.providerShareKobo,
+      gatewayFeeKobo: gw1,
+    });
+    assert.equal(reversal.providerShareKobo, -BigInt(80_000));
+    assert.equal(reversal.schoolShareKobo, -BigInt(2_420_000));
+    passed++;
+  }
+
+  // 18. Signed QR Student Verification Tokens & Private Receipt Magic Bytes
+  {
+    const id = "WOFS-STU-2026-000042";
+    const sig = signStudentVerificationToken(id);
+    assert.equal(sig.length, 22);
+    assert.equal(verifyStudentVerificationToken(id, sig), true);
+    assert.equal(verifyStudentVerificationToken("wofs-stu-2026-000042", sig), true);
+    assert.equal(verifyStudentVerificationToken("WOFS-STU-2026-000043", sig), false);
+    assert.equal(verifyStudentVerificationToken(id, ""), false);
+    const url = buildSignedStudentVerifyUrl("https://portal.wofs.edu.ng/", id, sig);
+    assert(url.includes("?sig="));
+
+    // Confirm real PNG/JPEG/PDF binary headers accepted and spoofed HTML rejected
+    assert.equal(
+      validateReceiptBinary(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), "image/png").valid,
+      true
+    );
+    assert.equal(
+      validateReceiptBinary(Buffer.from("<!DOCTYPE html><script>alert(1)</script>"), "image/png").valid,
+      false
+    );
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/18 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {

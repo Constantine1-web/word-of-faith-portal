@@ -1,46 +1,68 @@
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PaymentsClient from "./PaymentsClient";
-import { ensureAndListFeeSchedules, resolveFeeLevelGroup } from "@/lib/fee-schedule";
+import { requireCapability } from "@/lib/authz";
+import { ensureAndListFeeSchedules } from "@/lib/fee-schedule";
+import { allocateTermPaymentKobo, PORTAL_ICT_SERVICE_FEE_KOBO } from "@/lib/fee-split";
+import { APPROVED_PAYMENT_STATUSES } from "@/lib/payment-ledger";
+import { getPortalBankConfig } from "@/lib/portal-settings";
+
+export const dynamic = "force-dynamic";
 
 export default async function AdminPaymentsPage() {
-  const session = await getServerSession(authOptions);
-  const roleUpper = (session?.user?.role || "").toUpperCase();
-  const isAuthorizedAdmin =
-    roleUpper === "ADMIN" ||
-    roleUpper === "SUPER_ADMIN" ||
-    roleUpper === "PRINCIPAL" ||
-    roleUpper === "BURSAR" ||
-    roleUpper === "ADMISSIONS";
-
-  if (!session || !isAuthorizedAdmin) {
-    redirect("/portal/login");
+  try {
+    await requireCapability(["MANAGE_FINANCE", "APPROVE_PAYMENTS"]);
+  } catch {
+    redirect("/portal/unauthorized?zone=finance");
   }
 
   const terms = await prisma.academic_Term.findMany({
     orderBy: { SessionName: "desc" },
   });
 
-  const activeTerm = terms.find((t) => t.IsActive);
+  const activeTerm = terms.find((t) => t.IsActive) || terms[0] || null;
 
-  const rawPayments = await prisma.payment_Record.findMany({
-    orderBy: { PaymentDate: "desc" },
-    include: {
-      Student: {
+  const [rawPayments, rawSchedules, pendingCount, approvedTotal, bankConfig, remittanceLogs] =
+    await Promise.all([
+      prisma.payment_Record.findMany({
+        orderBy: { PaymentDate: "desc" },
         include: {
-          Class: true,
-          User: {
-            select: { UserID: true, Email: true, IsActive: true },
+          Student: {
+            include: {
+              Class: true,
+              User: {
+                select: { UserID: true, Email: true, IsActive: true },
+              },
+            },
           },
+          Term: true,
+          Invoice: { include: { LineItems: true } },
+          LedgerEntries: true,
         },
-      },
-      Term: true,
-    },
-  });
+      }),
+      ensureAndListFeeSchedules(),
+      prisma.payment_Record.count({ where: { Status: "Pending" } }),
+      prisma.payment_Record.aggregate({
+        where: { Status: { in: [...APPROVED_PAYMENT_STATUSES] } },
+        _sum: { AmountPaid: true },
+      }),
+      getPortalBankConfig(),
+      prisma.auditLog.findMany({
+        where: { Action: "PROVIDER_REMITTANCE_SETTLED" },
+        select: { NewValue: true },
+        take: 200,
+      }),
+    ]);
 
-  const schedules = (await ensureAndListFeeSchedules()).map((s) => ({
+  const settledLedgerIds = new Set<string>();
+  for (const r of remittanceLogs) {
+    const val = (r.NewValue || {}) as { ledgerIds?: string[] };
+    if (Array.isArray(val.ledgerIds)) {
+      for (const id of val.ledgerIds) settledLedgerIds.add(String(id));
+    }
+  }
+
+  const schedules = rawSchedules.map((s) => ({
     id: s.id,
     levelGroup: s.levelGroup,
     displayName: s.displayName,
@@ -49,35 +71,78 @@ export default async function AdminPaymentsPage() {
     maintenanceFeeNaira: s.maintenanceFeeNaira,
     totalNaira: s.totalNaira,
   }));
-  const scheduleByGroup = new Map(schedules.map((s) => [s.levelGroup, s]));
 
-  // Safely serialize BigInt AmountKobo and attach class-schedule 80/20 allocation breakdown
   const initialPayments = rawPayments.map((p) => {
-    const grp = resolveFeeLevelGroup(p.Student?.Class?.ClassName, p.Student?.Class?.Level);
-    const maintRate = scheduleByGroup.get(grp)?.maintenanceFeeNaira ?? 1000;
-    const totalAmount = Math.max(0, Number(p.AmountPaid) || 0);
-    const maintenanceFee = totalAmount >= maintRate ? maintRate : 0;
-    const tuitionAndSchoolLevies = Math.max(0, totalAmount - maintenanceFee);
-    const providerShare80 = Math.round(maintenanceFee * 0.8);
-    const schoolMaintenanceShare20 = maintenanceFee - providerShare80;
+    const entries = p.LedgerEntries || [];
+    let schoolShareNaira = 0;
+    let providerShareNaira = 0;
+    let principalNaira = Number(p.AmountKobo || 0) / 100 || Number(p.AmountPaid || 0);
+    let gatewayFeeNaira = Number(p.gatewayFeeKobo || 0) / 100;
+
+    if (entries.length > 0) {
+      let sK = BigInt(0);
+      let prK = BigInt(0);
+      let gK = BigInt(0);
+      let gwK = BigInt(0);
+      for (const le of entries) {
+        sK += le.schoolShareKobo;
+        prK += le.providerShareKobo;
+        gK += le.grossPaidKobo;
+        gwK += le.gatewayFeeKobo;
+      }
+      schoolShareNaira = Number(sK) / 100;
+      providerShareNaira = Number(prK) / 100;
+      principalNaira = Number(gK) / 100;
+      gatewayFeeNaira = Number(gwK) / 100;
+    } else {
+      const principalKobo =
+        p.AmountKobo && p.AmountKobo > BigInt(0)
+          ? p.AmountKobo
+          : BigInt(Math.round((Number(p.AmountPaid) || 0) * 100));
+      const sim = allocateTermPaymentKobo({
+        grossPrincipalPaidKobo: principalKobo,
+        targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+      });
+      schoolShareNaira = sim.schoolShareNaira;
+      providerShareNaira = sim.providerShareNaira;
+      principalNaira = sim.grossPrincipalPaidNaira;
+    }
+
     return {
       ...p,
       AmountKobo: p.AmountKobo ? Number(p.AmountKobo) : null,
+      gatewayFeeKobo: p.gatewayFeeKobo ? Number(p.gatewayFeeKobo) : 0,
+      ReceiptUrl: p.ReceiptUrl || p.receiptStorageKey ? `/api/receipts/${p.PaymentID}` : null,
+      Invoice: p.Invoice
+        ? {
+            ...p.Invoice,
+            AmountKobo: Number(p.Invoice.AmountKobo),
+            LineItems: p.Invoice.LineItems.map((li) => ({
+              ...li,
+              amountKobo: Number(li.amountKobo),
+            })),
+          }
+        : null,
+      LedgerEntries: entries.map((le) => ({
+        ...le,
+        grossPaidKobo: Number(le.grossPaidKobo),
+        gatewayFeeKobo: Number(le.gatewayFeeKobo),
+        schoolShareKobo: Number(le.schoolShareKobo),
+        providerShareKobo: Number(le.providerShareKobo),
+        isRemitted:
+          le.settlementStatus === "AUTO_SPLIT" ||
+          le.settlementStatus === "REMITTED" ||
+          settledLedgerIds.has(le.id),
+      })),
       allocation: {
-        totalAmount,
-        tuitionAndSchoolLevies,
-        maintenanceFee,
-        providerShare80,
-        schoolMaintenanceShare20,
-        totalSchoolRetention: tuitionAndSchoolLevies + schoolMaintenanceShare20,
+        principalNaira,
+        schoolShareNaira,
+        providerShareNaira,
+        gatewayFeeNaira,
+        hasLedgerEntry: entries.length > 0,
+        ledgerIds: entries.map((le) => le.id),
       },
     };
-  });
-
-  const pendingCount = await prisma.payment_Record.count({ where: { Status: "Pending" } });
-  const approvedTotal = await prisma.payment_Record.aggregate({
-    where: { Status: "Approved" },
-    _sum: { AmountPaid: true },
   });
 
   return (
@@ -96,10 +161,10 @@ export default async function AdminPaymentsPage() {
       >
         <div>
           <h1 style={{ color: "var(--color-navy-blue)", margin: 0, fontSize: "1.75rem" }}>
-            Fee Clearance & Receipt Verification
+            Fee Clearance, Ledger &amp; Receipt Audit
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            Audit bank transfer uploads and Paystack records. Approving grants student financial clearance for result viewing.
+            100% Tuition to School · ₦800/Student/Term Portal/ICT Service Fee · Gateway Charges Tracked Separately.
           </p>
         </div>
       </div>
@@ -110,6 +175,7 @@ export default async function AdminPaymentsPage() {
         activeTerm={activeTerm}
         initialStats={{ pendingCount, totalRevenue: approvedTotal._sum.AmountPaid || 0 }}
         initialSchedules={schedules}
+        initialBankConfig={bankConfig}
       />
     </div>
   );

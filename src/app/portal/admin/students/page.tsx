@@ -1,19 +1,16 @@
 import prisma from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { requireCapability } from "@/lib/authz";
+import { signStudentVerificationToken } from "@/lib/qr-verify";
 import StudentsClient from "./StudentsClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminStudentsPage() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  const roles: string[] = ((session?.user as any)?.roles || [role]).map((r: string) => String(r).toUpperCase());
-  const isAdmin = roles.some((r) => ["ADMIN", "SUPER_ADMIN", "PRINCIPAL", "BURSAR", "ADMISSIONS"].includes(r));
-
-  if (!session || !isAdmin) {
-    redirect("/portal/login");
+  try {
+    await requireCapability("MANAGE_STUDENTS");
+  } catch {
+    redirect("/portal/unauthorized?zone=students");
   }
 
   const students = await prisma.student.findMany({
@@ -40,6 +37,11 @@ export default async function AdminStudentsPage() {
     select: { SessionName: true },
   });
 
+  const serializedStudents = JSON.parse(JSON.stringify(students)).map((st: any) => ({
+    ...st,
+    verificationSig: st?.AdmissionNo ? signStudentVerificationToken(st.AdmissionNo) : undefined,
+  }));
+
   return (
     <div>
       <h1 style={{ color: "var(--color-navy-blue)", marginBottom: "0.5rem" }}>
@@ -49,7 +51,7 @@ export default async function AdminStudentsPage() {
         Manage enrolled students and dispatch direct WhatsApp, SMS (via student phone numbers), and Email messages (via student portal registration emails).
       </p>
       <StudentsClient
-        initialStudents={JSON.parse(JSON.stringify(students))}
+        initialStudents={serializedStudents}
         classes={classes}
         activeSessionName={activeTerm?.SessionName || "2026/2027"}
       />

@@ -46,18 +46,7 @@ export function stripSensitiveUserFields<T>(input: T): T {
   return copy as T;
 }
 
-/**
- * Escapes HTML special characters to prevent HTML/XSS injection in email templates.
- */
-export function escapeHtml(unsafe: unknown): string {
-  const str = String(unsafe ?? "");
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
+export { escapeHtml } from "../html-escape";
 
 /**
  * Strips CR/LF characters from email headers/subjects to prevent SMTP header injection.

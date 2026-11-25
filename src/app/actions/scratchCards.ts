@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import {
   requireActiveUser,
   requireRole,
+  requireStudentOwnershipOrAdmin,
   can,
   checkStudentFeeClearance,
   writeAuditLog,
@@ -376,7 +377,8 @@ export async function verifyScratchCard(
   pin: string,
   termId: number,
   serialNumber?: string,
-  isRefresh: boolean = false
+  isRefresh: boolean = false,
+  targetStudentId?: number
 ) {
   let actor;
   try {
@@ -385,26 +387,38 @@ export async function verifyScratchCard(
     return { success: false, error: "Unauthorized. Please log in." };
   }
 
-  let studentRecord = await prisma.student.findFirst({
-    where: { UserID: actor.UserID },
-  });
-
-  if (!studentRecord) {
-    const parent = await prisma.parent.findUnique({
-      where: { UserID: actor.UserID },
-      include: { Children: { include: { Student: true } } },
-    });
-    if (parent && parent.Children.length > 0) {
-      studentRecord = parent.Children[0].Student;
-    } else if (actor.Email) {
-      studentRecord = await prisma.student.findFirst({
-        where: {
-          ParentEmail: {
-            equals: actor.Email.trim(),
-            mode: "insensitive",
-          },
-        },
+  let studentRecord = null;
+  if (targetStudentId && Number(targetStudentId) > 0) {
+    try {
+      await requireStudentOwnershipOrAdmin(Number(targetStudentId), { allowFinance: true });
+      studentRecord = await prisma.student.findUnique({
+        where: { StudentID: Number(targetStudentId) },
       });
+    } catch {
+      return { success: false, error: "Forbidden: You are not authorized to view results for this student." };
+    }
+  } else {
+    studentRecord = await prisma.student.findFirst({
+      where: { UserID: actor.UserID },
+    });
+
+    if (!studentRecord) {
+      const parent = await prisma.parent.findUnique({
+        where: { UserID: actor.UserID },
+        include: { Children: { include: { Student: true }, orderBy: { StudentID: "asc" } } },
+      });
+      if (parent && parent.Children.length > 0) {
+        studentRecord = parent.Children[0].Student;
+      } else if (actor.Email) {
+        studentRecord = await prisma.student.findFirst({
+          where: {
+            ParentEmail: {
+              equals: actor.Email.trim(),
+              mode: "insensitive",
+            },
+          },
+        });
+      }
     }
   }
 
@@ -443,7 +457,7 @@ export async function verifyScratchCard(
     select: { status: true },
   });
 
-  if (broadsheet && broadsheet.status !== "PUBLISHED" && !term.IsLocked) {
+  if (!broadsheet || broadsheet.status !== "PUBLISHED") {
     return {
       success: false,
       error: "Terminal results for this class and term have not yet been published by the Principal.",
@@ -605,7 +619,7 @@ export async function verifyScratchCard(
       };
     }
 
-    const [results, student, formMasterReport, attendances] = await Promise.all([
+    const [results, student, formMasterReport, attendances, reportCardSnapshot] = await Promise.all([
       prisma.result.findMany({
         where: {
           StudentID: studentId,
@@ -639,7 +653,40 @@ export async function verifyScratchCard(
           TermID: termId,
         },
       }),
+      prisma.reportCard.findFirst({
+        where: {
+          studentId,
+          termId,
+          supersededAt: null,
+        },
+        orderBy: { version: "desc" },
+      }),
     ]);
+
+    const snapshotJson = (reportCardSnapshot?.dataJson || null) as
+      | {
+          version?: number;
+          position?: number | null;
+          formMasterRemark?: string;
+          principalRemark?: string;
+          publishedAt?: string;
+        }
+      | null;
+
+    const mergedFormMasterReport = formMasterReport
+      ? {
+          ...formMasterReport,
+          FormMasterRemark: formMasterReport.FormMasterRemark || snapshotJson?.formMasterRemark || null,
+          PrincipalRemark: formMasterReport.PrincipalRemark || snapshotJson?.principalRemark || null,
+        }
+      : snapshotJson
+      ? {
+          FormMasterRemark: snapshotJson.formMasterRemark || null,
+          PrincipalRemark: snapshotJson.principalRemark || null,
+          AffectiveTraits: null,
+          PsychomotorTraits: null,
+        }
+      : null;
 
     const presentDays = attendances.filter(
       (a) => a.Status === "Present" || a.Status === "PRESENT" || a.Status === "Late"
@@ -666,7 +713,8 @@ export async function verifyScratchCard(
         results,
         term,
         student,
-        formMasterReport,
+        formMasterReport: mergedFormMasterReport,
+        reportCardSnapshot: snapshotJson,
         attendanceSummary: {
           presentDays,
           totalRecordedDays: attendances.length,

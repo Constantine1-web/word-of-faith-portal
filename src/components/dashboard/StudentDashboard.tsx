@@ -50,11 +50,11 @@ export default function StudentDashboard({ session }: { session: any }) {
       if (session?.user?.id) {
         const studentId = parseInt(session.user.id);
         const res = await getStudentProfile(studentId);
-        if (res.success) {
+        if (res.success && res.student) {
           setProfile(res.student);
           setAcademics(res.academics || []);
           setPayments(res.payments || []);
-          setOverview(res.overview || null);
+          setOverview("overview" in res ? res.overview ?? null : null);
         }
       }
       setLoading(false);

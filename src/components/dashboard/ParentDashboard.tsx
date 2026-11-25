@@ -28,6 +28,7 @@ export default function ParentDashboard({ session }: { session: any }) {
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [admissionNo, setAdmissionNo] = useState("");
   const [dob, setDob] = useState("");
+  const [claimCode, setClaimCode] = useState("");
   const [relationship, setRelationship] = useState("FATHER");
   const [linkLoading, setLinkLoading] = useState(false);
   const [linkMsg, setLinkMsg] = useState<{ success: boolean; text: string } | null>(null);
@@ -50,7 +51,29 @@ export default function ParentDashboard({ session }: { session: any }) {
   };
 
   useEffect(() => {
-    fetchData();
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getParentDashboardData();
+        if (cancelled) return;
+        if (res.success) {
+          setData(res);
+        } else {
+          setErrorMsg(res.error || "Unable to fetch parent portal data.");
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setErrorMsg(err.message || "Connection error while loading dashboard.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLinkChild = async (e: React.FormEvent) => {
@@ -58,13 +81,14 @@ export default function ParentDashboard({ session }: { session: any }) {
     setLinkLoading(true);
     setLinkMsg(null);
 
-    const res = await linkChildByAdmissionNo(admissionNo, dob, relationship);
+    const res = await linkChildByAdmissionNo(admissionNo, dob, relationship, claimCode);
     setLinkLoading(false);
 
     if (res.success) {
       setLinkMsg({ success: true, text: res.message || "Ward linked successfully!" });
       setAdmissionNo("");
       setDob("");
+      setClaimCode("");
       setTimeout(() => {
         setShowLinkModal(false);
         setLinkMsg(null);
@@ -269,10 +293,10 @@ export default function ParentDashboard({ session }: { session: any }) {
                 </div>
 
                 <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                  <Link href={`/portal/fees`} className="btn btn-primary" style={{ fontSize: "0.9rem" }}>
+                  <Link href={`/portal/fees?studentId=${currentChild.studentId}`} className="btn btn-primary" style={{ fontSize: "0.9rem" }}>
                     <FiCreditCard /> Manage Fees
                   </Link>
-                  <Link href={`/portal/results`} className="btn btn-outline" style={{ fontSize: "0.9rem" }}>
+                  <Link href={`/portal/results?studentId=${currentChild.studentId}`} className="btn btn-outline" style={{ fontSize: "0.9rem" }}>
                     <FiAward /> Full Report Card
                   </Link>
                 </div>
@@ -503,6 +527,19 @@ export default function ParentDashboard({ session }: { session: any }) {
                   value={dob}
                   onChange={(e) => setDob(e.target.value)}
                   required
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: "0.85rem" }}>
+                  One-Time Claim Code <span style={{ color: "var(--color-gray-500)", fontWeight: 400 }}>(if parent email differs)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Optional school-issued claim code"
+                  className="form-input"
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
                 />
               </div>
 

@@ -12,8 +12,8 @@ const prisma = new PrismaClient();
 console.log("🚀 Standalone Background Worker started, waiting for jobs...");
 
 // Schedule Automated Backups (Every day at midnight)
-cron.schedule("0 0 * * *", () => {
-  performBackup();
+cron.schedule("0 0 * * *", async () => {
+  await performBackup();
 });
 
 console.log("Scheduled automated daily database backup (00:00).");
@@ -44,34 +44,19 @@ const emailWorker = new Worker('email-queue', async job => {
   console.log(`[EmailWorker] Job ${job.id} completed successfully`);
 }, { connection: redis as any });
 
-// 2. Payment Worker (Processes Mock Payment Gateway)
-const paymentWorker = new Worker('payment-queue', async job => {
-  console.log(`[PaymentWorker] Processing payment job ${job.id} for student ${job.data.studentId}`);
-  const { studentId, amount, description, termId } = job.data;
-
-  // Simulate heavy synchronous gateway delay (e.g. 2-5 seconds)
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-
-  await prisma.payment_Record.create({
-    data: {
-      StudentID: studentId,
-      TermID: termId,
-      AmountPaid: amount,
-      AmountKobo: BigInt(Math.round(Number(amount || 0) * 100)),
-      Description: description,
-      Status: "Pending",
-      ReceiptUrl: `/receipts/teller-${Date.now()}.pdf`
-    }
-  });
-
-  // Invalidate Cache after async write
-  const student = await prisma.student.findUnique({ where: { StudentID: studentId } });
-  if (student?.UserID) {
-    await invalidateCache(`profile:${student.UserID}`);
-  }
-
-  console.log(`[PaymentWorker] Payment job ${job.id} processed successfully`);
-}, { connection: redis as any });
+// 2. Payment Worker (Deprecated placeholder disabled for security — Paystack webhook + Bursar ledger are authoritative)
+const paymentWorker = new Worker(
+  'payment-queue',
+  async (job) => {
+    console.warn(
+      `[PaymentWorker] Rejected legacy queued payment job ${job.id}: direct worker mutations are disabled.`
+    );
+    throw new Error(
+      "Legacy payment-queue worker is disabled. Payments must be verified via signed Paystack webhook or Bursar ledger."
+    );
+  },
+  { connection: redis as any }
+);
 
 // Error handling
 emailWorker.on('failed', (job, err) => {

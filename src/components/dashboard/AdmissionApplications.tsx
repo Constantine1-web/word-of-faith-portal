@@ -8,22 +8,28 @@ export default function AdmissionApplications() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchApplications();
-  }, []);
-
-  const fetchApplications = async () => {
-    try {
-      const res = await fetch("/api/admissions");
-      if (res.ok) {
-        const data = await res.json();
-        setApplications(data.applications);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admissions");
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) {
+            setApplications(data.applications);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch applications", error);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-    } catch (error) {
-      console.error("Failed to fetch applications", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateStatus = async (id: number, status: string) => {
     try {

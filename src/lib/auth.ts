@@ -51,11 +51,11 @@ const isProd = process.env.NODE_ENV === "production";
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
-    maxAge: 365 * 24 * 60 * 60, // 1 year — keep user logged in until explicit logout
-    updateAge: 24 * 60 * 60, // Refresh session token every 24 hours
+    maxAge: 12 * 60 * 60, // 12 hours max portal session lifetime
+    updateAge: 60 * 60, // Refresh session token hourly during active use
   },
   jwt: {
-    maxAge: 365 * 24 * 60 * 60,
+    maxAge: 12 * 60 * 60,
   },
   secret: resolveNextAuthSecret(),
   cookies: {
@@ -102,7 +102,13 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Find user case-insensitively by Email, OR resolve by Student WOFS ID (e.g. WOFS-STU-2026-000001)
-        let user: any = null;
+        let user: Awaited<
+          ReturnType<
+            typeof prisma.user.findFirst<{
+              include: { Role: true; RoleAssignments: true };
+            }>
+          >
+        > = null;
         try {
           user = await prisma.user.findFirst({
             where: {
@@ -140,7 +146,7 @@ export const authOptions: NextAuthOptions = {
             }
           }
         } catch {
-          user = await prisma.user.findFirst({
+          const fallbackUser = await prisma.user.findFirst({
             where: {
               Email: {
                 equals: normalizedEmail,
@@ -151,6 +157,7 @@ export const authOptions: NextAuthOptions = {
               Role: true,
             },
           });
+          user = fallbackUser ? { ...fallbackUser, RoleAssignments: [] } : null;
         }
 
         // Generic failure path with constant-time dummy bcrypt check to prevent timing enumeration
@@ -202,7 +209,7 @@ export const authOptions: NextAuthOptions = {
           }).catch(() => {});
         }
 
-        const assignedRoles = user.RoleAssignments?.map((r: any) => r.Role) || [];
+        const assignedRoles = user.RoleAssignments?.map((r) => r.Role) || [];
         const allRoles = Array.from(new Set([user.Role.RoleName, ...assignedRoles]));
 
         return {

@@ -105,10 +105,26 @@ function RegisterFormContent() {
 
   // Auto-validate if `?invite=...` query param was passed
   useEffect(() => {
-    if (initialInviteParam && inviteStep === 1 && !validatedStudent) {
-      handleValidateInvite(undefined, initialInviteParam);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const cleanCode = initialInviteParam.trim();
+    if (!cleanCode) return;
+
+    let cancelled = false;
+    (async () => {
+      const res = await validateRegistrationInvitation(cleanCode);
+      if (cancelled) return;
+      if (res.success && res.invitation) {
+        setValidatedStudent(res.invitation.student);
+        setPreferredName(res.invitation.student.fullName);
+        setInviteStep(2);
+        setSuccess("Invitation verified! Confirm your school record and verify your email below.");
+      } else {
+        setError(res.error || "Invalid or expired invitation code.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialInviteParam]);
 
   useEffect(() => {

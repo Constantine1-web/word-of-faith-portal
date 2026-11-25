@@ -43,6 +43,29 @@ async function main() {
           CHECK ("AmountKobo" >= 0);
       END IF;
 
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'chk_lineitem_amount_nonnegative'
+      ) THEN
+        ALTER TABLE "InvoiceLineItem"
+          ADD CONSTRAINT "chk_lineitem_amount_nonnegative"
+          CHECK ("amountKobo" >= 0);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'chk_ledger_credit_nonnegative'
+      ) THEN
+        ALTER TABLE "AllocationLedger"
+          ADD CONSTRAINT "chk_ledger_credit_nonnegative"
+          CHECK (
+            "entryType"::text <> 'CREDIT' OR (
+              "grossPaidKobo" >= 0 AND
+              "schoolShareKobo" >= 0 AND
+              "providerShareKobo" >= 0 AND
+              "gatewayFeeKobo" >= 0
+            )
+          );
+      END IF;
+
       -- Section B.5 Separation of Duties CHECK constraints
       IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'payment_sod'
@@ -77,6 +100,23 @@ async function main() {
     CREATE TRIGGER prevent_audit_tampering
     BEFORE UPDATE OR DELETE ON "AuditLog"
     FOR EACH ROW EXECUTE FUNCTION trg_protect_audit_log();
+  `);
+
+  // Append-only AllocationLedger trigger (reversals insert signed REVERSAL entries rather than mutating history)
+  await prisma.$executeRawUnsafe(`
+    CREATE OR REPLACE FUNCTION trg_protect_allocation_ledger()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      RAISE EXCEPTION 'CRITICAL: The AllocationLedger table is append-only. Use signed REVERSAL rows rather than UPDATE or DELETE.';
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+
+  await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS prevent_allocation_ledger_tampering ON "AllocationLedger";`);
+  await prisma.$executeRawUnsafe(`
+    CREATE TRIGGER prevent_allocation_ledger_tampering
+    BEFORE UPDATE OR DELETE ON "AllocationLedger"
+    FOR EACH ROW EXECUTE FUNCTION trg_protect_allocation_ledger();
   `);
 
   // 1c. Section 5 & B.5 Partial Unique Indexes
@@ -333,7 +373,17 @@ async function main() {
     });
   }
 
-  console.log("✔ Teacher assignment & Form Master link verified for JSS 1 Gold - Mathematics.");
+  await prisma.feeSchedule.updateMany({
+    where: {
+      updatedById: null,
+      maintenanceFeeKobo: BigInt(100000),
+    },
+    data: {
+      maintenanceFeeKobo: BigInt(80000),
+    },
+  });
+
+  console.log("✔ Teacher assignment & Class Teacher link verified and unedited FeeSchedule maintenance rates aligned to ₦800 (80,000 kobo).");
 }
 
 main()

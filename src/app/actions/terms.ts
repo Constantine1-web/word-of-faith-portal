@@ -2,10 +2,24 @@
 
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { requireActiveUser, requireRole, writeAuditLog } from "@/lib/authz";
+import { requireActiveUser, requireCapability, writeAuditLog } from "@/lib/authz";
+import { getStudentTermBillingSummary } from "@/lib/payment-ledger";
 
-async function requireTermAdmin() {
-  return requireRole(["PRINCIPAL", "SUPER_ADMIN", "Admin"]);
+async function requireStructureManager() {
+  return requireCapability("MANAGE_STRUCTURE");
+}
+
+async function syncStudentsFeeClearanceForTerm(termId: number) {
+  const students = await prisma.student.findMany({
+    select: { StudentID: true },
+  });
+  for (const st of students) {
+    const summary = await getStudentTermBillingSummary(prisma, st.StudentID, termId);
+    await prisma.student.update({
+      where: { StudentID: st.StudentID },
+      data: { HasPaidFees: summary.isCleared },
+    });
+  }
 }
 
 export async function getTerms() {
@@ -24,9 +38,9 @@ export async function getTerms() {
       },
     });
     return { success: true, terms };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("getTerms error:", error);
-    return { success: false, error: error.message || "Failed to fetch terms" };
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch terms" };
   }
 }
 
@@ -37,9 +51,9 @@ export async function getActiveTerm() {
       where: { IsActive: true },
     });
     return { success: true, term };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("getActiveTerm error:", error);
-    return { success: false, error: error.message || "Failed to fetch active term" };
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch active term" };
   }
 }
 
@@ -50,7 +64,7 @@ export async function createAcademicTerm(data: {
   endDate?: string;
   makeActive?: boolean;
 }) {
-  const actor = await requireTermAdmin();
+  const actor = await requireStructureManager();
 
   try {
     if (!data.sessionName || !data.termName) {
@@ -77,6 +91,10 @@ export async function createAcademicTerm(data: {
       },
     });
 
+    if (data.makeActive) {
+      await syncStudentsFeeClearanceForTerm(term.TermID).catch(() => {});
+    }
+
     await writeAuditLog({
       actorUserId: actor.UserID,
       actorRoles: Array.from(actor.roles).join(","),
@@ -90,14 +108,14 @@ export async function createAcademicTerm(data: {
     revalidatePath("/portal/dashboard");
     revalidatePath("/portal/teacher");
     return { success: true, term };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("createAcademicTerm error:", error);
-    return { success: false, error: error.message || "Failed to create academic term" };
+    return { success: false, error: error instanceof Error ? error.message : "Failed to create academic term" };
   }
 }
 
 export async function setActiveTerm(termId: number) {
-  const actor = await requireTermAdmin();
+  const actor = await requireStructureManager();
 
   try {
     await prisma.$transaction([
@@ -109,6 +127,9 @@ export async function setActiveTerm(termId: number) {
         data: { IsActive: true },
       }),
     ]);
+
+    // Synchronize cached active-term fee clearance flags so previous-term payments never carry over
+    await syncStudentsFeeClearanceForTerm(termId).catch(() => {});
 
     await writeAuditLog({
       actorUserId: actor.UserID,
@@ -123,14 +144,17 @@ export async function setActiveTerm(termId: number) {
     revalidatePath("/portal/dashboard");
     revalidatePath("/portal/teacher");
     return { success: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("setActiveTerm error:", error);
-    return { success: false, error: error.message || "Failed to set active term" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to set active term",
+    };
   }
 }
 
 export async function toggleTermLock(termId: number, isLocked: boolean) {
-  const actor = await requireTermAdmin();
+  const actor = await requireCapability("FREEZE_TERM");
 
   try {
     const updated = await prisma.academic_Term.update({
@@ -151,8 +175,11 @@ export async function toggleTermLock(termId: number, isLocked: boolean) {
     revalidatePath("/portal/dashboard");
     revalidatePath("/portal/teacher");
     return { success: true, isLocked: updated.IsLocked };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("toggleTermLock error:", error);
-    return { success: false, error: error.message || "Failed to toggle term lock" };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to toggle term lock",
+    };
   }
 }

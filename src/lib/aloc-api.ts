@@ -197,7 +197,11 @@ async function resilientGet(
       errCode === "CERT_HAS_EXPIRED" ||
       err?.message?.includes("unable to verify");
 
-    if (isCertError && process.env.NODE_ENV !== "production") {
+    if (
+      isCertError &&
+      process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_INSECURE_LOCAL_TLS === "true"
+    ) {
       // Local dev fallback using node:https with custom agent
       return new Promise((resolve, reject) => {
         const parsedUrl = new URL(url);
