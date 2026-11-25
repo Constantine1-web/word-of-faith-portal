@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import {
-  PORTAL_ICT_SERVICE_FEE_KOBO,
+  GROSS_PORTAL_FEE_KOBO,
+  PROVIDER_PORTAL_SHARE_CAP_KOBO,
+  SCHOOL_PORTAL_SHARE_CAP_KOBO,
   allocateTermPaymentKobo,
   computePaystackConvenienceFeeKobo,
   computePaystackSubaccountSplitKobo,
@@ -41,31 +43,36 @@ import { performBackup } from "../src/scripts/backup";
 async function main() {
   console.log("=== PHASE 5 END-TO-END DRESS REHEARSAL SUITE ===\n");
 
-  // 1. Model A ₦800/Term ICT Fee, Paystack Option A Convenience Fee & Scholarship Non-Exemption
-  console.log("1. Verifying Model A ₦800/Term ICT Fee, Gateway Option A, Waivers & Reversals...");
+  // 1. ₦1,000 Gross Portal Fee (₦800 Provider / ₦200 School), Partial Instalments, Gateway Bearer & Reversals
+  console.log("1. Verifying ₦1,000 Gross Portal Fee (80:20), Gateway Policy, Waivers & Reversals...");
   const invNormal = computeTermInvoiceTotals({
-    tuitionKobo: BigInt(6_500_000), // ₦65,000
+    tuitionKobo: BigInt(5_900_000), // ₦59,000
     leviesKobo: BigInt(0),
     isSchoolFeesWaived: false,
   });
-  assert.equal(invNormal.portalFeeKobo, PORTAL_ICT_SERVICE_FEE_KOBO);
-  assert.equal(invNormal.schoolSubtotalKobo, BigInt(6_500_000));
-  assert.equal(invNormal.totalInvoiceKobo, BigInt(6_580_000));
+  assert.equal(invNormal.portalFeeKobo, GROSS_PORTAL_FEE_KOBO);
+  assert.equal(invNormal.portalProviderCapKobo, PROVIDER_PORTAL_SHARE_CAP_KOBO);
+  assert.equal(invNormal.portalSchoolCapKobo, SCHOOL_PORTAL_SHARE_CAP_KOBO);
+  assert.equal(invNormal.schoolSubtotalKobo, BigInt(5_900_000));
+  assert.equal(invNormal.totalInvoiceKobo, BigInt(6_000_000));
 
-  // Partial installment #1 (₦30,000) -> ₦800 Provider, ₦29,200 School
+  // Partial installment #1 (₦30,000) -> ₦800 Provider, ₦200 School Portal, ₦29,000 School Charges (= ₦29,200 Total School)
   const part1Gw = computePaystackConvenienceFeeKobo(BigInt(3_000_000), "PAYER_SURCHARGE");
   const part1 = allocateTermPaymentKobo({
     grossPrincipalPaidKobo: BigInt(3_000_000),
-    targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
-    alreadyAllocatedPortalFeeKobo: BigInt(0),
+    targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
+    alreadyAllocatedProviderKobo: BigInt(0),
+    alreadyAllocatedSchoolPortalKobo: BigInt(0),
     gatewayFeeKobo: part1Gw,
   });
   assert.equal(part1.providerShareNaira, 800);
+  assert.equal(part1.schoolPortalShareNaira, 200);
+  assert.equal(part1.schoolChargesShareNaira, 29000);
   assert.equal(part1.schoolShareNaira, 29200);
   assert.equal(part1.remainingPortalFeeAfterKobo, BigInt(0));
-  assert(part1.gatewayFeeKobo > BigInt(0), "Paystack Option A convenience surcharge must be added");
+  assert(part1.gatewayFeeKobo > BigInt(0), "Paystack PAYER_SURCHARGE convenience surcharge must be added");
 
-  // Verify Paystack single-subaccount transaction_charge keeps gatewayFee with Main Account and exact ₦800 in Subaccount
+  // Verify Paystack single-subaccount transaction_charge keeps gatewayFee + ₦200 + Tuition with Main Account and exact ₦800 in Subaccount
   const splitCheck = computePaystackSubaccountSplitKobo({
     totalChargedKobo: part1.totalChargedKobo,
     providerShareKobo: part1.providerShareKobo,
@@ -77,34 +84,38 @@ async function main() {
   );
   assert.equal(computePaystackConvenienceFeeKobo(BigInt(3_000_000), "SCHOOL_ABSORBS"), BigInt(0));
 
-  // Partial installment #2 (₦35,800) same term -> ₦0 Provider, ₦35,800 (100%) School
+  // Partial installment #2 (₦30,000) same term -> ₦0 Provider, ₦0 School Portal, ₦30,000 (100%) School Charges
   const part2 = allocateTermPaymentKobo({
-    grossPrincipalPaidKobo: BigInt(3_580_000),
-    targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
-    alreadyAllocatedPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+    grossPrincipalPaidKobo: BigInt(3_000_000),
+    targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
+    alreadyAllocatedProviderKobo: part1.providerShareKobo,
+    alreadyAllocatedSchoolPortalKobo: part1.schoolPortalShareKobo,
     gatewayFeeKobo: BigInt(0),
   });
   assert.equal(part2.providerShareNaira, 0);
-  assert.equal(part2.schoolShareNaira, 35800);
+  assert.equal(part2.schoolPortalShareNaira, 0);
+  assert.equal(part2.schoolShareNaira, 30000);
 
-  // Scholarship / 100% Tuition Waiver -> School Fees ₦0, ICT Fee ₦800 still due
+  // Scholarship / 100% Tuition Waiver -> School Tuition ₦0, Gross Portal Fee ₦1,000 (₦800 Provider / ₦200 School) still due
   const waivedInv = computeTermInvoiceTotals({
     tuitionKobo: BigInt(6_500_000),
     leviesKobo: BigInt(500_000),
     isSchoolFeesWaived: true,
   });
   assert.equal(waivedInv.schoolSubtotalKobo, BigInt(0));
-  assert.equal(waivedInv.portalFeeKobo, PORTAL_ICT_SERVICE_FEE_KOBO);
-  assert.equal(waivedInv.totalInvoiceKobo, BigInt(80_000));
+  assert.equal(waivedInv.portalFeeKobo, GROSS_PORTAL_FEE_KOBO);
+  assert.equal(waivedInv.totalInvoiceKobo, GROSS_PORTAL_FEE_KOBO);
 
-  // Refund / Reversal math
+  // Refund / Reversal math (FULL and TUITION_ONLY)
   const rev = computeReversalAllocationKobo({
-    paymentPrincipalKobo: part1.grossPrincipalPaidKobo,
-    creditedSchoolKobo: part1.schoolShareKobo,
+    scope: "FULL",
+    creditedSchoolChargesKobo: part1.schoolChargesShareKobo,
+    creditedSchoolPortalKobo: part1.schoolPortalShareKobo,
     creditedProviderKobo: part1.providerShareKobo,
     gatewayFeeKobo: part1.gatewayFeeKobo,
   });
   assert.equal(rev.providerShareKobo, -BigInt(80_000));
+  assert.equal(rev.schoolPortalShareKobo, -BigInt(20_000));
   assert.equal(rev.schoolShareKobo, -BigInt(2_920_000));
 
   // Signed QR & Binary Receipt Magic-Byte Checks
@@ -113,7 +124,7 @@ async function main() {
   assert.equal(verifyStudentVerificationToken("WOFS-STU-2026-000002", qrSig), false);
   assert.equal(validateReceiptBinary(Buffer.from("%PDF-1.4\n%test"), "application/pdf").valid, true);
   assert.equal(validateReceiptBinary(Buffer.from("<html><script>1</script>"), "application/pdf").valid, false);
-  console.log("   ✔ Model A ₦800/term, Option A gateway fee, waivers, reversals, QR HMAC & magic bytes verified.");
+  console.log("   ✔ ₦1,000 Gross Portal Fee (₦800/₦200), gateway policy, waivers, reversals, QR HMAC & magic bytes verified.");
 
   // 2. Email Security, Header Sanitization & SMTP Configuration Readiness
   console.log("2. Verifying Email Subsystem & Notification Sanitization...");

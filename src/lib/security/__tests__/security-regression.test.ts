@@ -44,7 +44,9 @@ import {
   isAuthorizedStaffCommRoleSet,
 } from "../../staff-messaging";
 import {
-  PORTAL_ICT_SERVICE_FEE_KOBO,
+  GROSS_PORTAL_FEE_KOBO,
+  PROVIDER_PORTAL_SHARE_CAP_KOBO,
+  SCHOOL_PORTAL_SHARE_CAP_KOBO,
   allocateTermPaymentKobo,
   computePaystackConvenienceFeeKobo,
   computePaystackSubaccountSplitKobo,
@@ -756,67 +758,119 @@ async function runSecurityRegressionSuite() {
     passed++;
   }
 
-  // 17. Model A ₦800 Portal/ICT Service Fee, Partial Installments, Waivers, Option A Surcharge & Reversals
+  // 17. ₦1,000 Gross Portal Fee (₦800 Provider / ₦200 School), Partial Instalments, Waivers, Gateway Bearer & Selective Reversals
   {
     const termInvoice = computeTermInvoiceTotals({
-      tuitionKobo: BigInt(6_500_000),
+      tuitionKobo: BigInt(5_900_000), // ₦59,000
       leviesKobo: BigInt(0),
       isSchoolFeesWaived: false,
     });
-    assert.equal(termInvoice.portalFeeKobo, PORTAL_ICT_SERVICE_FEE_KOBO);
-    assert.equal(termInvoice.totalInvoiceKobo, BigInt(6_580_000));
+    assert.equal(termInvoice.portalFeeKobo, GROSS_PORTAL_FEE_KOBO);
+    assert.equal(termInvoice.portalProviderCapKobo, PROVIDER_PORTAL_SHARE_CAP_KOBO);
+    assert.equal(termInvoice.portalSchoolCapKobo, SCHOOL_PORTAL_SHARE_CAP_KOBO);
+    assert.equal(termInvoice.totalInvoiceKobo, BigInt(6_000_000)); // ₦60,000 total
 
-    // Installment 1 satisfies ₦800 ICT fee first
-    const gw1 = computePaystackConvenienceFeeKobo(BigInt(2_500_000), "PAYER_SURCHARGE");
+    // Default gateway fee policy is SCHOOL_ABSORBS (₦0 surcharge)
+    assert.equal(computePaystackConvenienceFeeKobo(BigInt(3_000_000), "SCHOOL_ABSORBS"), BigInt(0));
+    assert.equal(computePaystackConvenienceFeeKobo(BigInt(3_000_000)), BigInt(0));
+
+    // Partial Instalment Sequence: ₦500 -> ₦500 -> ₦30,000
+    const p1 = allocateTermPaymentKobo({
+      grossPrincipalPaidKobo: BigInt(50_000),
+      targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
+      alreadyAllocatedProviderKobo: BigInt(0),
+      alreadyAllocatedSchoolPortalKobo: BigInt(0),
+    });
+    assert.equal(p1.providerShareKobo, BigInt(40_000)); // ₦400
+    assert.equal(p1.schoolPortalShareKobo, BigInt(10_000)); // ₦100
+    assert.equal(p1.schoolChargesShareKobo, BigInt(0));
+
+    const p2 = allocateTermPaymentKobo({
+      grossPrincipalPaidKobo: BigInt(50_000),
+      targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
+      alreadyAllocatedProviderKobo: p1.providerShareKobo,
+      alreadyAllocatedSchoolPortalKobo: p1.schoolPortalShareKobo,
+    });
+    assert.equal(p2.providerShareKobo, BigInt(40_000)); // Cumulative Provider = ₦800
+    assert.equal(p2.schoolPortalShareKobo, BigInt(10_000)); // Cumulative School Portal = ₦200
+    assert.equal(p2.schoolChargesShareKobo, BigInt(0));
+    assert.equal(p2.remainingPortalFeeAfterKobo, BigInt(0));
+
+    const p3 = allocateTermPaymentKobo({
+      grossPrincipalPaidKobo: BigInt(3_000_000), // ₦30,000
+      targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
+      alreadyAllocatedProviderKobo: p1.providerShareKobo + p2.providerShareKobo,
+      alreadyAllocatedSchoolPortalKobo: p1.schoolPortalShareKobo + p2.schoolPortalShareKobo,
+    });
+    assert.equal(p3.providerShareKobo, BigInt(0));
+    assert.equal(p3.schoolPortalShareKobo, BigInt(0));
+    assert.equal(p3.schoolChargesShareNaira, 30000);
+
+    // Large First Instalment (₦30,000) under optional PAYER_SURCHARGE
+    const gw1 = computePaystackConvenienceFeeKobo(BigInt(3_000_000), "PAYER_SURCHARGE");
     assert(gw1 > BigInt(0), "Paystack convenience fee must be positive under PAYER_SURCHARGE");
-    assert.equal(computePaystackConvenienceFeeKobo(BigInt(2_500_000), "SCHOOL_ABSORBS"), BigInt(0));
-    const firstPart = allocateTermPaymentKobo({
-      grossPrincipalPaidKobo: BigInt(2_500_000),
-      targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
-      alreadyAllocatedPortalFeeKobo: BigInt(0),
+    const largeFirst = allocateTermPaymentKobo({
+      grossPrincipalPaidKobo: BigInt(3_000_000),
+      targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
+      alreadyAllocatedProviderKobo: BigInt(0),
+      alreadyAllocatedSchoolPortalKobo: BigInt(0),
       gatewayFeeKobo: gw1,
     });
-    assert.equal(firstPart.providerShareNaira, 800);
-    assert.equal(firstPart.schoolShareNaira, 24200);
-    assert.equal(firstPart.totalChargedKobo, BigInt(2_500_000) + gw1);
+    assert.equal(largeFirst.providerShareNaira, 800);
+    assert.equal(largeFirst.schoolPortalShareNaira, 200);
+    assert.equal(largeFirst.schoolChargesShareNaira, 29000);
+    assert.equal(largeFirst.schoolShareNaira, 29200);
+    assert.equal(largeFirst.totalChargedKobo, BigInt(3_000_000) + gw1);
 
-    // Paystack Subaccount Split: Main Account receives totalCharged - ₦800 (so Subaccount gets exact ₦800)
+    // Paystack Subaccount Split: Main Account receives totalCharged - ₦800
     const split = computePaystackSubaccountSplitKobo({
-      totalChargedKobo: firstPart.totalChargedKobo,
-      providerShareKobo: firstPart.providerShareKobo,
+      totalChargedKobo: largeFirst.totalChargedKobo,
+      providerShareKobo: largeFirst.providerShareKobo,
     });
     assert.equal(split.expectedSubaccountShareKobo, BigInt(80_000));
-    assert.equal(split.transactionChargeMainAccountKobo, firstPart.schoolShareKobo + gw1);
+    assert.equal(split.transactionChargeMainAccountKobo, largeFirst.schoolShareKobo + gw1);
     assert.equal(split.bearer, "account");
 
-    // Installment 2 in same term takes ₦0 ICT fee (100% School)
-    const secondPart = allocateTermPaymentKobo({
-      grossPrincipalPaidKobo: BigInt(4_080_000),
-      targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
-      alreadyAllocatedPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
-      gatewayFeeKobo: BigInt(0),
-    });
-    assert.equal(secondPart.providerShareNaira, 0);
-    assert.equal(secondPart.schoolShareNaira, 40800);
-
-    // Scholarship waiver leaves ₦800 ICT fee due
+    // Scholarship tuition waiver keeps ₦1,000 Portal Fee; Hardship exemption waives all; 50% proration -> ₦500 (₦400/₦100)
     const waived = computeTermInvoiceTotals({
       tuitionKobo: BigInt(8_000_000),
       leviesKobo: BigInt(500_000),
       isSchoolFeesWaived: true,
     });
     assert.equal(waived.schoolSubtotalKobo, BigInt(0));
-    assert.equal(waived.portalFeeKobo, PORTAL_ICT_SERVICE_FEE_KOBO);
+    assert.equal(waived.portalFeeKobo, GROSS_PORTAL_FEE_KOBO);
 
-    // Reversal negates credits symmetrically
-    const reversal = computeReversalAllocationKobo({
-      paymentPrincipalKobo: firstPart.grossPrincipalPaidKobo,
-      creditedSchoolKobo: firstPart.schoolShareKobo,
-      creditedProviderKobo: firstPart.providerShareKobo,
+    const prorated = computeTermInvoiceTotals({
+      tuitionKobo: BigInt(5_000_000),
+      leviesKobo: BigInt(0),
+      portalFeeProrationPct: 50,
+    });
+    assert.equal(prorated.portalFeeKobo, BigInt(50_000));
+    assert.equal(prorated.portalProviderCapKobo, BigInt(40_000));
+    assert.equal(prorated.portalSchoolCapKobo, BigInt(10_000));
+
+    // Selective reversals: TUITION_ONLY vs FULL
+    const revTuitionOnly = computeReversalAllocationKobo({
+      scope: "TUITION_ONLY",
+      creditedSchoolChargesKobo: largeFirst.schoolChargesShareKobo,
+      creditedSchoolPortalKobo: largeFirst.schoolPortalShareKobo,
+      creditedProviderKobo: largeFirst.providerShareKobo,
+    });
+    assert.equal(revTuitionOnly.providerShareKobo, BigInt(0));
+    assert.equal(revTuitionOnly.schoolPortalShareKobo, BigInt(0));
+    assert.equal(revTuitionOnly.schoolChargesShareKobo, -BigInt(2_900_000));
+
+    const revFull = computeReversalAllocationKobo({
+      scope: "FULL",
+      creditedSchoolChargesKobo: largeFirst.schoolChargesShareKobo,
+      creditedSchoolPortalKobo: largeFirst.schoolPortalShareKobo,
+      creditedProviderKobo: largeFirst.providerShareKobo,
       gatewayFeeKobo: gw1,
     });
-    assert.equal(reversal.providerShareKobo, -BigInt(80_000));
-    assert.equal(reversal.schoolShareKobo, -BigInt(2_420_000));
+    assert.equal(revFull.providerShareKobo, -BigInt(80_000));
+    assert.equal(revFull.schoolPortalShareKobo, -BigInt(20_000));
+    assert.equal(revFull.schoolChargesShareKobo, -BigInt(2_900_000));
+    assert.equal(revFull.schoolShareKobo, -BigInt(2_920_000));
     passed++;
   }
 

@@ -1,5 +1,5 @@
 import prisma from "@/lib/db";
-import { PORTAL_ICT_SERVICE_FEE_NAIRA, PORTAL_ICT_SERVICE_FEE_KOBO } from "@/lib/fee-split";
+import { GROSS_PORTAL_FEE_NAIRA, GROSS_PORTAL_FEE_KOBO } from "@/lib/fee-split";
 
 export type FeeLevelGroup = "CRECHE_NURSERY" | "PRIMARY" | "JSS" | "SSS";
 
@@ -17,28 +17,28 @@ export const DEFAULT_FEE_SCHEDULES: DefaultFeeScheduleDef[] = [
     displayName: "Creche & Nursery",
     tuitionNaira: 45000,
     leviesNaira: 4000,
-    maintenanceFeeNaira: PORTAL_ICT_SERVICE_FEE_NAIRA,
+    maintenanceFeeNaira: GROSS_PORTAL_FEE_NAIRA,
   },
   {
     levelGroup: "PRIMARY",
     displayName: "Primary School (Basic 1–5)",
     tuitionNaira: 52000,
     leviesNaira: 4000,
-    maintenanceFeeNaira: PORTAL_ICT_SERVICE_FEE_NAIRA,
+    maintenanceFeeNaira: GROSS_PORTAL_FEE_NAIRA,
   },
   {
     levelGroup: "JSS",
     displayName: "Junior Secondary (JSS 1–3)",
     tuitionNaira: 60000,
     leviesNaira: 4000,
-    maintenanceFeeNaira: PORTAL_ICT_SERVICE_FEE_NAIRA,
+    maintenanceFeeNaira: GROSS_PORTAL_FEE_NAIRA,
   },
   {
     levelGroup: "SSS",
     displayName: "Senior Secondary (SS 1–3)",
     tuitionNaira: 68000,
     leviesNaira: 6000,
-    maintenanceFeeNaira: PORTAL_ICT_SERVICE_FEE_NAIRA,
+    maintenanceFeeNaira: GROSS_PORTAL_FEE_NAIRA,
   },
 ];
 
@@ -68,8 +68,8 @@ export function resolveFeeLevelGroup(className?: string | null, level?: string |
 }
 
 /**
- * Ensures the 4 default FeeSchedule rows exist in PostgreSQL (idempotent) and aligns legacy seeded
- * unedited ₦1,000 defaults to the approved ₦800 Portal/ICT Service Fee.
+ * Ensures the 4 default FeeSchedule rows exist in PostgreSQL (idempotent) and aligns unedited
+ * legacy ₦800 seeded defaults to the approved ₦1,000 Gross Portal/ICT Fee (₦800 Provider / ₦200 School).
  */
 export async function ensureAndListFeeSchedules() {
   for (const def of DEFAULT_FEE_SCHEDULES) {
@@ -84,13 +84,13 @@ export async function ensureAndListFeeSchedules() {
           displayName: def.displayName,
           tuitionKobo: BigInt(def.tuitionNaira * 100),
           leviesKobo: BigInt(def.leviesNaira * 100),
-          maintenanceFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+          maintenanceFeeKobo: GROSS_PORTAL_FEE_KOBO,
         },
       });
-    } else if (existing.maintenanceFeeKobo === BigInt(100_000) && existing.updatedById === null) {
+    } else if (existing.maintenanceFeeKobo === BigInt(80_000) && existing.updatedById === null) {
       await prisma.feeSchedule.update({
         where: { id: existing.id },
-        data: { maintenanceFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO },
+        data: { maintenanceFeeKobo: GROSS_PORTAL_FEE_KOBO },
       });
     }
   }

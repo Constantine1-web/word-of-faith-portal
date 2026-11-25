@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   approvePaymentRecord,
   rejectPaymentRecord,
+  reverseApprovedPaymentRecord,
   getAdminPaymentAuditList,
   updateFeeSchedule,
   updatePortalBankConfigAction,
@@ -11,6 +12,7 @@ import {
   waiveStudentSchoolFees,
   markProviderRemittanceSettled,
 } from "@/app/actions/payments";
+import type { ReversalScope } from "@/lib/fee-split";
 import {
   FiCheck,
   FiX,
@@ -32,7 +34,9 @@ interface BankConfigState {
   portalFeeBeneficiary: string;
   tradingAsName: string;
   paystackSubaccountCode: string;
+  paystackSplitApproved: boolean;
   gatewayFeePolicy: "PAYER_SURCHARGE" | "SCHOOL_ABSORBS";
+  offlineRemittanceNote: string;
   supportEmail: string;
   portalBaseUrl: string;
 }
@@ -63,6 +67,7 @@ export default function PaymentsClient({
   const [showWaiverModal, setShowWaiverModal] = useState(false);
 
   const [savingScheduleId, setSavingScheduleId] = useState<string | null>(null);
+  const [scheduleStepUpCode, setScheduleStepUpCode] = useState("");
   const [savingBank, setSavingBank] = useState(false);
   const [bankStepUpCode, setBankStepUpCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -71,7 +76,12 @@ export default function PaymentsClient({
 
   // Accessible Confirmation / Reason Modals (replaces browser native prompt/confirm)
   const [confirmApproveTarget, setConfirmApproveTarget] = useState<{ id: number; studentName: string } | null>(null);
-  const [rejectModalTarget, setRejectModalTarget] = useState<{ id: number; studentName: string } | null>(null);
+  const [rejectModalTarget, setRejectModalTarget] = useState<{
+    id: number;
+    studentName: string;
+    isApproved?: boolean;
+  } | null>(null);
+  const [reversalScope, setReversalScope] = useState<ReversalScope>("FULL");
   const [rejectReason, setRejectReason] = useState("Receipt could not be verified by Bursary. Please upload a clear teller or transfer receipt.");
 
   // Cash Bursary Entry State
@@ -80,9 +90,13 @@ export default function PaymentsClient({
   const [cashReceiptNo, setCashReceiptNo] = useState("");
   const [cashNotes, setCashNotes] = useState("");
 
-  // School Fee Waiver State (Tuition waived while ₦800 ICT Fee remains payable)
+  // School Fee Waiver & Portal Proration State
   const [waiveStudentId, setWaiveStudentId] = useState("");
-  const [waiveMode, setWaiveMode] = useState<"WAIVE" | "UNWAIVE">("WAIVE");
+  const [waiveMode, setWaiveMode] = useState<
+    "WAIVE_TUITION_KEEP_PORTAL" | "WAIVE_ALL_HARDSHIP" | "PRORATE_PORTAL" | "RESTORE"
+  >("WAIVE_TUITION_KEEP_PORTAL");
+  const [waiveProrationPct, setWaiveProrationPct] = useState("50");
+  const [waiveStepUpCode, setWaiveStepUpCode] = useState("");
   const [waiveReason, setWaiveReason] = useState("");
 
   // Filters
@@ -93,33 +107,50 @@ export default function PaymentsClient({
   // Receipt Preview Modal
   const [previewReceiptUrl, setPreviewReceiptUrl] = useState<string | null>(null);
 
-  const approvedPayments = payments.filter((p) => {
+  const ledgerEligiblePayments = payments.filter((p) => {
     const s = String(p.Status || "").toUpperCase();
-    return s === "APPROVED" || s === "SUCCESSFUL";
+    return (
+      s === "APPROVED" ||
+      s === "SUCCESSFUL" ||
+      (Array.isArray(p.LedgerEntries) && p.LedgerEntries.length > 0)
+    );
   });
 
-  const reconciliation = approvedPayments.reduce(
+  const reconciliation = ledgerEligiblePayments.reduce(
     (acc, p) => {
       const a = p.allocation || {
         principalNaira: Number(p.AmountPaid) || 0,
         schoolShareNaira: Math.max(0, (Number(p.AmountPaid) || 0) - 800),
-        providerShareNaira: Number(p.AmountPaid) >= 800 ? 800 : Number(p.AmountPaid) || 0,
+        schoolPortalShareNaira: Number(p.AmountPaid) >= 1000 ? 200 : 0,
+        schoolChargesShareNaira: Math.max(0, (Number(p.AmountPaid) || 0) - 1000),
+        providerShareNaira: Number(p.AmountPaid) >= 1000 ? 800 : Math.floor(((Number(p.AmountPaid) || 0) * 80) / 100),
         gatewayFeeNaira: 0,
       };
       acc.count += 1;
       acc.principalTotal += Number(a.principalNaira) || 0;
       acc.schoolShareTotal += Number(a.schoolShareNaira) || 0;
+      acc.schoolPortalTotal += Number(a.schoolPortalShareNaira) || 0;
+      acc.schoolChargesTotal += Number(a.schoolChargesShareNaira) || 0;
       acc.providerShareTotal += Number(a.providerShareNaira) || 0;
       acc.gatewayFeeTotal += Number(a.gatewayFeeNaira) || 0;
 
       const entries: any[] = p.LedgerEntries || [];
-      for (const le of entries) {
-        const provN = (Number(le.providerShareKobo) || 0) / 100;
-        if (le.isRemitted) {
-          acc.providerRemitted += provN;
-        } else if (provN > 0) {
-          acc.providerPendingRemittance += provN;
-          acc.unremittedLedgerIds.push(le.id);
+      const netPaymentProv = entries.reduce((sum, le) => sum + (Number(le.providerShareKobo) || 0), 0);
+      if (netPaymentProv > 0) {
+        const creditEntry = entries.find(
+          (le) => le.entryType === "CREDIT" && (Number(le.providerShareKobo) || 0) > 0
+        );
+        if (creditEntry) {
+          const provN = netPaymentProv / 100;
+          if (creditEntry.settlementChannel === "PAYSTACK_SUBACCOUNT") {
+            acc.providerAutoSplit += provN;
+            acc.providerRemitted += provN;
+          } else if (creditEntry.isRemitted) {
+            acc.providerRemitted += provN;
+          } else {
+            acc.providerPendingRemittance += provN;
+            acc.unremittedLedgerIds.push(creditEntry.id);
+          }
         }
       }
       return acc;
@@ -128,8 +159,11 @@ export default function PaymentsClient({
       count: 0,
       principalTotal: 0,
       schoolShareTotal: 0,
+      schoolPortalTotal: 0,
+      schoolChargesTotal: 0,
       providerShareTotal: 0,
       gatewayFeeTotal: 0,
+      providerAutoSplit: 0,
       providerRemitted: 0,
       providerPendingRemittance: 0,
       unremittedLedgerIds: [] as string[],
@@ -152,12 +186,26 @@ export default function PaymentsClient({
       "Status",
       "Principal Paid (NGN)",
       "School Tuition & Levies (100% School NGN)",
-      "Portal / ICT Service Fee (100% Provider NGN)",
-      "Gateway Convenience Fee (Separate NGN)",
+      "School Portal Fee Share (20% NGN)",
+      "Total School Net Share (NGN)",
+      "Provider Portal Fee Share (80% NGN)",
+      "Settlement Channel",
+      "Remittance Status",
+      "Gateway Processing Fee (NGN)",
       "Date",
     ];
-    const rows = approvedPayments.map((p) => {
+    const rows = ledgerEligiblePayments.map((p) => {
       const a = p.allocation || {};
+      const entries: any[] = p.LedgerEntries || [];
+      const creditEntry = entries.find((le) => le.entryType === "CREDIT") || entries[0];
+      const remStatus =
+        Number(a.providerShareNaira ?? 0) <= 0
+          ? "NOT_APPLICABLE"
+          : creditEntry?.settlementChannel === "PAYSTACK_SUBACCOUNT"
+          ? "AUTO_SPLIT"
+          : creditEntry?.isRemitted
+          ? "REMITTED"
+          : "PENDING_REMITTANCE";
       return [
         sanitizeCsv(p.Reference || `PAY-${p.PaymentID}`),
         sanitizeCsv(p.Channel || "BANK_TELLER"),
@@ -166,8 +214,12 @@ export default function PaymentsClient({
         sanitizeCsv(p.Student?.Class?.ClassName || ""),
         sanitizeCsv(p.Status),
         Number(a.principalNaira ?? p.AmountPaid ?? 0),
+        Number(a.schoolChargesShareNaira ?? a.schoolShareNaira ?? 0),
+        Number(a.schoolPortalShareNaira ?? 0),
         Number(a.schoolShareNaira ?? 0),
         Number(a.providerShareNaira ?? 0),
+        sanitizeCsv(creditEntry?.settlementChannel || a.settlementChannel || "SCHOOL_COLLECTION"),
+        sanitizeCsv(remStatus),
         Number(a.gatewayFeeNaira ?? 0),
         p.PaymentDate ? new Date(p.PaymentDate).toISOString().split("T")[0] : "",
       ].join(",");
@@ -177,7 +229,7 @@ export default function PaymentsClient({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `WOF_ModelA_ICT_Fee_Reconciliation_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `WOF_PortalFee_1000_80_20_Reconciliation_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -224,15 +276,26 @@ export default function PaymentsClient({
     setError("");
     setSuccess("");
 
-    const res = await rejectPaymentRecord(rejectModalTarget.id, rejectReason);
+    const isApprovedTarget = Boolean(rejectModalTarget.isApproved);
+    const res = isApprovedTarget
+      ? await reverseApprovedPaymentRecord({
+          paymentId: rejectModalTarget.id,
+          scope: reversalScope,
+          reason: rejectReason,
+        })
+      : await rejectPaymentRecord(rejectModalTarget.id, rejectReason);
     const targetName = rejectModalTarget.studentName;
     setRejectModalTarget(null);
 
     if (res.success) {
       await refreshList();
-      setSuccess(`Payment for ${targetName} rejected & reversed if previously credited.`);
+      setSuccess(
+        isApprovedTarget
+          ? `Recorded ${reversalScope} reversal in AllocationLedger for ${targetName}.`
+          : `Payment for ${targetName} rejected.`
+      );
     } else {
-      setError(res.error || "Failed to reject payment");
+      setError(res.error || "Failed to update payment status");
     }
     setLoading(false);
   };
@@ -247,9 +310,11 @@ export default function PaymentsClient({
       tuitionNaira: Number(sched.tuitionNaira) || 0,
       leviesNaira: Number(sched.leviesNaira) || 0,
       maintenanceFeeNaira: Number(sched.maintenanceFeeNaira) || 0,
+      stepUpCode: scheduleStepUpCode.trim() || undefined,
     });
     setSavingScheduleId(null);
     if (res.success && res.schedule) {
+      setScheduleStepUpCode("");
       setSchedules((prev) =>
         prev.map((s) => (s.levelGroup === sched.levelGroup ? { ...s, ...res.schedule } : s))
       );
@@ -315,13 +380,18 @@ export default function PaymentsClient({
     const res = await waiveStudentSchoolFees({
       studentAdmissionOrId: waiveStudentId,
       termId: termFilter ? parseInt(termFilter, 10) : activeTerm?.TermID,
-      isWaived: waiveMode === "WAIVE",
+      isWaived: waiveMode === "WAIVE_TUITION_KEEP_PORTAL" || waiveMode === "WAIVE_ALL_HARDSHIP",
+      mode: waiveMode,
+      portalFeeProrationPct:
+        waiveMode === "PRORATE_PORTAL" ? Number(waiveProrationPct) || 50 : undefined,
+      stepUpCode: waiveStepUpCode.trim() || undefined,
       reason: waiveReason,
     });
     setLoading(false);
     if (res.success) {
       setShowWaiverModal(false);
       setWaiveStudentId("");
+      setWaiveStepUpCode("");
       setWaiveReason("");
       await refreshList();
       setSuccess(res.message || "Updated waiver status.");
@@ -365,7 +435,7 @@ export default function PaymentsClient({
         </div>
       )}
 
-      {/* Summary Cards (Model A — Distinct Line Items) */}
+      {/* Summary Cards (₦1,000 Gross Portal Fee: ₦800 Provider 80% / ₦200 School 20%) */}
       <div className="responsive-grid" style={{ marginBottom: "1.5rem" }}>
         <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--status-warning-border)" }}>
           <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Pending Audit Queue</p>
@@ -376,30 +446,30 @@ export default function PaymentsClient({
           <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Total Settled Principal</p>
           <h2 style={{ color: "var(--status-success-text)", margin: 0 }}>₦{reconciliation.principalTotal.toLocaleString()}</h2>
           <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-            {reconciliation.count} verified transaction{reconciliation.count === 1 ? "" : "s"}
+            {reconciliation.count} settled record{reconciliation.count === 1 ? "" : "s"}
           </span>
         </div>
 
         <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--accent-blue)" }}>
-          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>100% School Fees (Tuition &amp; Levies)</p>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>School Total (Tuition + 20% Portal)</p>
           <h2 style={{ color: "var(--accent-blue)", margin: 0 }}>₦{reconciliation.schoolShareTotal.toLocaleString()}</h2>
           <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-            100% retained by Word of Faith Schools
+            Tuition/Levies: ₦{reconciliation.schoolChargesTotal.toLocaleString()} + School Portal 20%: ₦{reconciliation.schoolPortalTotal.toLocaleString()}
           </span>
         </div>
 
         <div style={{ background: "var(--bg-card)", padding: "1.25rem 1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-primary)", borderLeft: "4px solid var(--accent-purple)" }}>
-          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Portal/ICT Service Fee (₦800/Term)</p>
+          <p style={{ color: "var(--text-muted)", marginBottom: "0.35rem", fontSize: "0.85rem" }}>Provider Portal Share (80% = ₦800/Term)</p>
           <h2 style={{ color: "var(--text-heading)", margin: 0, fontSize: "1.25rem" }}>
             ₦{reconciliation.providerShareTotal.toLocaleString()}
           </h2>
           <span style={{ fontSize: "0.78rem", color: "var(--status-success-text)", fontWeight: 700 }}>
-            100% {bankConfig.portalFeeBeneficiary} · Unremitted: ₦{reconciliation.providerPendingRemittance.toLocaleString()}
+            {bankConfig.portalFeeBeneficiary} · Auto-Split: ₦{reconciliation.providerAutoSplit.toLocaleString()} · Unremitted: ₦{reconciliation.providerPendingRemittance.toLocaleString()}
           </span>
         </div>
       </div>
 
-      {/* Model A Rule & Bursar Controls Bar */}
+      {/* Portal Fee 80:20 Ledger Rule & Bursar Controls Bar */}
       <div
         style={{
           background: "var(--bg-secondary)",
@@ -416,10 +486,14 @@ export default function PaymentsClient({
       >
         <div>
           <strong style={{ color: "var(--text-heading)", fontSize: "0.95rem", display: "block" }}>
-            Model A Ledger Rule (₦800/Student/Term Portal ICT Fee · 100% Tuition to School)
+            ₦1,000 Gross Portal/ICT Fee (₦800 Provider [80%] + ₦200 School [20%]) · 100% Tuition to School
           </strong>
           <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
-            Payable once per student/term (first installment on partial payments; non-exempt under School tuition waivers). Paystack fee borne by payer: ₦{reconciliation.gatewayFeeTotal.toLocaleString()} tracked separately.
+            Charged once per billed student/term (first-kobo partial allocation). Gateway policy:{" "}
+            {bankConfig.gatewayFeePolicy === "SCHOOL_ABSORBS"
+              ? "School Absorbs (₦0 parent surcharge)"
+              : "Payer Convenience Surcharge"}
+            {" "}· Tracked Gateway Fees: ₦{reconciliation.gatewayFeeTotal.toLocaleString()}.
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
@@ -462,7 +536,7 @@ export default function PaymentsClient({
           }}
         >
           <h3 style={{ margin: 0, color: "var(--text-heading)", fontSize: "1.05rem" }}>
-            Official School Bank &amp; Paystack Subaccount Settings
+            Official School Bank &amp; Paystack Subaccount Settings (Requires MANAGE_SYSTEM + 2FA)
           </h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.85rem" }}>
             <div>
@@ -479,7 +553,31 @@ export default function PaymentsClient({
             </div>
             <div>
               <label className="form-label">Paystack Provider Subaccount Code (Optional)</label>
-              <input className="form-input" placeholder="e.g. ACCT_xxxxxxxx" value={bankConfig.paystackSubaccountCode} onChange={(e) => setBankConfig({ ...bankConfig, paystackSubaccountCode: e.target.value })} />
+              <input
+                className="form-input"
+                placeholder="e.g. ACCT_xxxxxxxx"
+                value={bankConfig.paystackSubaccountCode}
+                onChange={(e) => {
+                  const code = e.target.value;
+                  setBankConfig({
+                    ...bankConfig,
+                    paystackSubaccountCode: code,
+                    paystackSplitApproved: code.trim() ? bankConfig.paystackSplitApproved : false,
+                  });
+                }}
+              />
+            </div>
+            <div>
+              <label className="form-label">Paystack Subaccount KYC &amp; Split Approval</label>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.84rem", paddingTop: "0.45rem", cursor: bankConfig.paystackSubaccountCode.trim() ? "pointer" : "not-allowed", opacity: bankConfig.paystackSubaccountCode.trim() ? 1 : 0.6 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(bankConfig.paystackSplitApproved && bankConfig.paystackSubaccountCode.trim())}
+                  disabled={!bankConfig.paystackSubaccountCode.trim()}
+                  onChange={(e) => setBankConfig({ ...bankConfig, paystackSplitApproved: e.target.checked })}
+                />
+                KYC Verified &amp; Controlled NGN Split Approved
+              </label>
             </div>
             <div>
               <label className="form-label">Paystack Gateway Fee Policy</label>
@@ -490,17 +588,21 @@ export default function PaymentsClient({
                   setBankConfig({
                     ...bankConfig,
                     gatewayFeePolicy:
-                      e.target.value === "SCHOOL_ABSORBS" ? "SCHOOL_ABSORBS" : "PAYER_SURCHARGE",
+                      e.target.value === "PAYER_SURCHARGE" ? "PAYER_SURCHARGE" : "SCHOOL_ABSORBS",
                   })
                 }
               >
-                <option value="PAYER_SURCHARGE">Option A: Payer Convenience Pass-Through</option>
-                <option value="SCHOOL_ABSORBS">School Absorbs Merchant Gateway Fee</option>
+                <option value="SCHOOL_ABSORBS">Default: School Absorbs Gateway Fee (₦0 parent surcharge)</option>
+                <option value="PAYER_SURCHARGE">Optional: Payer Convenience Pass-Through (Counsel Approved)</option>
               </select>
             </div>
             <div>
               <label className="form-label">Portal/ICT Fee Legal Beneficiary</label>
               <input className="form-input" value={bankConfig.portalFeeBeneficiary} onChange={(e) => setBankConfig({ ...bankConfig, portalFeeBeneficiary: e.target.value })} required />
+            </div>
+            <div>
+              <label className="form-label">Offline Remittance Note</label>
+              <input className="form-input" value={bankConfig.offlineRemittanceNote} onChange={(e) => setBankConfig({ ...bankConfig, offlineRemittanceNote: e.target.value })} />
             </div>
             <div>
               <label className="form-label">Portal Base URL</label>
@@ -536,13 +638,26 @@ export default function PaymentsClient({
             boxShadow: "var(--shadow-sm)",
           }}
         >
-          <div style={{ marginBottom: "1rem" }}>
-            <h3 style={{ margin: 0, color: "var(--text-heading)", fontSize: "1.08rem" }}>
-              Per-Level School Fee Schedule &amp; Portal/ICT Service Fee (₦800)
-            </h3>
-            <p style={{ margin: "0.25rem 0 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
-              Customize Tuition, Books/Levies (100% School), and the separate Portal/ICT Service Fee (100% Provider, once per student/term).
-            </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
+            <div>
+              <h3 style={{ margin: 0, color: "var(--text-heading)", fontSize: "1.08rem" }}>
+                Per-Level School Fee Schedule &amp; Gross Portal/ICT Fee (₦1,000 &rarr; ₦800 Provider / ₦200 School)
+              </h3>
+              <p style={{ margin: "0.25rem 0 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+                Customize Tuition &amp; Levies (100% School). Changing the ₦1,000 Portal/ICT Fee requires MANAGE_SYSTEM + 2FA Step-Up.
+              </p>
+            </div>
+            <div style={{ minWidth: "200px" }}>
+              <label className="form-label" style={{ fontSize: "0.75rem" }}>2FA Code (only if changing Portal Fee)</label>
+              <input
+                className="form-input"
+                placeholder="6-digit TOTP"
+                value={scheduleStepUpCode}
+                onChange={(e) => setScheduleStepUpCode(e.target.value)}
+                maxLength={8}
+                style={{ padding: "0.35rem 0.6rem", fontSize: "0.82rem" }}
+              />
+            </div>
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", minWidth: "700px" }}>
@@ -737,8 +852,8 @@ export default function PaymentsClient({
                       <div style={{ fontWeight: "bold", color: "var(--color-primary-green)" }}>
                         ₦{Number(a.principalNaira ?? p.AmountPaid ?? 0).toLocaleString()}
                       </div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
-                        School: ₦{Number(a.schoolShareNaira || 0).toLocaleString()} · Portal ICT: ₦{Number(a.providerShareNaira || 0).toLocaleString()}
+                      <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                        Tuition: ₦{Number(a.schoolChargesShareNaira ?? a.schoolShareNaira ?? 0).toLocaleString()} · School 20%: ₦{Number(a.schoolPortalShareNaira ?? 0).toLocaleString()} · Provider 80%: ₦{Number(a.providerShareNaira ?? 0).toLocaleString()}
                         {Number(a.gatewayFeeNaira || 0) > 0 && ` · Gateway: ₦${Number(a.gatewayFeeNaira).toLocaleString()}`}
                       </div>
                     </td>
@@ -777,7 +892,7 @@ export default function PaymentsClient({
 
                     <td data-label="Actions" style={{ padding: "1rem", textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: "0.5rem" }}>
-                        {!isApproved && statusUpper !== "REFUNDED" && statusUpper !== "DISPUTED" && (
+                        {!isApproved && statusUpper !== "REFUNDED" && statusUpper !== "DISPUTED" && statusUpper !== "PARTIALLY REFUNDED" && statusUpper !== "CHARGEBACK" && (
                           <button
                             onClick={() =>
                               setConfirmApproveTarget({
@@ -793,20 +908,22 @@ export default function PaymentsClient({
                             <FiCheck /> Approve
                           </button>
                         )}
-                        {statusUpper !== "REJECTED" && statusUpper !== "REFUNDED" && statusUpper !== "DISPUTED" && (
+                        {statusUpper !== "REJECTED" && statusUpper !== "REFUNDED" && statusUpper !== "DISPUTED" && statusUpper !== "CHARGEBACK" && (
                           <button
-                            onClick={() =>
+                            onClick={() => {
+                              setReversalScope("FULL");
                               setRejectModalTarget({
                                 id: p.PaymentID,
                                 studentName: p.Student?.PreferredName || p.Student?.AdmissionNo || "Student",
-                              })
-                            }
+                                isApproved: isApproved || statusUpper === "PARTIALLY REFUNDED",
+                              });
+                            }}
                             disabled={loading}
                             className="btn"
                             style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)", display: "flex", alignItems: "center", gap: "0.25rem" }}
-                            title={isApproved ? "Revert Approval & Reject" : "Reject Payment"}
+                            title={isApproved || statusUpper === "PARTIALLY REFUNDED" ? "Record Selective Refund or Chargeback Reversal" : "Reject Payment"}
                           >
-                            <FiX /> {isApproved ? "Reverse" : "Reject"}
+                            <FiX /> {isApproved || statusUpper === "PARTIALLY REFUNDED" ? "Reverse" : "Reject"}
                           </button>
                         )}
                       </div>
@@ -825,7 +942,7 @@ export default function PaymentsClient({
           <div className="portal-modal-card" style={{ padding: "1.5rem", maxWidth: "460px" }}>
             <h3 style={{ margin: "0 0 0.5rem", color: "var(--text-heading)" }}>Confirm Payment Approval</h3>
             <p style={{ color: "var(--text-secondary)", fontSize: "0.92rem", lineHeight: 1.5 }}>
-              Approve fee payment for <strong>{confirmApproveTarget.studentName}</strong>? This records an immutable credit in the Model A ₦800 ledger and updates active-term fee clearance.
+              Approve fee payment for <strong>{confirmApproveTarget.studentName}</strong>? This records an immutable credit in the ₦1,000 Portal Fee (₦800 Provider / ₦200 School) + 100% Tuition ledger and updates active-term fee clearance.
             </p>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", marginTop: "1.25rem" }}>
               <button type="button" onClick={() => setConfirmApproveTarget(null)} className="btn btn-outline">Cancel</button>
@@ -840,22 +957,39 @@ export default function PaymentsClient({
       {/* Reject / Reverse Reason Modal */}
       {rejectModalTarget && (
         <div className="portal-modal-overlay">
-          <form onSubmit={executeReject} className="portal-modal-card" style={{ padding: "1.5rem", maxWidth: "480px" }}>
-            <h3 style={{ margin: "0 0 0.5rem", color: "var(--text-heading)" }}>
-              Reject / Reverse Payment — {rejectModalTarget.studentName}
+          <form onSubmit={executeReject} className="portal-modal-card" style={{ padding: "1.5rem", maxWidth: "500px", display: "grid", gap: "0.8rem" }}>
+            <h3 style={{ margin: 0, color: "var(--text-heading)" }}>
+              {rejectModalTarget.isApproved ? "Selective Refund / Reversal" : "Reject Pending Payment"} — {rejectModalTarget.studentName}
             </h3>
-            <label className="form-label">Reason (sent to Parent/Student via Email)</label>
-            <textarea
-              className="form-input"
-              rows={3}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              required
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", marginTop: "1.25rem" }}>
+            {rejectModalTarget.isApproved && (
+              <div>
+                <label className="form-label">Reversal Scope</label>
+                <select
+                  className="form-input"
+                  value={reversalScope}
+                  onChange={(e) => setReversalScope(e.target.value as ReversalScope)}
+                >
+                  <option value="FULL">Full Refund (Tuition + ₦800 Provider + ₦200 School Portal)</option>
+                  <option value="TUITION_ONLY">Tuition Refund Only (Leave ₦1,000 Portal Fee Intact)</option>
+                  <option value="PORTAL_FEE_ONLY">Portal Fee Only (Reverse ₦800 Provider / ₦200 School)</option>
+                  <option value="CHARGEBACK">Bank / Paystack Chargeback (Full Reversal)</option>
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="form-label">Reason (sent to Parent/Student via Email if pending rejection)</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                required
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", marginTop: "0.5rem" }}>
               <button type="button" onClick={() => setRejectModalTarget(null)} className="btn btn-outline">Cancel</button>
               <button type="submit" disabled={loading} className="btn" style={{ background: "var(--status-error-bg)", color: "var(--status-error-text)", border: "1px solid var(--status-error-border)" }}>
-                <FiX /> {loading ? "Submitting..." : "Confirm Rejection"}
+                <FiX /> {loading ? "Submitting..." : rejectModalTarget.isApproved ? "Record Reversal" : "Confirm Rejection"}
               </button>
             </div>
           </form>
@@ -894,29 +1028,69 @@ export default function PaymentsClient({
       {/* Tuition Waiver Modal */}
       {showWaiverModal && (
         <div className="portal-modal-overlay">
-          <form onSubmit={handleSaveWaiver} className="portal-modal-card" style={{ padding: "1.5rem", maxWidth: "480px", display: "grid", gap: "0.9rem" }}>
-            <h3 style={{ margin: 0, color: "var(--text-heading)" }}>School Tuition Waiver / Scholarship</h3>
+          <form onSubmit={handleSaveWaiver} className="portal-modal-card" style={{ padding: "1.5rem", maxWidth: "500px", display: "grid", gap: "0.9rem" }}>
+            <h3 style={{ margin: 0, color: "var(--text-heading)" }}>School Tuition Waiver &amp; Portal Fee Policy</h3>
             <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-secondary)" }}>
-              Waiving Tuition &amp; School Levies sets School charges to ₦0. Per institutional policy, the ₦800 Portal/ICT Service Fee remains payable once per term.
+              Standard Tuition Waivers set School Tuition/Levies to ₦0 while retaining the ₦1,000 Portal/ICT Fee (₦800 Provider / ₦200 School). Hardship Exemption &amp; Mid-Term Proration require MANAGE_SYSTEM + 2FA.
             </p>
             <div>
               <label className="form-label">Student WOFS ID or Student ID *</label>
               <input className="form-input" placeholder="e.g. WOFS-STU-2026-000001" value={waiveStudentId} onChange={(e) => setWaiveStudentId(e.target.value)} required />
             </div>
             <div>
-              <label className="form-label">Action</label>
-              <select className="form-input" value={waiveMode} onChange={(e) => setWaiveMode(e.target.value as "WAIVE" | "UNWAIVE")}>
-                <option value="WAIVE">Apply 100% Tuition/Levies Waiver (Retain ₦800 ICT Fee)</option>
-                <option value="UNWAIVE">Restore Full Tuition/Levies Billing</option>
+              <label className="form-label">Policy Action</label>
+              <select
+                className="form-input"
+                value={waiveMode}
+                onChange={(e) =>
+                  setWaiveMode(
+                    e.target.value as
+                      | "WAIVE_TUITION_KEEP_PORTAL"
+                      | "WAIVE_ALL_HARDSHIP"
+                      | "PRORATE_PORTAL"
+                      | "RESTORE"
+                  )
+                }
+              >
+                <option value="WAIVE_TUITION_KEEP_PORTAL">100% Tuition/Levies Waiver (Retain ₦1,000 Portal Fee)</option>
+                <option value="WAIVE_ALL_HARDSHIP">Board Hardship Waiver (Exempt Both Tuition &amp; Portal Fee)</option>
+                <option value="PRORATE_PORTAL">Prorate Portal/ICT Fee (% Late Enrolment)</option>
+                <option value="RESTORE">Restore Full Term Billing</option>
               </select>
             </div>
+            {waiveMode === "PRORATE_PORTAL" && (
+              <div>
+                <label className="form-label">Portal Fee Proration Percentage (0–100%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="form-input"
+                  value={waiveProrationPct}
+                  onChange={(e) => setWaiveProrationPct(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+            {(waiveMode === "WAIVE_ALL_HARDSHIP" || waiveMode === "PRORATE_PORTAL") && (
+              <div>
+                <label className="form-label">2FA Code (Required if 2FA Enabled)</label>
+                <input
+                  className="form-input"
+                  placeholder="6-digit TOTP code"
+                  value={waiveStepUpCode}
+                  onChange={(e) => setWaiveStepUpCode(e.target.value)}
+                  maxLength={8}
+                />
+              </div>
+            )}
             <div>
               <label className="form-label">Authorized Reason *</label>
               <input className="form-input" placeholder="e.g. Proprietor Full Merit Scholarship" value={waiveReason} onChange={(e) => setWaiveReason(e.target.value)} required />
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem" }}>
               <button type="button" onClick={() => setShowWaiverModal(false)} className="btn btn-outline">Cancel</button>
-              <button type="submit" disabled={loading} className="btn btn-primary">Update Waiver</button>
+              <button type="submit" disabled={loading} className="btn btn-primary">Apply Policy</button>
             </div>
           </form>
         </div>

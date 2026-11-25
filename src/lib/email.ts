@@ -614,6 +614,8 @@ export async function sendFeePaymentApprovedNotification(params: {
   amountPaidNaira: number;
   channel: string;
   schoolShareNaira?: number;
+  schoolPortalShareNaira?: number;
+  schoolChargesShareNaira?: number;
   providerShareNaira?: number;
   gatewayFeeNaira?: number;
   remainingBalanceNaira?: number;
@@ -644,9 +646,15 @@ export async function sendFeePaymentApprovedNotification(params: {
   const itemizationHtml =
     typeof params.schoolShareNaira === "number" && typeof params.providerShareNaira === "number"
       ? `<div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #6ee7b7; font-size: 13px;">
-          <div><strong>School Fees Credited (Tuition &amp; Levies):</strong> ₦${params.schoolShareNaira.toLocaleString()}</div>
-          <div><strong>Portal / ICT Service Fee:</strong> ₦${params.providerShareNaira.toLocaleString()}</div>
-          ${params.gatewayFeeNaira && params.gatewayFeeNaira > 0 ? `<div><strong>Gateway Convenience Charge:</strong> ₦${params.gatewayFeeNaira.toLocaleString()}</div>` : ""}
+          ${
+            typeof params.schoolChargesShareNaira === "number"
+              ? `<div><strong>School Tuition &amp; Levies (100% School):</strong> ₦${params.schoolChargesShareNaira.toLocaleString()}</div>
+                 <div><strong>School Portal Fee Share (20%):</strong> ₦${(params.schoolPortalShareNaira ?? 0).toLocaleString()}</div>
+                 <div><strong>Total School Credit:</strong> ₦${params.schoolShareNaira.toLocaleString()}</div>`
+              : `<div><strong>School Fees Credited:</strong> ₦${params.schoolShareNaira.toLocaleString()}</div>`
+          }
+          <div><strong>Provider Portal / ICT Service Fee (80%):</strong> ₦${params.providerShareNaira.toLocaleString()}</div>
+          ${params.gatewayFeeNaira && params.gatewayFeeNaira > 0 ? `<div><strong>Gateway Processing Charge (Paystack):</strong> ₦${params.gatewayFeeNaira.toLocaleString()}</div>` : `<div><strong>Gateway Processing Charge:</strong> Absorbed by School Main Account (₦0 surcharge)</div>`}
         </div>`
       : "";
   const baseUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://wofs.vercel.app").replace(/\/$/, "");

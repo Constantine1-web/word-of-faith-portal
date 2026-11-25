@@ -27,15 +27,19 @@ import {
   allocateTermPaymentKobo,
   computePaystackConvenienceFeeKobo,
   computePaystackSubaccountSplitKobo,
-  PORTAL_ICT_SERVICE_FEE_KOBO,
+  computeTermInvoiceTotals,
+  GROSS_PORTAL_FEE_KOBO,
+  type ReversalScope,
 } from "@/lib/fee-split";
 import {
   APPROVED_PAYMENT_STATUSES,
+  acquireStudentTermLock,
   ensureStudentTermInvoice,
   getStudentTermBillingSummary,
   persistPrivateReceiptArtifact,
   recordPaymentCreditInTx,
   recordPaymentReversalInTx,
+  syncInvoiceAndStudentClearanceInTx,
   validateReceiptBinary,
 } from "@/lib/payment-ledger";
 import {
@@ -88,6 +92,8 @@ function serializeFeeAllocationPreview(
       grossPaidKobo: bigint;
       gatewayFeeKobo: bigint;
       schoolShareKobo: bigint;
+      schoolPortalShareKobo?: bigint;
+      schoolChargesShareKobo?: bigint;
       providerShareKobo: bigint;
       settlementChannel: string;
       settlementStatus: string;
@@ -100,17 +106,30 @@ function serializeFeeAllocationPreview(
     let principal = BigInt(0);
     let gateway = BigInt(0);
     let school = BigInt(0);
+    let schoolPortal = BigInt(0);
+    let schoolCharges = BigInt(0);
     let provider = BigInt(0);
     for (const e of entries) {
       principal += e.grossPaidKobo;
       gateway += e.gatewayFeeKobo;
       school += e.schoolShareKobo;
       provider += e.providerShareKobo;
+      const sPortal = e.schoolPortalShareKobo ?? BigInt(0);
+      const sCharges = e.schoolChargesShareKobo ?? BigInt(0);
+      if (e.schoolShareKobo !== BigInt(0) && sPortal === BigInt(0) && sCharges === BigInt(0)) {
+        schoolCharges += e.schoolShareKobo;
+      } else {
+        schoolPortal += sPortal;
+        schoolCharges += sCharges;
+      }
     }
     return {
       principalNaira: Number(principal) / 100,
       schoolShareNaira: Number(school) / 100,
+      schoolPortalShareNaira: Number(schoolPortal) / 100,
+      schoolChargesShareNaira: Number(schoolCharges) / 100,
       providerShareNaira: Number(provider) / 100,
+      portalFeePortionNaira: Number(provider + schoolPortal) / 100,
       gatewayFeeNaira: Number(gateway) / 100,
       hasLedgerEntry: true,
       ledgerIds: entries.map((e) => e.id),
@@ -124,12 +143,15 @@ function serializeFeeAllocationPreview(
       : BigInt(Math.round((Number(payment.AmountPaid) || 0) * 100));
   const sim = allocateTermPaymentKobo({
     grossPrincipalPaidKobo: principalKobo,
-    targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+    targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
   });
   return {
     principalNaira: sim.grossPrincipalPaidNaira,
     schoolShareNaira: sim.schoolShareNaira,
+    schoolPortalShareNaira: sim.schoolPortalShareNaira,
+    schoolChargesShareNaira: sim.schoolChargesShareNaira,
     providerShareNaira: sim.providerShareNaira,
+    portalFeePortionNaira: Number(sim.portalFeePortionAppliedKobo) / 100,
     gatewayFeeNaira: Number(payment.gatewayFeeKobo || 0) / 100,
     hasLedgerEntry: false,
     ledgerIds: [] as string[],
@@ -164,14 +186,46 @@ export async function updateFeeSchedule(data: {
   tuitionNaira: number;
   leviesNaira: number;
   maintenanceFeeNaira: number;
+  stepUpCode?: string;
 }) {
-  const actor = await requirePaymentManager();
-
-  const tuition = Math.max(0, Math.round(Number(data.tuitionNaira) || 0));
-  const levies = Math.max(0, Math.round(Number(data.leviesNaira) || 0));
-  const maintenance = Math.max(0, Math.round(Number(data.maintenanceFeeNaira) || 0));
-
   try {
+    const actor = await requirePaymentManager();
+
+    const tuition = Math.max(0, Math.round(Number(data.tuitionNaira) || 0));
+    const levies = Math.max(0, Math.round(Number(data.leviesNaira) || 0));
+    const maintenance = Math.max(0, Math.round(Number(data.maintenanceFeeNaira) || 0));
+
+    const existing = await prisma.feeSchedule.findUnique({
+      where: { levelGroup: data.levelGroup },
+    });
+    const currentPortalFeeNaira = existing
+      ? Number(existing.maintenanceFeeKobo) / 100
+      : Number(GROSS_PORTAL_FEE_KOBO) / 100;
+
+    // Commercial Control (§5 & §6.3): Altering the Portal/ICT Fee rate requires MANAGE_SYSTEM + TOTP Step-Up
+    if (maintenance !== currentPortalFeeNaira) {
+      await requireCapability("MANAGE_SYSTEM");
+      const trimmedCode = data.stepUpCode?.trim();
+      if (trimmedCode) {
+        const userRow = await prisma.user.findUnique({
+          where: { UserID: actor.UserID },
+          select: { TotpEnabled: true, TotpSecret: true },
+        });
+        if (userRow?.TotpEnabled && userRow.TotpSecret) {
+          const plainSecret = decryptTotpSecret(userRow.TotpSecret);
+          if (!verifyTotpCode(plainSecret, trimmedCode)) {
+            return { success: false, error: "Invalid 2FA Authenticator code." };
+          }
+          const singleUseOk = await claimTotpCodeSingleUse(actor.UserID, trimmedCode);
+          if (!singleUseOk) {
+            return { success: false, error: "This 2FA code has already been used. Wait for the next 30s code." };
+          }
+          await grantStepUpSession(actor.UserID);
+        }
+      }
+      await requireStepUpIfTotpEnabled(actor.UserID, "modify Portal / ICT Fee rate");
+    }
+
     const updated = await prisma.feeSchedule.upsert({
       where: { levelGroup: data.levelGroup },
       create: {
@@ -192,11 +246,20 @@ export async function updateFeeSchedule(data: {
     });
 
     await writeAuditLog({
-      actorId: actor.UserID,
+      actorUserId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
       action: "FEE_SCHEDULE_UPDATED",
       entity: "FeeSchedule",
       entityId: updated.id,
-      newValue: {
+      beforeState: existing
+        ? {
+            levelGroup: existing.levelGroup,
+            tuitionNaira: Number(existing.tuitionKobo) / 100,
+            leviesNaira: Number(existing.leviesKobo) / 100,
+            portalIctFeeNaira: Number(existing.maintenanceFeeKobo) / 100,
+          }
+        : undefined,
+      afterState: {
         levelGroup: data.levelGroup,
         tuitionNaira: tuition,
         leviesNaira: levies,
@@ -246,7 +309,8 @@ export async function updatePortalBankConfigAction(
   input: Partial<PortalBankConfig> & { stepUpCode?: string }
 ) {
   try {
-    const actor = await requirePaymentManager();
+    // Commercial Control (§5 & §6.3): Subaccount / Gateway Fee Policy / Settlement NUBAN requires MANAGE_SYSTEM + 2FA Step-Up
+    const actor = await requireCapability("MANAGE_SYSTEM");
     const { stepUpCode, ...configPatch } = input;
     const trimmedCode = stepUpCode?.trim();
     if (trimmedCode) {
@@ -374,9 +438,15 @@ export async function getAdminPaymentAuditList(filters?: {
         LedgerEntries: p.LedgerEntries.map((le) => ({
           ...le,
           grossPaidKobo: Number(le.grossPaidKobo),
+          grossPortalFeeKobo: Number(le.grossPortalFeeKobo || 0),
           gatewayFeeKobo: Number(le.gatewayFeeKobo),
           schoolShareKobo: Number(le.schoolShareKobo),
+          schoolPortalShareKobo: Number(le.schoolPortalShareKobo || 0),
+          schoolChargesShareKobo: Number(le.schoolChargesShareKobo || 0),
           providerShareKobo: Number(le.providerShareKobo),
+          feeBearer: le.feeBearer || "ACCOUNT",
+          reversalOfLedgerEntryId: le.reversalOfLedgerEntryId || null,
+          reversalScope: le.reversalScope || null,
           isRemitted:
             le.settlementStatus === "AUTO_SPLIT" ||
             le.settlementStatus === "REMITTED" ||
@@ -442,6 +512,7 @@ export async function approvePaymentRecord(paymentId: number) {
     let remainingAfterKobo = BigInt(0);
 
     await prisma.$transaction(async (tx) => {
+      await acquireStudentTermLock(tx, payment.StudentID, payment.TermID);
       let invoiceId = payment.InvoiceID;
       if (!invoiceId && payment.Term) {
         const ensured = await ensureStudentTermInvoice(tx, {
@@ -471,6 +542,7 @@ export async function approvePaymentRecord(paymentId: number) {
         termId: payment.TermID,
         principalKobo,
         gatewayFeeKobo: payment.gatewayFeeKobo || BigInt(0),
+        feeBearer: "ACCOUNT",
         settlementChannel: "SCHOOL_COLLECTION",
         reference: payment.Reference,
         notes: `Manual ${payment.Channel} payment verified by ${actor.Email}`,
@@ -495,6 +567,8 @@ export async function approvePaymentRecord(paymentId: number) {
           studentId: payment.StudentID,
           principalKobo: principalKobo.toString(),
           schoolShareKobo: l.schoolShareKobo.toString(),
+          schoolPortalShareKobo: l.schoolPortalShareKobo.toString(),
+          schoolChargesShareKobo: l.schoolChargesShareKobo.toString(),
           providerShareKobo: l.providerShareKobo.toString(),
           modelCode: l.modelCode,
         },
@@ -517,6 +591,8 @@ export async function approvePaymentRecord(paymentId: number) {
         amountPaidNaira: Number(principalKobo) / 100,
         channel: payment.Channel || "BANK_TELLER",
         schoolShareNaira: Number(l.schoolShareKobo) / 100,
+        schoolPortalShareNaira: Number(l.schoolPortalShareKobo) / 100,
+        schoolChargesShareNaira: Number(l.schoolChargesShareKobo) / 100,
         providerShareNaira: Number(l.providerShareKobo) / 100,
         gatewayFeeNaira: Number(payment.gatewayFeeKobo || 0) / 100,
         remainingBalanceNaira: Number(remainingAfterKobo) / 100,
@@ -585,6 +661,7 @@ export async function rejectPaymentRecord(paymentId: number, rejectionReason?: s
           studentId: payment.StudentID,
           termId: payment.TermID,
           invoiceId: payment.InvoiceID,
+          scope: "FULL",
           gatewayFeeKobo: payment.gatewayFeeKobo,
           reference: payment.Reference,
           notes: `Payment rejected/reversed after approval: ${cleanReason}`,
@@ -625,6 +702,102 @@ export async function rejectPaymentRecord(paymentId: number, rejectionReason?: s
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to reject payment",
+    };
+  }
+}
+
+/**
+ * Supports selective refunds & chargeback reversals per §6.2 & §9 Tests 11-13:
+ * - `FULL`: reverses School Charges + School ₦200 Portal Share + Provider ₦800 Portal Share
+ * - `TUITION_ONLY`: reverses School Tuition & Levies only (leaves Portal Fee intact)
+ * - `PORTAL_FEE_ONLY`: reverses Portal Fee shares 80:20 only (leaves Tuition intact)
+ * - `CHARGEBACK`: marks full chargeback reversal and clears/updates invoice status
+ */
+export async function reverseApprovedPaymentRecord(params: {
+  paymentId: number;
+  scope: ReversalScope;
+  reason: string;
+}) {
+  try {
+    const actor = await requirePaymentManager();
+    const reason = (params.reason || "").trim();
+    if (reason.length < 4) {
+      return { success: false, error: "Provide an audit reason for reversing this payment." };
+    }
+
+    const scope: ReversalScope =
+      params.scope === "TUITION_ONLY" ||
+      params.scope === "PORTAL_FEE_ONLY" ||
+      params.scope === "CHARGEBACK"
+        ? params.scope
+        : "FULL";
+
+    const payment = await prisma.payment_Record.findUnique({
+      where: { PaymentID: Number(params.paymentId) },
+    });
+    if (!payment) {
+      return { success: false, error: "Payment record not found." };
+    }
+
+    let createdReversalId: string | null = null;
+    const nextPaymentStatus =
+      scope === "TUITION_ONLY" || scope === "PORTAL_FEE_ONLY"
+        ? "Partially Refunded"
+        : scope === "CHARGEBACK"
+        ? "Chargeback"
+        : "Refunded";
+
+    await prisma.$transaction(async (tx) => {
+      const rev = await recordPaymentReversalInTx(tx, {
+        paymentId: payment.PaymentID,
+        studentId: payment.StudentID,
+        termId: payment.TermID,
+        invoiceId: payment.InvoiceID,
+        scope,
+        gatewayFeeKobo: payment.gatewayFeeKobo,
+        reference: payment.Reference,
+        notes: `${scope} reversal by ${actor.Email}: ${reason}`,
+        actorId: actor.UserID,
+      });
+      createdReversalId = rev?.id ?? null;
+
+      await tx.payment_Record.update({
+        where: { PaymentID: payment.PaymentID },
+        data: {
+          Status: nextPaymentStatus,
+          RejectionReason: reason,
+          ReviewedBy: actor.UserID,
+          ReviewedAt: new Date(),
+        },
+      });
+    });
+
+    await writeAuditLog({
+      actorUserId: actor.UserID,
+      actorRoles: Array.from(actor.roles).join(","),
+      action: `PAYMENT_REVERSAL_${scope}`,
+      targetTable: "Payment_Record",
+      targetId: String(payment.PaymentID),
+      beforeState: { status: payment.Status },
+      afterState: {
+        status: nextPaymentStatus,
+        scope,
+        reversalLedgerId: createdReversalId,
+        reason,
+      },
+    });
+
+    revalidatePath("/portal/admin/payments");
+    revalidatePath("/portal/fees");
+    return {
+      success: true,
+      reversalLedgerId: createdReversalId,
+      status: nextPaymentStatus,
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to reverse payment",
     };
   }
 }
@@ -732,6 +905,8 @@ export async function recordCashBursaryPayment(data: {
           reference: ref,
           principalKobo: principalKobo.toString(),
           schoolShareKobo: l.schoolShareKobo.toString(),
+          schoolPortalShareKobo: l.schoolPortalShareKobo.toString(),
+          schoolChargesShareKobo: l.schoolChargesShareKobo.toString(),
           providerShareKobo: l.providerShareKobo.toString(),
         },
       });
@@ -748,6 +923,8 @@ export async function recordCashBursaryPayment(data: {
         amountPaidNaira: amountNaira,
         channel: "CASH_BURSARY",
         schoolShareNaira: Number(l.schoolShareKobo) / 100,
+        schoolPortalShareNaira: Number(l.schoolPortalShareKobo) / 100,
+        schoolChargesShareNaira: Number(l.schoolChargesShareKobo) / 100,
         providerShareNaira: Number(l.providerShareKobo) / 100,
         remainingBalanceNaira: Number(remainingAfterKobo) / 100,
       }).catch(() => {});
@@ -768,12 +945,50 @@ export async function waiveStudentSchoolFees(data: {
   termId?: number;
   isWaived: boolean;
   reason: string;
+  mode?: "WAIVE_TUITION_KEEP_PORTAL" | "WAIVE_ALL_HARDSHIP" | "PRORATE_PORTAL" | "RESTORE";
+  portalFeeProrationPct?: number;
+  stepUpCode?: string;
 }) {
   try {
     const actor = await requirePaymentManager();
     const reason = (data.reason || "").trim();
     if (reason.length < 4) {
       return { success: false, error: "Please provide a brief reason for modifying school fee waiver status." };
+    }
+
+    const mode =
+      data.mode ||
+      (data.isWaived ? "WAIVE_TUITION_KEEP_PORTAL" : "RESTORE");
+
+    const prorationPct =
+      mode === "WAIVE_ALL_HARDSHIP"
+        ? 0
+        : mode === "PRORATE_PORTAL"
+        ? Math.max(0, Math.min(100, Math.round(Number(data.portalFeeProrationPct ?? 50))))
+        : 100;
+
+    const touchesPortalFee = mode === "WAIVE_ALL_HARDSHIP" || mode === "PRORATE_PORTAL";
+    if (touchesPortalFee) {
+      await requireCapability("MANAGE_SYSTEM");
+      const trimmedCode = data.stepUpCode?.trim();
+      if (trimmedCode) {
+        const userRow = await prisma.user.findUnique({
+          where: { UserID: actor.UserID },
+          select: { TotpEnabled: true, TotpSecret: true },
+        });
+        if (userRow?.TotpEnabled && userRow.TotpSecret) {
+          const plainSecret = decryptTotpSecret(userRow.TotpSecret);
+          if (!verifyTotpCode(plainSecret, trimmedCode)) {
+            return { success: false, error: "Invalid 2FA Authenticator code." };
+          }
+          const singleUseOk = await claimTotpCodeSingleUse(actor.UserID, trimmedCode);
+          if (!singleUseOk) {
+            return { success: false, error: "This 2FA code has already been used. Wait for the next 30s code." };
+          }
+          await grantStepUpSession(actor.UserID);
+        }
+      }
+      await requireStepUpIfTotpEnabled(actor.UserID, "modify Portal / ICT Fee exemption or proration");
     }
 
     const cleanInput = String(data.studentAdmissionOrId || "").trim();
@@ -793,6 +1008,11 @@ export async function waiveStudentSchoolFees(data: {
       (await prisma.academic_Term.findFirst({ where: { IsActive: true } }));
     if (!term) return { success: false, error: "Academic term not found." };
 
+    const waiveSchoolFees = mode === "WAIVE_TUITION_KEEP_PORTAL" || mode === "WAIVE_ALL_HARDSHIP";
+    const portalExempt = mode === "WAIVE_ALL_HARDSHIP";
+
+    let finalPortalFeeNaira = 1000;
+
     await prisma.$transaction(async (tx) => {
       const ensured = await ensureStudentTermInvoice(tx, {
         studentId: student.StudentID,
@@ -802,64 +1022,76 @@ export async function waiveStudentSchoolFees(data: {
         level: student.Class?.Level,
       });
 
-      const portalItem = ensured.invoice.LineItems.find((li) => li.code === "PORTAL_ICT_FEE");
-      const portalFeeKobo = portalItem ? portalItem.amountKobo : PORTAL_ICT_SERVICE_FEE_KOBO;
+      const basePortalFeeKobo =
+        ensured.schedule.portalFeeKobo > BigInt(0)
+          ? ensured.schedule.portalFeeKobo
+          : GROSS_PORTAL_FEE_KOBO;
 
-      // Waive ONLY Tuition & School Levies; Portal/ICT Service Fee (₦800) remains billable per Owner rule
+      const totals = computeTermInvoiceTotals({
+        tuitionKobo: ensured.schedule.tuitionKobo,
+        leviesKobo: ensured.schedule.leviesKobo,
+        portalFeeKobo: basePortalFeeKobo,
+        isSchoolFeesWaived: waiveSchoolFees,
+        isPortalFeeExempt: portalExempt,
+        portalFeeProrationPct: prorationPct,
+      });
+      finalPortalFeeNaira = Number(totals.portalFeeKobo) / 100;
+
       await tx.invoiceLineItem.updateMany({
-        where: { invoiceId: ensured.invoice.id, beneficiary: "SCHOOL" },
+        where: { invoiceId: ensured.invoice.id, code: "TUITION" },
+        data: { amountKobo: totals.effectiveTuitionKobo, isWaived: waiveSchoolFees },
+      });
+      await tx.invoiceLineItem.updateMany({
+        where: { invoiceId: ensured.invoice.id, code: "LEVIES" },
+        data: { amountKobo: totals.effectiveLeviesKobo, isWaived: waiveSchoolFees },
+      });
+      await tx.invoiceLineItem.updateMany({
+        where: { invoiceId: ensured.invoice.id, code: "PORTAL_ICT_FEE" },
         data: {
-          isWaived: data.isWaived,
-          amountKobo: data.isWaived
-            ? BigInt(0)
-            : undefined,
+          amountKobo: totals.portalFeeKobo,
+          isWaived: portalExempt,
+          beneficiary: "SHARED",
         },
       });
 
-      if (!data.isWaived) {
-        await tx.invoiceLineItem.updateMany({
-          where: { invoiceId: ensured.invoice.id, code: "TUITION" },
-          data: { amountKobo: ensured.schedule.tuitionKobo, isWaived: false },
-        });
-        await tx.invoiceLineItem.updateMany({
-          where: { invoiceId: ensured.invoice.id, code: "LEVIES" },
-          data: { amountKobo: ensured.schedule.leviesKobo, isWaived: false },
-        });
-      }
-
-      const newAmountKobo = data.isWaived ? portalFeeKobo : ensured.schedule.totalKobo;
       await tx.invoice.update({
         where: { id: ensured.invoice.id },
         data: {
-          IsWaived: data.isWaived,
-          WaivedBy: data.isWaived ? actor.UserID : null,
-          WaivedReason: data.isWaived ? reason : null,
-          AmountKobo: newAmountKobo,
+          IsWaived: waiveSchoolFees,
+          portalFeeExempt: portalExempt,
+          portalFeeProrationPct: prorationPct,
+          WaivedBy: waiveSchoolFees || portalExempt || prorationPct < 100 ? actor.UserID : null,
+          WaivedReason: waiveSchoolFees || portalExempt || prorationPct < 100 ? reason : null,
+          AmountKobo: totals.totalInvoiceKobo,
         },
       });
 
-      const summary = await getStudentTermBillingSummary(tx, student.StudentID, term.TermID);
-      if (term.IsActive) {
-        await tx.student.update({
-          where: { StudentID: student.StudentID },
-          data: { HasPaidFees: summary.isCleared },
-        });
-      }
+      await syncInvoiceAndStudentClearanceInTx(tx, student.StudentID, term.TermID);
     });
 
     await writeAuditLog({
       actorUserId: actor.UserID,
       actorRoles: Array.from(actor.roles).join(","),
-      action: data.isWaived ? "SCHOOL_FEES_WAIVED_ICT_RETAINED" : "SCHOOL_FEE_WAIVER_REMOVED",
+      action:
+        mode === "WAIVE_ALL_HARDSHIP"
+          ? "SCHOOL_AND_PORTAL_FEES_HARDSHIP_WAIVED"
+          : mode === "PRORATE_PORTAL"
+          ? "PORTAL_FEE_PRORATED"
+          : mode === "WAIVE_TUITION_KEEP_PORTAL"
+          ? "SCHOOL_FEES_WAIVED_ICT_RETAINED"
+          : "SCHOOL_FEE_WAIVER_REMOVED",
       entity: "Invoice",
       entityId: `${student.StudentID}:${term.TermID}`,
       reason,
-      newValue: {
+      afterState: {
         studentId: student.StudentID,
         admissionNo: student.AdmissionNo,
         termId: term.TermID,
-        isWaived: data.isWaived,
-        portalIctFeeStillRequiredNaira: 800,
+        mode,
+        isWaived: waiveSchoolFees,
+        portalFeeExempt: portalExempt,
+        portalFeeProrationPct: prorationPct,
+        portalIctFeeStillRequiredNaira: finalPortalFeeNaira,
       },
     });
 
@@ -867,9 +1099,14 @@ export async function waiveStudentSchoolFees(data: {
     revalidatePath("/portal/fees");
     return {
       success: true,
-      message: data.isWaived
-        ? `School Tuition/Levies waived for ${student.AdmissionNo}. The ₦800 Portal/ICT Service Fee remains payable.`
-        : `School fee waiver cleared for ${student.AdmissionNo}.`,
+      message:
+        mode === "WAIVE_ALL_HARDSHIP"
+          ? `Full Board hardship waiver applied (Tuition + Portal Fee exempted) for ${student.AdmissionNo}.`
+          : mode === "PRORATE_PORTAL"
+          ? `Portal/ICT Fee prorated to ${prorationPct}% (₦${finalPortalFeeNaira.toLocaleString()}) for ${student.AdmissionNo}.`
+          : waiveSchoolFees
+          ? `School Tuition/Levies waived for ${student.AdmissionNo}. The ₦${finalPortalFeeNaira.toLocaleString()} Portal/ICT Fee (₦800 Provider / ₦200 School) remains payable.`
+          : `School fee waiver cleared for ${student.AdmissionNo}.`,
     };
   } catch (error: unknown) {
     return {
@@ -893,7 +1130,7 @@ export async function markProviderRemittanceSettled(ledgerIds: string[], referen
       action: "PROVIDER_REMITTANCE_SETTLED",
       entity: "AllocationLedger",
       entityId: `${cleanIds.length}-entries`,
-      reason: referenceNote?.trim() || "Marked Provider ₦800 share remitted",
+      reason: referenceNote?.trim() || "Marked Provider 80% Portal Fee share remitted",
       newValue: { ledgerIds: cleanIds, settledAt: new Date().toISOString() },
     });
 
@@ -1067,8 +1304,13 @@ export async function getOrCreateStudentFeeOrder(targetStudentId?: number, termI
       tuitionNaira: ensured.invoice.IsWaived ? 0 : ensured.schedule.tuitionNaira,
       leviesNaira: ensured.invoice.IsWaived ? 0 : ensured.schedule.leviesNaira,
       maintenanceFeeNaira: Number(summary.portalTargetKobo) / 100,
+      providerPortionNaira: Number(summary.portalProviderCapKobo) / 100,
+      schoolPortalPortionNaira: Number(summary.portalSchoolCapKobo) / 100,
       totalNaira: Number(summary.totalDueKobo) / 100,
       isSchoolFeesWaived: ensured.invoice.IsWaived,
+      isPortalFeeExempt: ensured.invoice.portalFeeExempt,
+      portalFeeProrationPct: ensured.invoice.portalFeeProrationPct,
+      gatewayFeePolicy: bankConfig.gatewayFeePolicy,
     };
 
     const wardSummaries = wards.map((w) => ({
@@ -1110,7 +1352,10 @@ export async function getOrCreateStudentFeeOrder(targetStudentId?: number, termI
         amount: Number(summary.totalCreditedKobo) / 100,
         remainingDueNaira: 0,
         schoolDueNaira: Number(summary.remainingSchoolKobo) / 100,
+        schoolPortalDueNaira: Number(summary.remainingSchoolPortalKobo) / 100,
+        schoolChargesDueNaira: Number(summary.remainingSchoolChargesKobo) / 100,
         portalFeeDueNaira: Number(summary.remainingPortalKobo) / 100,
+        providerDueNaira: Number(summary.remainingProviderKobo) / 100,
         alreadyPaidNaira: Number(summary.totalCreditedKobo) / 100,
         paystackConvenienceFeeNaira: 0,
         paystackTotalWithGatewayNaira: 0,
@@ -1177,7 +1422,10 @@ export async function getOrCreateStudentFeeOrder(targetStudentId?: number, termI
       amount: Number(remainingDueKobo) / 100,
       remainingDueNaira: Number(remainingDueKobo) / 100,
       schoolDueNaira: Number(summary.remainingSchoolKobo) / 100,
+      schoolPortalDueNaira: Number(summary.remainingSchoolPortalKobo) / 100,
+      schoolChargesDueNaira: Number(summary.remainingSchoolChargesKobo) / 100,
       portalFeeDueNaira: Number(summary.remainingPortalKobo) / 100,
+      providerDueNaira: Number(summary.remainingProviderKobo) / 100,
       alreadyPaidNaira: Number(summary.totalCreditedKobo) / 100,
       paystackConvenienceFeeNaira: Number(paystackConvenienceFeeKobo) / 100,
       paystackTotalWithGatewayNaira:
@@ -1294,8 +1542,8 @@ export async function uploadBankTellerReceipt(formData: FormData) {
       return { success: false, error: "This student's fees are already cleared for the active term." };
     }
 
-    // Clamp submitted amount between min installment (₦800 or remaining) and remaining invoice balance
-    const minAcceptableNaira = Math.min(800, remainingDueNaira);
+    // Clamp submitted amount between min installment (₦500 or remaining) and remaining invoice balance
+    const minAcceptableNaira = Math.min(500, remainingDueNaira);
     const cleanAmountNaira =
       Number.isFinite(amountRaw) && amountRaw >= minAcceptableNaira
         ? Math.min(Math.round(amountRaw * 100) / 100, remainingDueNaira)
@@ -1318,6 +1566,7 @@ export async function uploadBankTellerReceipt(formData: FormData) {
             Reference: trackingId,
             StudentID: student.StudentID,
             Status: "Pending",
+            receiptStorageKey: null,
           },
         })
       : null;
@@ -1455,7 +1704,7 @@ export async function initializePayment(data: {
     const remainingKobo = summary.remainingTotalKobo;
     const requestedNaira = Number(data.amount || 0);
     const minInstallmentKobo =
-      remainingKobo > BigInt(100_000) ? BigInt(100_000) : remainingKobo;
+      remainingKobo > BigInt(50_000) ? BigInt(50_000) : remainingKobo;
 
     let principalKobo = remainingKobo;
     if (Number.isFinite(requestedNaira) && requestedNaira > 0) {
@@ -1545,10 +1794,17 @@ export async function initializePayment(data: {
 
     const allocPreview = allocateTermPaymentKobo({
       grossPrincipalPaidKobo: principalKobo,
-      targetPortalFeeKobo: summary.portalTargetKobo || PORTAL_ICT_SERVICE_FEE_KOBO,
-      alreadyAllocatedPortalFeeKobo: summary.portalCreditedKobo,
+      targetPortalFeeKobo: summary.portalTargetKobo,
+      alreadyAllocatedProviderKobo: summary.providerCreditedKobo,
+      alreadyAllocatedSchoolPortalKobo: summary.schoolPortalCreditedKobo,
       gatewayFeeKobo,
     });
+
+    const splitActive = Boolean(
+      bankConfig.paystackSplitApproved &&
+        bankConfig.paystackSubaccountCode &&
+        allocPreview.providerShareKobo > BigInt(0)
+    );
 
     const paystackPayload: Record<string, unknown> = {
       email: payerEmail,
@@ -1561,17 +1817,21 @@ export async function initializePayment(data: {
         admissionNo: student.AdmissionNo,
         termId: activeTerm.TermID,
         principalKobo: principalKobo.toString(),
-        portalShareKobo: allocPreview.providerShareKobo.toString(),
+        grossPortalFeeKobo: summary.portalTargetKobo.toString(),
+        providerShareKobo: allocPreview.providerShareKobo.toString(),
+        schoolPortalShareKobo: allocPreview.schoolPortalShareKobo.toString(),
+        schoolChargesShareKobo: allocPreview.schoolChargesShareKobo.toString(),
         schoolShareKobo: allocPreview.schoolShareKobo.toString(),
         gatewayFeeKobo: gatewayFeeKobo.toString(),
         gatewayFeePolicy: bankConfig.gatewayFeePolicy,
+        splitActive,
       },
     };
 
-    // Optional Paystack Single-Subaccount Split (School = Main Account, Provider = Subaccount):
-    // Setting transaction_charge = totalGatewayChargeKobo - providerShareKobo preserves exact ₦800
-    // for the Provider Subaccount while Main Account absorbs actual gateway fee from `gatewayFeeKobo`.
-    if (bankConfig.paystackSubaccountCode && allocPreview.providerShareKobo > BigInt(0)) {
+    // Guardrail (§3.1, §3.3 & Appendix B): ONLY send subaccount & transaction_charge to Paystack
+    // when Paystack Subaccount KYC + controlled NGN split proof are approved AND providerShareKobo > 0.
+    // Later tuition-only instalments settle 100% directly to the School Main Account.
+    if (splitActive) {
       const split = computePaystackSubaccountSplitKobo({
         totalChargedKobo: totalGatewayChargeKobo,
         providerShareKobo: allocPreview.providerShareKobo,
@@ -1722,7 +1982,11 @@ export async function verifyPaystackPayment(reference: string) {
     }
 
     const bankConfig = await getPortalBankConfig();
-    const hasSubaccount = Boolean(bankConfig.paystackSubaccountCode);
+    const hasApprovedSplit = Boolean(
+      bankConfig.paystackSplitApproved && bankConfig.paystackSubaccountCode
+    );
+    const feeBearer =
+      bankConfig.gatewayFeePolicy === "PAYER_SURCHARGE" ? "PAYER_SURCHARGE" : "ACCOUNT";
     const actualPaystackFeeKobo =
       data.data?.fees !== undefined && data.data?.fees !== null
         ? BigInt(Math.max(0, Math.round(Number(data.data.fees))))
@@ -1741,6 +2005,8 @@ export async function verifyPaystackPayment(reference: string) {
             processedAt: new Date(),
           },
         });
+
+        await acquireStudentTermLock(tx, payment.StudentID, payment.TermID);
 
         let invoiceId = payment.InvoiceID;
         if (!invoiceId && payment.Term) {
@@ -1772,9 +2038,10 @@ export async function verifyPaystackPayment(reference: string) {
           termId: payment.TermID,
           principalKobo: principalExpectedKobo,
           gatewayFeeKobo: actualPaystackFeeKobo,
-          settlementChannel: hasSubaccount ? "PAYSTACK_SUBACCOUNT" : "SCHOOL_COLLECTION",
+          feeBearer,
+          settlementChannel: hasApprovedSplit ? "PAYSTACK_SUBACCOUNT" : "SCHOOL_COLLECTION",
           reference: cleanRef,
-          notes: "Verified via callback Paystack verification",
+          notes: "Verified via callback Paystack verification (₦1,000 Portal Fee: ₦800 Provider / ₦200 School)",
           actorId: actor.UserID,
         });
 
@@ -1805,7 +2072,10 @@ export async function verifyPaystackPayment(reference: string) {
           reference: cleanRef,
           principalKobo: principalExpectedKobo.toString(),
           gatewayFeeKobo: actualPaystackFeeKobo.toString(),
+          feeBearer,
           schoolShareKobo: l.schoolShareKobo.toString(),
+          schoolPortalShareKobo: l.schoolPortalShareKobo.toString(),
+          schoolChargesShareKobo: l.schoolChargesShareKobo.toString(),
           providerShareKobo: l.providerShareKobo.toString(),
           modelCode: l.modelCode,
         },
@@ -1828,6 +2098,8 @@ export async function verifyPaystackPayment(reference: string) {
         amountPaidNaira: Number(principalExpectedKobo) / 100,
         channel: "PAYSTACK",
         schoolShareNaira: Number(l.schoolShareKobo) / 100,
+        schoolPortalShareNaira: Number(l.schoolPortalShareKobo) / 100,
+        schoolChargesShareNaira: Number(l.schoolChargesShareKobo) / 100,
         providerShareNaira: Number(l.providerShareKobo) / 100,
         gatewayFeeNaira: Number(actualPaystackFeeKobo) / 100,
         remainingBalanceNaira: Number(remainingAfterKobo) / 100,

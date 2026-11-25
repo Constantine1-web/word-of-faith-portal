@@ -7,7 +7,10 @@ import {
   uploadBankTellerReceipt,
   verifyPaystackPayment,
 } from "@/app/actions/payments";
-import { computePaystackConvenienceFeeKobo } from "@/lib/fee-split";
+import {
+  allocateTermPaymentKobo,
+  computePaystackConvenienceFeeKobo,
+} from "@/lib/fee-split";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -130,30 +133,46 @@ export default function PayFeesPage() {
   };
 
   const remainingDueNaira = Number(feeOrder?.remainingDueNaira ?? feeOrder?.amount ?? 0);
-  const schoolDueNaira = Number(feeOrder?.schoolDueNaira ?? 0);
-  const portalFeeDueNaira = Number(feeOrder?.portalFeeDueNaira ?? 0);
   const alreadyPaidNaira = Number(feeOrder?.alreadyPaidNaira ?? 0);
 
   const chosenPrincipalNaira =
     paymentMode === "PARTIAL"
       ? Math.min(
           remainingDueNaira,
-          Math.max(Math.min(1000, remainingDueNaira), Number(customAmountNaira) || 0)
+          Math.max(Math.min(500, remainingDueNaira), Number(customAmountNaira) || 0)
         )
       : remainingDueNaira;
 
   const principalKobo = BigInt(Math.round(Math.max(0, chosenPrincipalNaira) * 100));
   const gatewayFeePolicy =
-    feeOrder?.bankConfig?.gatewayFeePolicy === "SCHOOL_ABSORBS"
-      ? "SCHOOL_ABSORBS"
-      : "PAYER_SURCHARGE";
+    feeOrder?.bankConfig?.gatewayFeePolicy === "PAYER_SURCHARGE"
+      ? "PAYER_SURCHARGE"
+      : "SCHOOL_ABSORBS";
   const gatewayFeeKobo = computePaystackConvenienceFeeKobo(principalKobo, gatewayFeePolicy);
   const gatewayFeeNaira = Number(gatewayFeeKobo) / 100;
   const totalPaystackChargeNaira = Number(principalKobo + gatewayFeeKobo) / 100;
 
-  // Portion of current payment that clears Portal ICT Fee vs School Fees
-  const currentPortalPortionNaira = Math.min(chosenPrincipalNaira, portalFeeDueNaira);
-  const currentSchoolPortionNaira = Math.max(0, chosenPrincipalNaira - currentPortalPortionNaira);
+  const targetPortalNaira = Number(feeOrder?.feeBreakdown?.maintenanceFeeNaira ?? 1000);
+  const providerCapNaira = Number(feeOrder?.feeBreakdown?.providerPortionNaira ?? 800);
+  const schoolPortalCapNaira = Number(feeOrder?.feeBreakdown?.schoolPortalPortionNaira ?? 200);
+  const previewAlloc = allocateTermPaymentKobo({
+    grossPrincipalPaidKobo: principalKobo,
+    targetPortalFeeKobo: BigInt(Math.round(targetPortalNaira * 100)),
+    alreadyAllocatedProviderKobo: BigInt(
+      Math.round(Math.max(0, providerCapNaira - Number(feeOrder?.providerDueNaira ?? 0)) * 100)
+    ),
+    alreadyAllocatedSchoolPortalKobo: BigInt(
+      Math.round(
+        Math.max(0, schoolPortalCapNaira - Number(feeOrder?.schoolPortalDueNaira ?? 0)) * 100
+      )
+    ),
+    gatewayFeeKobo,
+  });
+
+  // Portion of current payment that clears Portal ICT Fee vs School Charges
+  const currentPortalPortionNaira = Number(previewAlloc.portalFeePortionAppliedKobo) / 100;
+  const currentSchoolChargesPortionNaira = previewAlloc.schoolChargesShareNaira;
+  const currentSchoolPortionNaira = previewAlloc.schoolShareNaira;
 
   const handleOnlinePayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -373,7 +392,7 @@ export default function PayFeesPage() {
             <p style={{ margin: 0, color: "#d1fae5", fontSize: "0.85rem" }}>
               {feeOrder?.feeBreakdown?.isSchoolFeesWaived
                 ? `Tuition & Levies Waived (Scholarship) · Portal/ICT Service Fee: ₦${feeOrder.feeBreakdown.maintenanceFeeNaira.toLocaleString()}`
-                : `Tuition: ₦${(feeOrder?.feeBreakdown?.tuitionNaira || 0).toLocaleString()} · Levies: ₦${(feeOrder?.feeBreakdown?.leviesNaira || 0).toLocaleString()} · Portal/ICT Fee (1x/term): ₦${(feeOrder?.feeBreakdown?.maintenanceFeeNaira || 800).toLocaleString()}`}
+                : `Tuition: ₦${(feeOrder?.feeBreakdown?.tuitionNaira || 0).toLocaleString()} · Levies: ₦${(feeOrder?.feeBreakdown?.leviesNaira || 0).toLocaleString()} · Portal/ICT Fee (1x/term): ₦${(feeOrder?.feeBreakdown?.maintenanceFeeNaira ?? 1000).toLocaleString()}`}
             </p>
             {alreadyPaidNaira > 0 && (
               <p style={{ margin: "0.35rem 0 0", color: "#86efac", fontSize: "0.82rem", fontWeight: 700 }}>
@@ -409,7 +428,7 @@ export default function PayFeesPage() {
       </div>
 
       {/* Installment Selector */}
-      {remainingDueNaira > 1000 && (
+      {remainingDueNaira > 500 && (
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "1rem 1.25rem", marginBottom: "1.5rem" }}>
           <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "var(--text-heading)", marginBottom: "0.6rem" }}>
             Payment Amount Option
@@ -426,10 +445,10 @@ export default function PayFeesPage() {
             {paymentMode === "PARTIAL" && (
               <input
                 type="number"
-                min={1000}
+                min={500}
                 max={remainingDueNaira}
                 step={500}
-                placeholder={`₦1,000 – ₦${remainingDueNaira.toLocaleString()}`}
+                placeholder={`₦500 – ₦${remainingDueNaira.toLocaleString()}`}
                 value={customAmountNaira}
                 onChange={(e) => setCustomAmountNaira(e.target.value)}
                 className="form-input"
@@ -438,7 +457,7 @@ export default function PayFeesPage() {
             )}
           </div>
           <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.45rem" }}>
-            The single ₦800 Portal/ICT Service Fee is settled once per term on your first installment; additional installments apply 100% to Tuition &amp; Levies.
+            The single ₦1,000 Portal/ICT Fee (₦800 Provider · ₦200 School) is settled once per term on your first installment; additional installments apply 100% to Tuition &amp; Levies.
           </div>
         </div>
       )}
@@ -484,10 +503,12 @@ export default function PayFeesPage() {
             <div style={{ background: "var(--color-gray-50)", padding: "1.25rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
                 <span style={{ color: "var(--color-gray-600)" }}>School Tuition &amp; Levies (100% School):</span>
-                <strong>₦{currentSchoolPortionNaira.toLocaleString()}</strong>
+                <strong>₦{currentSchoolChargesPortionNaira.toLocaleString()}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
-                <span style={{ color: "var(--color-gray-600)" }}>Portal / ICT Service Fee (Once Per Term):</span>
+                <span style={{ color: "var(--color-gray-600)" }}>
+                  Portal / ICT Fee Applied (₦{previewAlloc.providerShareNaira.toLocaleString()} Provider · ₦{previewAlloc.schoolPortalShareNaira.toLocaleString()} School):
+                </span>
                 <strong>₦{currentPortalPortionNaira.toLocaleString()}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
@@ -551,7 +572,7 @@ export default function PayFeesPage() {
             </div>
 
             <div style={{ marginTop: "1rem", background: "var(--bg-card)", padding: "0.75rem 1rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--status-success-border)", fontSize: "0.85rem", color: "var(--status-success-text)" }}>
-              <strong>Transfer Amount:</strong> ₦{chosenPrincipalNaira.toLocaleString()} (School: ₦{currentSchoolPortionNaira.toLocaleString()} + Portal/ICT Fee: ₦{currentPortalPortionNaira.toLocaleString()}) · <strong>Remark:</strong> <code>{trackingId}</code>
+              <strong>Transfer Amount:</strong> ₦{chosenPrincipalNaira.toLocaleString()} (School Net: ₦{currentSchoolPortionNaira.toLocaleString()} + Provider Portal Share: ₦{previewAlloc.providerShareNaira.toLocaleString()}) · <strong>Remark:</strong> <code>{trackingId}</code>
             </div>
           </div>
 

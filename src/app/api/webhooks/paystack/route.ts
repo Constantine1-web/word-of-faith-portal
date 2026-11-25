@@ -3,10 +3,13 @@ import crypto from "crypto";
 import prisma from "@/lib/db";
 import { writeAuditLog } from "@/lib/authz";
 import {
+  acquireStudentTermLock,
   ensureStudentTermInvoice,
+  getStudentTermBillingSummary,
   recordPaymentCreditInTx,
   recordPaymentReversalInTx,
 } from "@/lib/payment-ledger";
+import type { ReversalScope } from "@/lib/fee-split";
 import { getPortalBankConfig } from "@/lib/portal-settings";
 import {
   sendFeePaymentApprovedNotification,
@@ -109,13 +112,18 @@ export async function POST(req: Request) {
       }
 
       const bankConfig = await getPortalBankConfig();
-      const hasSubaccount = Boolean(bankConfig.paystackSubaccountCode);
+      const hasApprovedSplit = Boolean(
+        bankConfig.paystackSplitApproved && bankConfig.paystackSubaccountCode
+      );
+      const feeBearer =
+        bankConfig.gatewayFeePolicy === "PAYER_SURCHARGE" ? "PAYER_SURCHARGE" : "ACCOUNT";
       const actualPaystackFeeKobo =
         event.data?.fees !== undefined && event.data?.fees !== null
           ? BigInt(Math.max(0, Math.round(Number(event.data.fees))))
           : payment.gatewayFeeKobo || BigInt(0);
 
       let ledgerResult: Awaited<ReturnType<typeof recordPaymentCreditInTx>> | null = null;
+      let remainingAfterKobo = BigInt(0);
 
       try {
         await prisma.$transaction(async (tx) => {
@@ -127,6 +135,8 @@ export async function POST(req: Request) {
               processedAt: new Date(),
             },
           });
+
+          await acquireStudentTermLock(tx, payment.StudentID, payment.TermID);
 
           let invoiceId = payment.InvoiceID;
           if (!invoiceId && payment.Term) {
@@ -158,9 +168,10 @@ export async function POST(req: Request) {
             termId: payment.TermID,
             principalKobo: principalExpectedKobo,
             gatewayFeeKobo: actualPaystackFeeKobo,
-            settlementChannel: hasSubaccount ? "PAYSTACK_SUBACCOUNT" : "SCHOOL_COLLECTION",
+            feeBearer,
+            settlementChannel: hasApprovedSplit ? "PAYSTACK_SUBACCOUNT" : "SCHOOL_COLLECTION",
             reference,
-            notes: "Verified via Paystack HMAC webhook (Model A ₦800 ICT Fee)",
+            notes: "Verified via Paystack HMAC webhook (₦1,000 Portal Fee: ₦800 Provider / ₦200 School)",
             actorId: null,
           });
 
@@ -168,6 +179,9 @@ export async function POST(req: Request) {
             where: { StudentID: payment.StudentID, TermID: payment.TermID },
             data: { Status: "ACTIVE" },
           });
+
+          const summary = await getStudentTermBillingSummary(tx, payment.StudentID, payment.TermID);
+          remainingAfterKobo = summary.remainingTotalKobo;
         });
       } catch (txErr: unknown) {
         if ((txErr as { code?: string })?.code === "P2002") {
@@ -187,7 +201,10 @@ export async function POST(req: Request) {
             reference,
             principalKobo: principalExpectedKobo.toString(),
             gatewayFeeKobo: actualPaystackFeeKobo.toString(),
+            feeBearer,
             schoolShareKobo: l.schoolShareKobo.toString(),
+            schoolPortalShareKobo: l.schoolPortalShareKobo.toString(),
+            schoolChargesShareKobo: l.schoolChargesShareKobo.toString(),
             providerShareKobo: l.providerShareKobo.toString(),
             modelCode: l.modelCode,
           },
@@ -211,8 +228,11 @@ export async function POST(req: Request) {
           amountPaidNaira: Number(principalExpectedKobo) / 100,
           channel: "PAYSTACK",
           schoolShareNaira: Number(l.schoolShareKobo) / 100,
+          schoolPortalShareNaira: Number(l.schoolPortalShareKobo) / 100,
+          schoolChargesShareNaira: Number(l.schoolChargesShareKobo) / 100,
           providerShareNaira: Number(l.providerShareKobo) / 100,
           gatewayFeeNaira: Number(actualPaystackFeeKobo) / 100,
+          remainingBalanceNaira: Number(remainingAfterKobo) / 100,
         }).catch((err) => console.warn("[Webhook Email] Notification warning:", err));
       }
 
@@ -269,7 +289,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ message: "Dispute won recorded" });
       }
 
-      const nextStatus = eventType === "refund.processed" ? "Refunded" : "Disputed";
+      let resolvedScope: ReversalScope =
+        eventType === "refund.processed" ? "FULL" : "CHARGEBACK";
+      const refundedKoboRaw = BigInt(Math.max(0, Math.round(Number(event.data?.amount || 0))));
+
+      let finalStatus = eventType === "refund.processed" ? "Refunded" : "Disputed";
       try {
         await prisma.$transaction(async (tx) => {
           await tx.webhookEvent.create({
@@ -280,11 +304,31 @@ export async function POST(req: Request) {
             },
           });
 
+          if (eventType === "refund.processed" && refundedKoboRaw > BigInt(0)) {
+            const creditRow = await tx.allocationLedger.findFirst({
+              where: { paymentId: payment.PaymentID, entryType: "CREDIT" },
+              orderBy: { createdAt: "asc" },
+            });
+            if (creditRow && refundedKoboRaw < creditRow.grossPaidKobo) {
+              const portalGross = creditRow.providerShareKobo + creditRow.schoolPortalShareKobo;
+              if (
+                creditRow.schoolChargesShareKobo > BigInt(0) &&
+                refundedKoboRaw === creditRow.schoolChargesShareKobo
+              ) {
+                resolvedScope = "TUITION_ONLY";
+                finalStatus = "Partially Refunded";
+              } else if (portalGross > BigInt(0) && refundedKoboRaw === portalGross) {
+                resolvedScope = "PORTAL_FEE_ONLY";
+                finalStatus = "Partially Refunded";
+              }
+            }
+          }
+
           await tx.payment_Record.update({
             where: { PaymentID: payment.PaymentID },
             data: {
-              Status: nextStatus,
-              RejectionReason: `Automated Paystack ${eventType} event recorded.`,
+              Status: finalStatus,
+              RejectionReason: `Automated Paystack ${eventType} (${resolvedScope}) event recorded.`,
               ReviewedAt: new Date(),
             },
           });
@@ -294,19 +338,20 @@ export async function POST(req: Request) {
             studentId: payment.StudentID,
             termId: payment.TermID,
             invoiceId: payment.InvoiceID,
+            scope: resolvedScope,
             gatewayFeeKobo: payment.gatewayFeeKobo,
             reference,
-            notes: `Paystack ${eventType} (${eventKey})`,
+            notes: `Paystack ${eventType} [${resolvedScope}] (${eventKey})`,
             actorId: null,
           });
         });
 
         await writeAuditLog({
           actorId: null,
-          action: `PAYSTACK_${nextStatus.toUpperCase()}`,
+          action: `PAYSTACK_${finalStatus.replace(/\s+/g, "_").toUpperCase()}`,
           entity: "Payment_Record",
           entityId: payment.PaymentID,
-          newValue: { reference, eventType, eventKey },
+          newValue: { reference, eventType, eventKey, scope: resolvedScope, status: finalStatus },
         });
 
         const studentDisplayName =
@@ -320,7 +365,7 @@ export async function POST(req: Request) {
           termLabel: payment.Term ? `${payment.Term.SessionName} (${payment.Term.TermName})` : undefined,
           reference,
           amountPaidNaira: payment.AmountPaid,
-          reason: `Transaction marked ${nextStatus} via Paystack (${eventType}). Please contact the Bursary office.`,
+          reason: `Transaction marked ${finalStatus} (${resolvedScope}) via Paystack (${eventType}). Please contact the Bursary office.`,
         }).catch(() => {});
       } catch (txErr: unknown) {
         if ((txErr as { code?: string })?.code === "P2002") {

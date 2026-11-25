@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import PaymentsClient from "./PaymentsClient";
 import { requireCapability } from "@/lib/authz";
 import { ensureAndListFeeSchedules } from "@/lib/fee-schedule";
-import { allocateTermPaymentKobo, PORTAL_ICT_SERVICE_FEE_KOBO } from "@/lib/fee-split";
+import { allocateTermPaymentKobo, GROSS_PORTAL_FEE_KOBO } from "@/lib/fee-split";
 import { APPROVED_PAYMENT_STATUSES } from "@/lib/payment-ledger";
 import { getPortalBankConfig } from "@/lib/portal-settings";
 
@@ -75,12 +75,17 @@ export default async function AdminPaymentsPage() {
   const initialPayments = rawPayments.map((p) => {
     const entries = p.LedgerEntries || [];
     let schoolShareNaira = 0;
+    let schoolPortalShareNaira = 0;
+    let schoolChargesShareNaira = 0;
     let providerShareNaira = 0;
+    let portalFeePortionNaira = 0;
     let principalNaira = Number(p.AmountKobo || 0) / 100 || Number(p.AmountPaid || 0);
     let gatewayFeeNaira = Number(p.gatewayFeeKobo || 0) / 100;
 
     if (entries.length > 0) {
       let sK = BigInt(0);
+      let spK = BigInt(0);
+      let scK = BigInt(0);
       let prK = BigInt(0);
       let gK = BigInt(0);
       let gwK = BigInt(0);
@@ -89,9 +94,22 @@ export default async function AdminPaymentsPage() {
         prK += le.providerShareKobo;
         gK += le.grossPaidKobo;
         gwK += le.gatewayFeeKobo;
+        if (
+          le.schoolShareKobo !== BigInt(0) &&
+          le.schoolPortalShareKobo === BigInt(0) &&
+          le.schoolChargesShareKobo === BigInt(0)
+        ) {
+          scK += le.schoolShareKobo;
+        } else {
+          spK += le.schoolPortalShareKobo;
+          scK += le.schoolChargesShareKobo;
+        }
       }
       schoolShareNaira = Number(sK) / 100;
+      schoolPortalShareNaira = Number(spK) / 100;
+      schoolChargesShareNaira = Number(scK) / 100;
       providerShareNaira = Number(prK) / 100;
+      portalFeePortionNaira = Number(prK + spK) / 100;
       principalNaira = Number(gK) / 100;
       gatewayFeeNaira = Number(gwK) / 100;
     } else {
@@ -101,10 +119,13 @@ export default async function AdminPaymentsPage() {
           : BigInt(Math.round((Number(p.AmountPaid) || 0) * 100));
       const sim = allocateTermPaymentKobo({
         grossPrincipalPaidKobo: principalKobo,
-        targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
+        targetPortalFeeKobo: GROSS_PORTAL_FEE_KOBO,
       });
       schoolShareNaira = sim.schoolShareNaira;
+      schoolPortalShareNaira = sim.schoolPortalShareNaira;
+      schoolChargesShareNaira = sim.schoolChargesShareNaira;
       providerShareNaira = sim.providerShareNaira;
+      portalFeePortionNaira = Number(sim.portalFeePortionAppliedKobo) / 100;
       principalNaira = sim.grossPrincipalPaidNaira;
     }
 
@@ -126,9 +147,15 @@ export default async function AdminPaymentsPage() {
       LedgerEntries: entries.map((le) => ({
         ...le,
         grossPaidKobo: Number(le.grossPaidKobo),
+        grossPortalFeeKobo: Number(le.grossPortalFeeKobo || 0),
         gatewayFeeKobo: Number(le.gatewayFeeKobo),
         schoolShareKobo: Number(le.schoolShareKobo),
+        schoolPortalShareKobo: Number(le.schoolPortalShareKobo || 0),
+        schoolChargesShareKobo: Number(le.schoolChargesShareKobo || 0),
         providerShareKobo: Number(le.providerShareKobo),
+        feeBearer: le.feeBearer || "ACCOUNT",
+        reversalOfLedgerEntryId: le.reversalOfLedgerEntryId || null,
+        reversalScope: le.reversalScope || null,
         isRemitted:
           le.settlementStatus === "AUTO_SPLIT" ||
           le.settlementStatus === "REMITTED" ||
@@ -137,10 +164,14 @@ export default async function AdminPaymentsPage() {
       allocation: {
         principalNaira,
         schoolShareNaira,
+        schoolPortalShareNaira,
+        schoolChargesShareNaira,
         providerShareNaira,
+        portalFeePortionNaira,
         gatewayFeeNaira,
         hasLedgerEntry: entries.length > 0,
         ledgerIds: entries.map((le) => le.id),
+        settlementChannel: entries[0]?.settlementChannel || "SCHOOL_COLLECTION",
       },
     };
   });
@@ -164,7 +195,7 @@ export default async function AdminPaymentsPage() {
             Fee Clearance, Ledger &amp; Receipt Audit
           </h1>
           <p style={{ color: "var(--color-gray-600)", margin: "0.25rem 0 0 0", fontSize: "0.95rem" }}>
-            100% Tuition to School · ₦800/Student/Term Portal/ICT Service Fee · Gateway Charges Tracked Separately.
+            100% Tuition &amp; Levies + 20% Portal Share (₦200) to School · 80% Portal Share (₦800/Term) to Provider · Gateway Charges Tracked Separately.
           </p>
         </div>
       </div>

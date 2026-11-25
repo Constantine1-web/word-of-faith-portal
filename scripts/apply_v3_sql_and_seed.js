@@ -51,18 +51,33 @@ async function main() {
           CHECK ("amountKobo" >= 0);
       END IF;
 
-      IF NOT EXISTS (
+      IF EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'chk_ledger_credit_nonnegative'
       ) THEN
+        ALTER TABLE "AllocationLedger" DROP CONSTRAINT "chk_ledger_credit_nonnegative";
+      END IF;
+
+      ALTER TABLE "AllocationLedger"
+        ADD CONSTRAINT "chk_ledger_credit_nonnegative"
+        CHECK (
+          "entryType"::text <> 'CREDIT' OR (
+            "grossPaidKobo" >= 0 AND
+            "schoolShareKobo" >= 0 AND
+            "schoolPortalShareKobo" >= 0 AND
+            "schoolChargesShareKobo" >= 0 AND
+            "providerShareKobo" >= 0 AND
+            "gatewayFeeKobo" >= 0
+          )
+        );
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'chk_ledger_school_sum_consistent'
+      ) THEN
         ALTER TABLE "AllocationLedger"
-          ADD CONSTRAINT "chk_ledger_credit_nonnegative"
+          ADD CONSTRAINT "chk_ledger_school_sum_consistent"
           CHECK (
-            "entryType"::text <> 'CREDIT' OR (
-              "grossPaidKobo" >= 0 AND
-              "schoolShareKobo" >= 0 AND
-              "providerShareKobo" >= 0 AND
-              "gatewayFeeKobo" >= 0
-            )
+            ("schoolPortalShareKobo" = 0 AND "schoolChargesShareKobo" = 0) OR
+            ("schoolShareKobo" = "schoolPortalShareKobo" + "schoolChargesShareKobo")
           );
       END IF;
 
@@ -381,14 +396,14 @@ async function main() {
   await prisma.feeSchedule.updateMany({
     where: {
       updatedById: null,
-      maintenanceFeeKobo: BigInt(100000),
+      maintenanceFeeKobo: BigInt(80000),
     },
     data: {
-      maintenanceFeeKobo: BigInt(80000),
+      maintenanceFeeKobo: BigInt(100000),
     },
   });
 
-  console.log("✔ Teacher assignment & Class Teacher link verified and unedited FeeSchedule maintenance rates aligned to ₦800 (80,000 kobo).");
+  console.log("✔ Teacher assignment & Class Teacher link verified and unedited FeeSchedule Portal Fee rates aligned to ₦1,000 gross (₦800 Provider / ₦200 School).");
 }
 
 main()

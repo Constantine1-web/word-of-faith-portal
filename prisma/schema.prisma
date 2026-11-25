@@ -148,6 +148,7 @@ enum BroadsheetStatus {
 enum LineItemBeneficiary {
   SCHOOL
   PROVIDER
+  SHARED
   GATEWAY
 }
 
@@ -715,18 +716,20 @@ model WebhookEvent {
 }
 
 model Invoice {
-  id           String   @id @default(uuid())
-  StudentID    Int
-  TermID       Int
-  Title        String // "2026/2027 First Term Fees & Portal/ICT Service Fee"
-  AmountKobo   BigInt // Integer kobo (School Tuition + Levies + Portal/ICT Fee)
-  Status       String   @default("OPEN") // "OPEN", "PARTIAL", "PAID", "VOID"
-  DueDate      DateTime
-  IsWaived     Boolean  @default(false) // Waives School Tuition/Levies ONLY; Portal/ICT Fee (₦800) remains billable
-  WaivedBy     Int?
-  WaivedReason String?
-  CreatedAt    DateTime @default(now())
-  UpdatedAt    DateTime @default(now()) @updatedAt
+  id                     String   @id @default(uuid())
+  StudentID              Int
+  TermID                 Int
+  Title                  String // "2026/2027 First Term Fees & Portal/ICT Fee (₦1,000)"
+  AmountKobo             BigInt // Integer kobo (School Tuition + Levies + Gross Portal/ICT Fee)
+  Status                 String   @default("OPEN") // "OPEN", "PARTIAL", "PAID", "VOID"
+  DueDate                DateTime
+  IsWaived               Boolean  @default(false) // Waives School Tuition/Levies ONLY unless portalFeeExempt=true
+  portalFeeExempt        Boolean  @default(false) // Board-approved hardship exemption for ₦1,000 Portal Fee
+  portalFeeProrationPct  Int      @default(100)   // 100 = full ₦1,000; 50 = prorated ₦500 (if Board-approved)
+  WaivedBy               Int?
+  WaivedReason           String?
+  CreatedAt              DateTime @default(now())
+  UpdatedAt              DateTime @default(now()) @updatedAt
 
   Student       Student            @relation(fields: [StudentID], references: [StudentID], onDelete: Cascade)
   Term          Academic_Term      @relation(fields: [TermID], references: [TermID])
@@ -787,23 +790,29 @@ model Payment_Record {
 }
 
 model AllocationLedger {
-  id                String                 @id @default(uuid())
-  paymentId         Int
-  invoiceId         String?
-  studentId         Int
-  termId            Int
-  entryType         LedgerEntryType        @default(CREDIT)
-  modelCode         String                 @default("MODEL_A_PER_TERM_800")
-  grossPaidKobo     BigInt // Signed kobo toward invoice principal (+credit, -reversal)
-  gatewayFeeKobo    BigInt                 @default(0) // Separate gateway convenience fee in kobo
-  schoolShareKobo   BigInt // 100% of Tuition & Levies (+ve credit / -ve reversal)
-  providerShareKobo BigInt // ₦800 Portal/ICT Service Fee capped once per student per term
-  settlementChannel String                 @default("SCHOOL_COLLECTION") // PAYSTACK_SUBACCOUNT | SCHOOL_COLLECTION
-  settlementStatus  LedgerSettlementStatus @default(PENDING_REMITTANCE)
-  reference         String?
-  notes             String?
-  createdById       Int?
-  createdAt         DateTime               @default(now())
+  id                      String                 @id @default(uuid())
+  paymentId               Int
+  invoiceId               String?
+  studentId               Int
+  termId                  Int
+  entryType               LedgerEntryType        @default(CREDIT)
+  modelCode               String                 @default("PORTAL_FEE_1000_80_20")
+  grossPaidKobo           BigInt // Signed kobo toward invoice principal (+credit, -reversal)
+  grossPortalFeeKobo      BigInt                 @default(100000) // Gross Portal Fee term entitlement (₦1,000 = 100,000 kobo)
+  gatewayFeeKobo          BigInt                 @default(0) // Separate gateway processing fee in kobo
+  feeBearer               String                 @default("ACCOUNT") // ACCOUNT | SUBACCOUNT | PAYER_SURCHARGE
+  schoolShareKobo         BigInt // Total School Share = schoolPortalShareKobo + schoolChargesShareKobo
+  schoolPortalShareKobo   BigInt                 @default(0) // School 20% share of Portal Fee (max ₦200 = 20,000 kobo/term)
+  schoolChargesShareKobo  BigInt                 @default(0) // 100% of School Tuition & non-Portal charges
+  providerShareKobo       BigInt // Provider 80% share of Portal Fee (max ₦800 = 80,000 kobo/term)
+  reversalOfLedgerEntryId String? // References original CREDIT row ID on REVERSAL rows
+  reversalScope           String? // FULL | TUITION_ONLY | PORTAL_FEE_ONLY | CHARGEBACK
+  settlementChannel       String                 @default("SCHOOL_COLLECTION") // PAYSTACK_SUBACCOUNT | SCHOOL_COLLECTION
+  settlementStatus        LedgerSettlementStatus @default(PENDING_REMITTANCE)
+  reference               String?
+  notes                   String?
+  createdById             Int?
+  createdAt               DateTime               @default(now())
 
   Payment Payment_Record @relation(fields: [paymentId], references: [PaymentID])
   Invoice Invoice?       @relation(fields: [invoiceId], references: [id])
@@ -812,6 +821,7 @@ model AllocationLedger {
 
   @@index([studentId, termId])
   @@index([paymentId])
+  @@index([reversalOfLedgerEntryId])
   @@index([termId, settlementStatus])
 }
 
@@ -1026,7 +1036,7 @@ model FeeSchedule {
   displayName        String
   tuitionKobo        BigInt
   leviesKobo         BigInt   @default(0)
-  maintenanceFeeKobo BigInt   @default(80000) // Default ₦800 Portal / ICT Service Fee (100% Provider)
+  maintenanceFeeKobo BigInt   @default(100000) // Default ₦1,000 Gross Portal/ICT Fee (₦800 Provider / ₦200 School)
   isActive           Boolean  @default(true)
   updatedById        Int?
   updatedAt          DateTime @default(now()) @updatedAt

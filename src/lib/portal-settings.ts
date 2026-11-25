@@ -8,7 +8,11 @@ export interface PortalBankConfig {
   portalFeeBeneficiary: string;
   tradingAsName: string;
   paystackSubaccountCode: string;
+  /** Must remain false until Paystack approves individual KYC subaccount & controlled NGN split proof succeeds */
+  paystackSplitApproved: boolean;
+  /** Default: SCHOOL_ABSORBS (School/main account bears Paystack fee unless PAYER_SURCHARGE is approved in writing) */
   gatewayFeePolicy: GatewayFeePolicy;
+  offlineRemittanceNote: string;
   supportEmail: string;
   portalBaseUrl: string;
 }
@@ -20,10 +24,14 @@ const DEFAULT_PORTAL_BANK_CONFIG: PortalBankConfig = {
   portalFeeBeneficiary: "Edidiong Owoidoho Akpan",
   tradingAsName: "Eulogic Studios",
   paystackSubaccountCode: process.env.PAYSTACK_PROVIDER_SUBACCOUNT_CODE?.trim() || "",
+  paystackSplitApproved: process.env.PAYSTACK_SPLIT_APPROVED === "true",
   gatewayFeePolicy:
-    process.env.PAYSTACK_GATEWAY_FEE_POLICY === "SCHOOL_ABSORBS"
-      ? "SCHOOL_ABSORBS"
-      : "PAYER_SURCHARGE",
+    process.env.PAYSTACK_GATEWAY_FEE_POLICY === "PAYER_SURCHARGE"
+      ? "PAYER_SURCHARGE"
+      : "SCHOOL_ABSORBS",
+  offlineRemittanceNote:
+    process.env.OFFLINE_REMITTANCE_NOTE?.trim() ||
+    "Remitted to Provider NUBAN within 5 Business Days of Bursar verification / monthly reconciliation.",
   supportEmail: process.env.SUPPORT_EMAIL?.trim() || "contact@wofs.sch.ng",
   portalBaseUrl: (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "https://wofs.vercel.app").replace(/\/$/, ""),
 };
@@ -31,7 +39,7 @@ const DEFAULT_PORTAL_BANK_CONFIG: PortalBankConfig = {
 const BANK_CONFIG_KEY = "BANK_PAYMENT_CONFIG";
 
 function normalizeGatewayFeePolicy(raw?: unknown): GatewayFeePolicy {
-  return raw === "SCHOOL_ABSORBS" ? "SCHOOL_ABSORBS" : "PAYER_SURCHARGE";
+  return raw === "PAYER_SURCHARGE" ? "PAYER_SURCHARGE" : "SCHOOL_ABSORBS";
 }
 
 export async function getPortalBankConfig(): Promise<PortalBankConfig> {
@@ -48,7 +56,10 @@ export async function getPortalBankConfig(): Promise<PortalBankConfig> {
         portalFeeBeneficiary: val.portalFeeBeneficiary?.trim() || DEFAULT_PORTAL_BANK_CONFIG.portalFeeBeneficiary,
         tradingAsName: val.tradingAsName?.trim() || DEFAULT_PORTAL_BANK_CONFIG.tradingAsName,
         paystackSubaccountCode: val.paystackSubaccountCode?.trim() ?? DEFAULT_PORTAL_BANK_CONFIG.paystackSubaccountCode,
+        paystackSplitApproved: Boolean(val.paystackSplitApproved ?? DEFAULT_PORTAL_BANK_CONFIG.paystackSplitApproved),
         gatewayFeePolicy: normalizeGatewayFeePolicy(val.gatewayFeePolicy ?? DEFAULT_PORTAL_BANK_CONFIG.gatewayFeePolicy),
+        offlineRemittanceNote:
+          val.offlineRemittanceNote?.trim() || DEFAULT_PORTAL_BANK_CONFIG.offlineRemittanceNote,
         supportEmail: val.supportEmail?.trim() || DEFAULT_PORTAL_BANK_CONFIG.supportEmail,
         portalBaseUrl: (val.portalBaseUrl?.trim() || DEFAULT_PORTAL_BANK_CONFIG.portalBaseUrl).replace(/\/$/, ""),
       };
@@ -64,14 +75,25 @@ export async function savePortalBankConfig(
   updatedById: number
 ): Promise<PortalBankConfig> {
   const current = await getPortalBankConfig();
+  const nextSubaccountCode = (input.paystackSubaccountCode ?? current.paystackSubaccountCode)
+    .trim()
+    .slice(0, 80);
+  const nextSplitApproved =
+    Boolean(nextSubaccountCode) &&
+    Boolean(input.paystackSplitApproved ?? current.paystackSplitApproved);
+
   const next: PortalBankConfig = {
     bankName: (input.bankName ?? current.bankName).trim().slice(0, 120),
     accountName: (input.accountName ?? current.accountName).trim().slice(0, 160),
     accountNumber: (input.accountNumber ?? current.accountNumber).trim().slice(0, 40),
     portalFeeBeneficiary: (input.portalFeeBeneficiary ?? current.portalFeeBeneficiary).trim().slice(0, 160),
     tradingAsName: (input.tradingAsName ?? current.tradingAsName).trim().slice(0, 120),
-    paystackSubaccountCode: (input.paystackSubaccountCode ?? current.paystackSubaccountCode).trim().slice(0, 80),
+    paystackSubaccountCode: nextSubaccountCode,
+    paystackSplitApproved: nextSplitApproved,
     gatewayFeePolicy: normalizeGatewayFeePolicy(input.gatewayFeePolicy ?? current.gatewayFeePolicy),
+    offlineRemittanceNote: (input.offlineRemittanceNote ?? current.offlineRemittanceNote)
+      .trim()
+      .slice(0, 240),
     supportEmail: (input.supportEmail ?? current.supportEmail).trim().slice(0, 160),
     portalBaseUrl: (input.portalBaseUrl ?? current.portalBaseUrl).trim().replace(/\/$/, "").slice(0, 200),
   };
@@ -80,11 +102,11 @@ export async function savePortalBankConfig(
     where: { key: BANK_CONFIG_KEY },
     create: {
       key: BANK_CONFIG_KEY,
-      valueJson: next as unknown as Record<string, string>,
+      valueJson: next as unknown as Record<string, string | boolean>,
       updatedById,
     },
     update: {
-      valueJson: next as unknown as Record<string, string>,
+      valueJson: next as unknown as Record<string, string | boolean>,
       updatedById,
     },
   });
