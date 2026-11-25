@@ -10,7 +10,14 @@ import {
   assertSeparationOfDuties,
   writeAuditLog,
 } from "@/lib/authz";
-import { SAFE_USER_SELECT } from "@/lib/security";
+import {
+  SAFE_USER_SELECT,
+  requireStepUpIfTotpEnabled,
+  decryptTotpSecret,
+  claimTotpCodeSingleUse,
+  grantStepUpSession,
+} from "@/lib/security";
+import { verifyTotpCode } from "@/server/security/totp";
 import {
   ensureAndListFeeSchedules,
   getFeeScheduleForClass,
@@ -19,6 +26,7 @@ import {
 import {
   allocateTermPaymentKobo,
   computePaystackConvenienceFeeKobo,
+  computePaystackSubaccountSplitKobo,
   PORTAL_ICT_SERVICE_FEE_KOBO,
 } from "@/lib/fee-split";
 import {
@@ -234,17 +242,41 @@ export async function getPortalBankConfigAction() {
   }
 }
 
-export async function updatePortalBankConfigAction(input: Partial<PortalBankConfig>) {
+export async function updatePortalBankConfigAction(
+  input: Partial<PortalBankConfig> & { stepUpCode?: string }
+) {
   try {
     const actor = await requirePaymentManager();
-    const saved = await savePortalBankConfig(input, actor.UserID);
+    const { stepUpCode, ...configPatch } = input;
+    const trimmedCode = stepUpCode?.trim();
+    if (trimmedCode) {
+      const userRow = await prisma.user.findUnique({
+        where: { UserID: actor.UserID },
+        select: { TotpEnabled: true, TotpSecret: true },
+      });
+      if (userRow?.TotpEnabled && userRow.TotpSecret) {
+        const plainSecret = decryptTotpSecret(userRow.TotpSecret);
+        if (!verifyTotpCode(plainSecret, trimmedCode)) {
+          return { success: false, error: "Invalid 2FA Authenticator code." };
+        }
+        const singleUseOk = await claimTotpCodeSingleUse(actor.UserID, trimmedCode);
+        if (!singleUseOk) {
+          return { success: false, error: "This 2FA code has already been used. Wait for the next 30s code." };
+        }
+        await grantStepUpSession(actor.UserID);
+      }
+    }
+    await requireStepUpIfTotpEnabled(actor.UserID, "modify Portal Bank & Paystack Settings");
+    const before = await getPortalBankConfig();
+    const saved = await savePortalBankConfig(configPatch, actor.UserID);
     await writeAuditLog({
-      actorId: actor.UserID,
+      actorUserId: actor.UserID,
       actorRoles: Array.from(actor.roles).join(","),
       action: "PORTAL_BANK_CONFIG_UPDATED",
       entity: "PortalSetting",
       entityId: "BANK_PAYMENT_CONFIG",
-      newValue: saved,
+      beforeState: before,
+      afterState: saved,
     });
     revalidatePath("/portal/admin/payments");
     revalidatePath("/portal/fees");
@@ -1025,7 +1057,10 @@ export async function getOrCreateStudentFeeOrder(targetStudentId?: number, termI
     const summary = await getStudentTermBillingSummary(prisma, student.StudentID, activeTerm.TermID);
 
     const remainingDueKobo = summary.remainingTotalKobo;
-    const paystackConvenienceFeeKobo = computePaystackConvenienceFeeKobo(remainingDueKobo);
+    const paystackConvenienceFeeKobo = computePaystackConvenienceFeeKobo(
+      remainingDueKobo,
+      bankConfig.gatewayFeePolicy
+    );
 
     const feeBreakdown = {
       levelDisplayName: ensured.schedule.displayName,
@@ -1430,7 +1465,11 @@ export async function initializePayment(data: {
       }
     }
 
-    const gatewayFeeKobo = computePaystackConvenienceFeeKobo(principalKobo);
+    const bankConfig = await getPortalBankConfig();
+    const gatewayFeeKobo = computePaystackConvenienceFeeKobo(
+      principalKobo,
+      bankConfig.gatewayFeePolicy
+    );
     const totalGatewayChargeKobo = principalKobo + gatewayFeeKobo;
     const principalNaira = Number(principalKobo) / 100;
 
@@ -1504,7 +1543,6 @@ export async function initializePayment(data: {
       return { error: "A valid payer email address is required to launch Paystack checkout." };
     }
 
-    const bankConfig = await getPortalBankConfig();
     const allocPreview = allocateTermPaymentKobo({
       grossPrincipalPaidKobo: principalKobo,
       targetPortalFeeKobo: summary.portalTargetKobo || PORTAL_ICT_SERVICE_FEE_KOBO,
@@ -1526,15 +1564,21 @@ export async function initializePayment(data: {
         portalShareKobo: allocPreview.providerShareKobo.toString(),
         schoolShareKobo: allocPreview.schoolShareKobo.toString(),
         gatewayFeeKobo: gatewayFeeKobo.toString(),
+        gatewayFeePolicy: bankConfig.gatewayFeePolicy,
       },
     };
 
-    // Optional Paystack Subaccount Auto-Split:
-    // Routes schoolShareKobo (+ gatewayFee depending on subaccount bearer) and ₦800 Provider fee
+    // Optional Paystack Single-Subaccount Split (School = Main Account, Provider = Subaccount):
+    // Setting transaction_charge = totalGatewayChargeKobo - providerShareKobo preserves exact ₦800
+    // for the Provider Subaccount while Main Account absorbs actual gateway fee from `gatewayFeeKobo`.
     if (bankConfig.paystackSubaccountCode && allocPreview.providerShareKobo > BigInt(0)) {
+      const split = computePaystackSubaccountSplitKobo({
+        totalChargedKobo: totalGatewayChargeKobo,
+        providerShareKobo: allocPreview.providerShareKobo,
+      });
       paystackPayload.subaccount = bankConfig.paystackSubaccountCode;
-      paystackPayload.transaction_charge = Number(allocPreview.schoolShareKobo);
-      paystackPayload.bearer = "account";
+      paystackPayload.transaction_charge = Number(split.transactionChargeMainAccountKobo);
+      paystackPayload.bearer = split.bearer;
     }
 
     const response = await fetch("https://api.paystack.co/transaction/initialize", {

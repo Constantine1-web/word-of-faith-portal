@@ -1,4 +1,5 @@
 import prisma from "@/lib/db";
+import type { GatewayFeePolicy } from "@/lib/fee-split";
 
 export interface PortalBankConfig {
   bankName: string;
@@ -7,6 +8,7 @@ export interface PortalBankConfig {
   portalFeeBeneficiary: string;
   tradingAsName: string;
   paystackSubaccountCode: string;
+  gatewayFeePolicy: GatewayFeePolicy;
   supportEmail: string;
   portalBaseUrl: string;
 }
@@ -18,11 +20,19 @@ const DEFAULT_PORTAL_BANK_CONFIG: PortalBankConfig = {
   portalFeeBeneficiary: "Edidiong Owoidoho Akpan",
   tradingAsName: "Eulogic Studios",
   paystackSubaccountCode: process.env.PAYSTACK_PROVIDER_SUBACCOUNT_CODE?.trim() || "",
+  gatewayFeePolicy:
+    process.env.PAYSTACK_GATEWAY_FEE_POLICY === "SCHOOL_ABSORBS"
+      ? "SCHOOL_ABSORBS"
+      : "PAYER_SURCHARGE",
   supportEmail: process.env.SUPPORT_EMAIL?.trim() || "contact@wofs.sch.ng",
   portalBaseUrl: (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "https://wofs.vercel.app").replace(/\/$/, ""),
 };
 
 const BANK_CONFIG_KEY = "BANK_PAYMENT_CONFIG";
+
+function normalizeGatewayFeePolicy(raw?: unknown): GatewayFeePolicy {
+  return raw === "SCHOOL_ABSORBS" ? "SCHOOL_ABSORBS" : "PAYER_SURCHARGE";
+}
 
 export async function getPortalBankConfig(): Promise<PortalBankConfig> {
   try {
@@ -38,6 +48,7 @@ export async function getPortalBankConfig(): Promise<PortalBankConfig> {
         portalFeeBeneficiary: val.portalFeeBeneficiary?.trim() || DEFAULT_PORTAL_BANK_CONFIG.portalFeeBeneficiary,
         tradingAsName: val.tradingAsName?.trim() || DEFAULT_PORTAL_BANK_CONFIG.tradingAsName,
         paystackSubaccountCode: val.paystackSubaccountCode?.trim() ?? DEFAULT_PORTAL_BANK_CONFIG.paystackSubaccountCode,
+        gatewayFeePolicy: normalizeGatewayFeePolicy(val.gatewayFeePolicy ?? DEFAULT_PORTAL_BANK_CONFIG.gatewayFeePolicy),
         supportEmail: val.supportEmail?.trim() || DEFAULT_PORTAL_BANK_CONFIG.supportEmail,
         portalBaseUrl: (val.portalBaseUrl?.trim() || DEFAULT_PORTAL_BANK_CONFIG.portalBaseUrl).replace(/\/$/, ""),
       };
@@ -60,6 +71,7 @@ export async function savePortalBankConfig(
     portalFeeBeneficiary: (input.portalFeeBeneficiary ?? current.portalFeeBeneficiary).trim().slice(0, 160),
     tradingAsName: (input.tradingAsName ?? current.tradingAsName).trim().slice(0, 120),
     paystackSubaccountCode: (input.paystackSubaccountCode ?? current.paystackSubaccountCode).trim().slice(0, 80),
+    gatewayFeePolicy: normalizeGatewayFeePolicy(input.gatewayFeePolicy ?? current.gatewayFeePolicy),
     supportEmail: (input.supportEmail ?? current.supportEmail).trim().slice(0, 160),
     portalBaseUrl: (input.portalBaseUrl ?? current.portalBaseUrl).trim().replace(/\/$/, "").slice(0, 200),
   };

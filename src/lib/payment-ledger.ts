@@ -148,47 +148,65 @@ export async function ensureStudentTermInvoice(
   });
 
   if (!existing) {
-    const created = await tx.invoice.create({
-      data: {
-        StudentID: params.studentId,
-        TermID: params.termId,
-        Title: `${schedule.displayName} Term Fees + Portal/ICT Fee (${params.termLabel})`,
-        AmountKobo: totals.totalInvoiceKobo,
-        Status: "OPEN",
-        DueDate: params.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        IsWaived: false,
-        LineItems: {
-          create: [
-            {
-              code: "TUITION",
-              label: `${schedule.displayName} Tuition`,
-              beneficiary: "SCHOOL",
-              amountKobo: schedule.tuitionKobo,
-              isWaivable: true,
-              isWaived: false,
-            },
-            {
-              code: "LEVIES",
-              label: "Educational Supplies & School Levies",
-              beneficiary: "SCHOOL",
-              amountKobo: schedule.leviesKobo,
-              isWaivable: true,
-              isWaived: false,
-            },
-            {
-              code: "PORTAL_ICT_FEE",
-              label: "Portal / ICT Service Fee (Once Per Term)",
-              beneficiary: "PROVIDER",
-              amountKobo: portalFeeKobo,
-              isWaivable: false,
-              isWaived: false,
-            },
-          ],
+    try {
+      const created = await tx.invoice.create({
+        data: {
+          StudentID: params.studentId,
+          TermID: params.termId,
+          Title: `${schedule.displayName} Term Fees + Portal/ICT Fee (${params.termLabel})`,
+          AmountKobo: totals.totalInvoiceKobo,
+          Status: "OPEN",
+          DueDate: params.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          IsWaived: false,
+          LineItems: {
+            create: [
+              {
+                code: "TUITION",
+                label: `${schedule.displayName} Tuition`,
+                beneficiary: "SCHOOL",
+                amountKobo: schedule.tuitionKobo,
+                isWaivable: true,
+                isWaived: false,
+              },
+              {
+                code: "LEVIES",
+                label: "Educational Supplies & School Levies",
+                beneficiary: "SCHOOL",
+                amountKobo: schedule.leviesKobo,
+                isWaivable: true,
+                isWaived: false,
+              },
+              {
+                code: "PORTAL_ICT_FEE",
+                label: "Portal / ICT Service Fee (Once Per Term)",
+                beneficiary: "PROVIDER",
+                amountKobo: portalFeeKobo,
+                isWaivable: false,
+                isWaived: false,
+              },
+            ],
+          },
         },
-      },
-      include: { LineItems: true },
-    });
-    return { invoice: created, schedule, totals };
+        include: { LineItems: true },
+      });
+      return { invoice: created, schedule, totals };
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        const winner = await tx.invoice.findFirst({
+          where: {
+            StudentID: params.studentId,
+            TermID: params.termId,
+            Status: { not: "VOID" },
+          },
+          include: { LineItems: true },
+          orderBy: { CreatedAt: "asc" },
+        });
+        if (winner) {
+          return { invoice: winner, schedule, totals };
+        }
+      }
+      throw err;
+    }
   }
 
   // Sync unpaid/OPEN invoice if class schedule updated before payments completed (preserving manual waivers)

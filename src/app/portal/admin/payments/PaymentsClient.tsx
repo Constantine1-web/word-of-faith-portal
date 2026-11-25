@@ -32,6 +32,7 @@ interface BankConfigState {
   portalFeeBeneficiary: string;
   tradingAsName: string;
   paystackSubaccountCode: string;
+  gatewayFeePolicy: "PAYER_SURCHARGE" | "SCHOOL_ABSORBS";
   supportEmail: string;
   portalBaseUrl: string;
 }
@@ -63,6 +64,7 @@ export default function PaymentsClient({
 
   const [savingScheduleId, setSavingScheduleId] = useState<string | null>(null);
   const [savingBank, setSavingBank] = useState(false);
+  const [bankStepUpCode, setBankStepUpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -264,10 +266,14 @@ export default function PaymentsClient({
     setSavingBank(true);
     setError("");
     setSuccess("");
-    const res = await updatePortalBankConfigAction(bankConfig);
+    const res = await updatePortalBankConfigAction({
+      ...bankConfig,
+      stepUpCode: bankStepUpCode.trim() || undefined,
+    });
     setSavingBank(false);
     if (res.success && res.config) {
       setBankConfig(res.config);
+      setBankStepUpCode("");
       setSuccess("Updated institutional bank account & settlement settings.");
       setShowBankEditor(false);
     } else {
@@ -476,12 +482,39 @@ export default function PaymentsClient({
               <input className="form-input" placeholder="e.g. ACCT_xxxxxxxx" value={bankConfig.paystackSubaccountCode} onChange={(e) => setBankConfig({ ...bankConfig, paystackSubaccountCode: e.target.value })} />
             </div>
             <div>
+              <label className="form-label">Paystack Gateway Fee Policy</label>
+              <select
+                className="form-input"
+                value={bankConfig.gatewayFeePolicy}
+                onChange={(e) =>
+                  setBankConfig({
+                    ...bankConfig,
+                    gatewayFeePolicy:
+                      e.target.value === "SCHOOL_ABSORBS" ? "SCHOOL_ABSORBS" : "PAYER_SURCHARGE",
+                  })
+                }
+              >
+                <option value="PAYER_SURCHARGE">Option A: Payer Convenience Pass-Through</option>
+                <option value="SCHOOL_ABSORBS">School Absorbs Merchant Gateway Fee</option>
+              </select>
+            </div>
+            <div>
               <label className="form-label">Portal/ICT Fee Legal Beneficiary</label>
               <input className="form-input" value={bankConfig.portalFeeBeneficiary} onChange={(e) => setBankConfig({ ...bankConfig, portalFeeBeneficiary: e.target.value })} required />
             </div>
             <div>
               <label className="form-label">Portal Base URL</label>
               <input className="form-input" value={bankConfig.portalBaseUrl} onChange={(e) => setBankConfig({ ...bankConfig, portalBaseUrl: e.target.value })} required />
+            </div>
+            <div>
+              <label className="form-label">2FA Authenticator Code (Required if 2FA Enabled)</label>
+              <input
+                className="form-input"
+                placeholder="6-digit TOTP code"
+                value={bankStepUpCode}
+                onChange={(e) => setBankStepUpCode(e.target.value)}
+                maxLength={8}
+              />
             </div>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem" }}>

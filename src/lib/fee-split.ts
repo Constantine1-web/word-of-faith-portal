@@ -17,6 +17,8 @@ export const PORTAL_ICT_SERVICE_FEE_NAIRA = 800;
 export const PORTAL_ICT_SERVICE_FEE_KOBO = BigInt(80_000);
 export const FINANCIAL_MODEL_CODE = "MODEL_A_PER_TERM_800" as const;
 
+export type GatewayFeePolicy = "PAYER_SURCHARGE" | "SCHOOL_ABSORBS";
+
 export interface TermAllocationInput {
   grossPrincipalPaidKobo: bigint;
   targetPortalFeeKobo?: bigint;
@@ -39,12 +41,17 @@ export interface TermAllocationResult {
 }
 
 /**
- * Computes Paystack Nigeria NGN checkout convenience fee (Option A: Payer pays gateway charge).
- * Standard local Paystack pricing: 1.5% + ₦100 (₦100 waived for transactions < ₦2,500), capped at ₦2,000.
- * Computes exact gross-up in integer kobo so net settlement after Paystack deduction preserves `subtotalKobo`.
+ * Computes Paystack Nigeria NGN checkout convenience fee.
+ * - Under `PAYER_SURCHARGE` (Option A): applies indicative standard Paystack pricing (1.5% + ₦100,
+ *   ₦100 waived for transactions < ₦2,500, capped at ₦2,000) as a gross-up so net settlement
+ *   preserves `subtotalKobo`. Actual merchant/educational tariff & surcharge legality should be
+ *   confirmed with Paystack/legal counsel; switchable to `SCHOOL_ABSORBS` (`₦0` surcharge) in PortalSetting.
  */
-export function computePaystackConvenienceFeeKobo(subtotalKobo: bigint): bigint {
-  if (subtotalKobo <= BigInt(0)) return BigInt(0);
+export function computePaystackConvenienceFeeKobo(
+  subtotalKobo: bigint,
+  policy: GatewayFeePolicy = "PAYER_SURCHARGE"
+): bigint {
+  if (policy === "SCHOOL_ABSORBS" || subtotalKobo <= BigInt(0)) return BigInt(0);
 
   // Under ₦2,500 total gross: flat ₦100 is waived -> rate is 1.5% -> gross = ceil(S / 0.985)
   const noFlatGross = (subtotalKobo * BigInt(1000) + BigInt(984)) / BigInt(985);
@@ -57,6 +64,34 @@ export function computePaystackConvenienceFeeKobo(subtotalKobo: bigint): bigint 
   const rawFee = withFlatGross - subtotalKobo;
   const maxPaystackFeeKobo = BigInt(200_000);
   return rawFee > maxPaystackFeeKobo ? maxPaystackFeeKobo : rawFee;
+}
+
+/**
+ * Computes exact Paystack single-subaccount split parameters when the School owns the Main
+ * Paystack merchant account (`bearer = "account"`) and the optional subaccount belongs to the
+ * Service Provider.
+ *
+ * In Paystack's API, `transaction_charge` is the flat kobo amount allocated to the Main Account
+ * (before deducting Paystack gateway fees under `bearer = "account"`), while the Subaccount
+ * receives `totalChargedKobo - transaction_charge`.
+ * Setting `transaction_charge = totalChargedKobo - providerShareKobo` ensures the Provider Subaccount
+ * receives exact `providerShareKobo` (₦800 once per term) while the Main Account receives
+ * `schoolShareKobo + gatewayFeeKobo` (covering Paystack processing under Option A).
+ */
+export function computePaystackSubaccountSplitKobo(params: {
+  totalChargedKobo: bigint;
+  providerShareKobo: bigint;
+}) {
+  const providerCut =
+    params.providerShareKobo > BigInt(0) && params.providerShareKobo <= params.totalChargedKobo
+      ? params.providerShareKobo
+      : BigInt(0);
+  const transactionChargeMainAccountKobo = params.totalChargedKobo - providerCut;
+  return {
+    transactionChargeMainAccountKobo,
+    expectedSubaccountShareKobo: providerCut,
+    bearer: "account" as const,
+  };
 }
 
 /**

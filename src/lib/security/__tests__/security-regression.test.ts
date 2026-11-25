@@ -47,6 +47,7 @@ import {
   PORTAL_ICT_SERVICE_FEE_KOBO,
   allocateTermPaymentKobo,
   computePaystackConvenienceFeeKobo,
+  computePaystackSubaccountSplitKobo,
   computeTermInvoiceTotals,
   computeReversalAllocationKobo,
 } from "../../fee-split";
@@ -766,8 +767,9 @@ async function runSecurityRegressionSuite() {
     assert.equal(termInvoice.totalInvoiceKobo, BigInt(6_580_000));
 
     // Installment 1 satisfies ₦800 ICT fee first
-    const gw1 = computePaystackConvenienceFeeKobo(BigInt(2_500_000));
-    assert(gw1 > BigInt(0), "Paystack convenience fee must be positive");
+    const gw1 = computePaystackConvenienceFeeKobo(BigInt(2_500_000), "PAYER_SURCHARGE");
+    assert(gw1 > BigInt(0), "Paystack convenience fee must be positive under PAYER_SURCHARGE");
+    assert.equal(computePaystackConvenienceFeeKobo(BigInt(2_500_000), "SCHOOL_ABSORBS"), BigInt(0));
     const firstPart = allocateTermPaymentKobo({
       grossPrincipalPaidKobo: BigInt(2_500_000),
       targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
@@ -777,6 +779,15 @@ async function runSecurityRegressionSuite() {
     assert.equal(firstPart.providerShareNaira, 800);
     assert.equal(firstPart.schoolShareNaira, 24200);
     assert.equal(firstPart.totalChargedKobo, BigInt(2_500_000) + gw1);
+
+    // Paystack Subaccount Split: Main Account receives totalCharged - ₦800 (so Subaccount gets exact ₦800)
+    const split = computePaystackSubaccountSplitKobo({
+      totalChargedKobo: firstPart.totalChargedKobo,
+      providerShareKobo: firstPart.providerShareKobo,
+    });
+    assert.equal(split.expectedSubaccountShareKobo, BigInt(80_000));
+    assert.equal(split.transactionChargeMainAccountKobo, firstPart.schoolShareKobo + gw1);
+    assert.equal(split.bearer, "account");
 
     // Installment 2 in same term takes ₦0 ICT fee (100% School)
     const secondPart = allocateTermPaymentKobo({

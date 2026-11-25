@@ -5,6 +5,7 @@ import {
   PORTAL_ICT_SERVICE_FEE_KOBO,
   allocateTermPaymentKobo,
   computePaystackConvenienceFeeKobo,
+  computePaystackSubaccountSplitKobo,
   computeTermInvoiceTotals,
   computeReversalAllocationKobo,
 } from "../src/lib/fee-split";
@@ -52,16 +53,29 @@ async function main() {
   assert.equal(invNormal.totalInvoiceKobo, BigInt(6_580_000));
 
   // Partial installment #1 (₦30,000) -> ₦800 Provider, ₦29,200 School
+  const part1Gw = computePaystackConvenienceFeeKobo(BigInt(3_000_000), "PAYER_SURCHARGE");
   const part1 = allocateTermPaymentKobo({
     grossPrincipalPaidKobo: BigInt(3_000_000),
     targetPortalFeeKobo: PORTAL_ICT_SERVICE_FEE_KOBO,
     alreadyAllocatedPortalFeeKobo: BigInt(0),
-    gatewayFeeKobo: computePaystackConvenienceFeeKobo(BigInt(3_000_000)),
+    gatewayFeeKobo: part1Gw,
   });
   assert.equal(part1.providerShareNaira, 800);
   assert.equal(part1.schoolShareNaira, 29200);
   assert.equal(part1.remainingPortalFeeAfterKobo, BigInt(0));
   assert(part1.gatewayFeeKobo > BigInt(0), "Paystack Option A convenience surcharge must be added");
+
+  // Verify Paystack single-subaccount transaction_charge keeps gatewayFee with Main Account and exact ₦800 in Subaccount
+  const splitCheck = computePaystackSubaccountSplitKobo({
+    totalChargedKobo: part1.totalChargedKobo,
+    providerShareKobo: part1.providerShareKobo,
+  });
+  assert.equal(splitCheck.expectedSubaccountShareKobo, BigInt(80_000));
+  assert.equal(
+    splitCheck.transactionChargeMainAccountKobo,
+    part1.schoolShareKobo + part1.gatewayFeeKobo
+  );
+  assert.equal(computePaystackConvenienceFeeKobo(BigInt(3_000_000), "SCHOOL_ABSORBS"), BigInt(0));
 
   // Partial installment #2 (₦35,800) same term -> ₦0 Provider, ₦35,800 (100%) School
   const part2 = allocateTermPaymentKobo({

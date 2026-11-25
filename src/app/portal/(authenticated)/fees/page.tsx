@@ -143,7 +143,11 @@ export default function PayFeesPage() {
       : remainingDueNaira;
 
   const principalKobo = BigInt(Math.round(Math.max(0, chosenPrincipalNaira) * 100));
-  const gatewayFeeKobo = computePaystackConvenienceFeeKobo(principalKobo);
+  const gatewayFeePolicy =
+    feeOrder?.bankConfig?.gatewayFeePolicy === "SCHOOL_ABSORBS"
+      ? "SCHOOL_ABSORBS"
+      : "PAYER_SURCHARGE";
+  const gatewayFeeKobo = computePaystackConvenienceFeeKobo(principalKobo, gatewayFeePolicy);
   const gatewayFeeNaira = Number(gatewayFeeKobo) / 100;
   const totalPaystackChargeNaira = Number(principalKobo + gatewayFeeKobo) / 100;
 
@@ -487,7 +491,11 @@ export default function PayFeesPage() {
                 <strong>₦{currentPortalPortionNaira.toLocaleString()}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.45rem", fontSize: "0.92rem" }}>
-                <span style={{ color: "var(--color-gray-600)" }}>Paystack Checkout Convenience Charge:</span>
+                <span style={{ color: "var(--color-gray-600)" }}>
+                  {gatewayFeePolicy === "SCHOOL_ABSORBS"
+                    ? "Paystack Processing Fee (Covered by School):"
+                    : "Paystack Checkout Convenience Charge:"}
+                </span>
                 <strong>₦{gatewayFeeNaira.toLocaleString()}</strong>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--color-gray-200)", paddingTop: "0.55rem", fontSize: "1.1rem" }}>

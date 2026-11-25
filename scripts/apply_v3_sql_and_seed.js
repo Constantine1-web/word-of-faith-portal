@@ -135,6 +135,11 @@ async function main() {
     ON "ReportCard" ("studentId","termId")
     WHERE "supersededAt" IS NULL;
   `);
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS one_active_invoice_per_student_term
+    ON "Invoice" ("StudentID", "TermID")
+    WHERE "Status" <> 'VOID';
+  `);
 
   console.log("✔ PostgreSQL CHECK constraints (including payment_sod & unlock_sod), AuditLog trigger, and partial unique indexes installed.");
 
