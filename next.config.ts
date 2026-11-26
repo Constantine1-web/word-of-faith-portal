@@ -38,7 +38,12 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["@prisma/client", "prisma", "bcryptjs", "nodemailer"],
+  serverExternalPackages: ["@prisma/client", "prisma", "bcryptjs", "nodemailer", "pdf-parse", "pdfjs-dist"],
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "8mb",
+    },
+  },
   async headers() {
     return [
       {

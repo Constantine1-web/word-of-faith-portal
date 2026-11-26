@@ -60,6 +60,19 @@ enum ParentRelationship {
 enum AttemptMode {
   PRACTICE
   MOCK
+  EXAM
+}
+
+enum CbtBankScope {
+  OPEN_BANK
+  EXAM_ONLY
+}
+
+enum CbtExamStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  CLOSED
 }
 
 enum AttemptStatus {
@@ -227,6 +240,7 @@ model Class {
   TeacherMaps        Teacher_Subject_Map[]
   SubjectSubmissions Subject_Submission[]
   Broadsheets        ClassBroadsheet[]
+  CbtScheduledExams  CbtScheduledExam[]
 }
 
 model Student {
@@ -333,6 +347,7 @@ model Subject {
   TeacherMaps        Teacher_Subject_Map[]
   Results            Result[]
   SubjectSubmissions Subject_Submission[]
+  CbtScheduledExams  CbtScheduledExam[]
 }
 
 model Teacher_Subject_Map {
@@ -377,6 +392,7 @@ model Academic_Term {
   FormMasterReports  Form_Master_Report[]
   Broadsheets        ClassBroadsheet[]
   ReportCards        ReportCard[]
+  CbtScheduledExams  CbtScheduledExam[]
 }
 
 model Result {
@@ -860,15 +876,20 @@ model CbtQuestion {
   stem         String
   imageUrl     String?
   optionsJson  Json // [{key: "a", text: "..."}]
-  contentHash  String
-  licenseRef   String?
-  isActive     Boolean              @default(true) // Kill switch if licence changes
-  fetchedAt    DateTime             @default(now())
-  answerKey    CbtAnswerKey?
-  attemptItems CbtAttemptQuestion[]
+  contentHash        String
+  licenseRef         String?
+  bankScope          CbtBankScope               @default(OPEN_BANK)
+  authoredById       Int?
+  targetClassLevel   String?
+  isActive           Boolean                    @default(true) // Kill switch if licence changes
+  fetchedAt          DateTime                   @default(now())
+  answerKey          CbtAnswerKey?
+  attemptItems       CbtAttemptQuestion[]
+  scheduledExamItems CbtScheduledExamQuestion[]
 
   @@unique([provider, externalId])
   @@index([subjectCode, examYear])
+  @@index([provider, bankScope, subjectCode, isActive])
 }
 
 model CbtAnswerKey {
@@ -925,10 +946,60 @@ model CbtAttempt {
   uaHash            String?
   lastHeartbeatAt   DateTime?            @default(now())
   rulesAcceptedAt   DateTime?            @default(now())
+  scheduledExamId   String?
+  scheduledExam     CbtScheduledExam?    @relation(fields: [scheduledExamId], references: [id])
+  isRetakeCleared   Boolean              @default(false)
   items             CbtAttemptQuestion[]
   events            CbtIntegrityEvent[]
 
   @@index([studentId, dayKey])
+  @@index([scheduledExamId, studentId])
+}
+
+model CbtScheduledExam {
+  id                     String                     @id @default(cuid())
+  title                  String
+  subjectCode            String
+  subjectId              Int?
+  subject                Subject?                   @relation(fields: [subjectId], references: [SubjectID])
+  classId                Int
+  classArm               Class                      @relation(fields: [classId], references: [ClassID])
+  termId                 Int
+  term                   Academic_Term              @relation(fields: [termId], references: [TermID])
+  examType               String                     @default("TERMINAL_EXAM") // "CA_TEST" | "MIDTERM" | "TERMINAL_EXAM"
+  status                 CbtExamStatus              @default(DRAFT)
+  strictMode             Boolean                    @default(true)
+  maxStrikes             Int                        @default(2)
+  questionCount          Int                        @default(20)
+  durationMinutes        Int                        @default(30)
+  startsAt               DateTime?
+  endsAt                 DateTime?
+  accessCodeHash         String?
+  requireAccessCode      Boolean                    @default(false)
+  revealScoreAfterSubmit Boolean                    @default(false)
+  answersReleased        Boolean                    @default(false)
+  createdById            Int
+  approvedById           Int?
+  approvedAt             DateTime?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @default(now()) @updatedAt
+  questions              CbtScheduledExamQuestion[]
+  attempts               CbtAttempt[]
+
+  @@index([classId, termId, status])
+  @@index([subjectCode, status])
+}
+
+model CbtScheduledExamQuestion {
+  id              String           @id @default(cuid())
+  scheduledExamId String
+  scheduledExam   CbtScheduledExam @relation(fields: [scheduledExamId], references: [id], onDelete: Cascade)
+  questionId      String
+  question        CbtQuestion      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  sortOrder       Int              @default(0)
+
+  @@unique([scheduledExamId, questionId])
+  @@index([scheduledExamId])
 }
 
 model CbtAttemptQuestion {

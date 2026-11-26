@@ -65,12 +65,18 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     subjectCode: string;
     examBody: string;
     mode: string;
+    examTitle?: string | null;
+    examType?: string | null;
+    isOfficialExam?: boolean;
+    strictMode?: boolean;
     questionCount: number;
     expiresAt: string;
     hardStrikes: number;
     maxStrikes: number;
     answeredMap: Record<number, boolean>;
   } | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const hasEnteredFullscreenRef = useRef<boolean>(false);
   const [watermark, setWatermark] = useState<{
     studentName: string;
     admissionNo: string;
@@ -130,6 +136,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     setLoadingExplanationFor(item.position);
     try {
       const res = await getQuestionAiExplanation({
+        attemptId,
         stem: item.stem,
         options: item.options,
         correctKey: item.correctKey,
@@ -289,10 +296,23 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     return () => clearTimeout(t);
   }, [warningModal]);
 
-  // Page Visibility, Window Blur, Fullscreen & Copy/Paste Integrity Listeners (Section 7.2 & 7.3)
-  // Strict CBT monitoring applies ONLY to Exam Mode (MOCK); Self-Paced Practice (PRACTICE) is exempt.
+  // Page Visibility, Window Blur, Fullscreen, PrintScreen & Copy/Paste Integrity Listeners (Section 7.2 & 7.3)
+  // Enforced for Supervised Mock (MOCK) AND Official Exam Strict Mode (EXAM when strictMode enabled).
+  const isStrictProctoring =
+    attemptMeta?.mode === "MOCK" ||
+    (attemptMeta?.mode === "EXAM" && attemptMeta?.strictMode !== false);
+
   useEffect(() => {
-    if (submittedResult || terminatedReason || attemptMeta?.mode !== "MOCK") return;
+    if (typeof document === "undefined" || !document.fullscreenElement) return;
+    hasEnteredFullscreenRef.current = true;
+    const rafId = window.requestAnimationFrame(() => {
+      setIsFullscreen(true);
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [attemptMeta?.id]);
+
+  useEffect(() => {
+    if (submittedResult || terminatedReason || !isStrictProctoring) return;
 
     const handleHardViolation = async (
       type: "TAB_HIDDEN" | "WINDOW_BLUR" | "FULLSCREEN_EXIT",
@@ -308,7 +328,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
         setWarningModal(null);
         setTerminatedReason(
           res.message ||
-            "Strike 2 reached: Your CBT attempt has been terminated and your account is locked for today."
+            "Strike limit reached: Your CBT attempt has been terminated and your account is locked for today."
         );
       } else if (res.status === "WARNING") {
         setAttemptMeta((prev) =>
@@ -317,7 +337,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
         setWarningModal({
           message:
             res.message ||
-            "STRIKE 1 OF 2: Focus loss detected. Return immediately or your exam will be terminated.",
+            "INTEGRITY STRIKE DETECTED: Return immediately or your exam will be terminated.",
           countdown: 10,
         });
       }
@@ -352,7 +372,13 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     };
 
     const onFullscreenChange = () => {
-      if (!document.fullscreenElement && attemptMeta?.mode === "MOCK") {
+      const nowFull = Boolean(document.fullscreenElement);
+      setIsFullscreen(nowFull);
+      if (nowFull) {
+        hasEnteredFullscreenRef.current = true;
+        return;
+      }
+      if (attemptMeta?.mode === "MOCK" || hasEnteredFullscreenRef.current) {
         handleHardViolation("FULLSCREEN_EXIT", 4000);
       }
     };
@@ -372,6 +398,25 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       reportIntegrityEvent({ attemptId, type: "CONTEXT_MENU" });
     };
 
+    const onKeyDown = (e: KeyboardEvent) => {
+      const key = e.key?.toLowerCase();
+      const isPrintOrSave =
+        key === "printscreen" ||
+        ((e.ctrlKey || e.metaKey) && (key === "p" || key === "s"));
+      const isDevTools =
+        key === "f12" ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && (key === "i" || key === "j" || key === "c")) ||
+        ((e.ctrlKey || e.metaKey) && key === "u");
+
+      if (isPrintOrSave) {
+        e.preventDefault();
+        reportIntegrityEvent({ attemptId, type: "PRINT_ATTEMPT" });
+      } else if (isDevTools) {
+        e.preventDefault();
+        reportIntegrityEvent({ attemptId, type: "DEVTOOLS_SUSPECT" });
+      }
+    };
+
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("blur", onWindowBlur);
     window.addEventListener("focus", onWindowFocus);
@@ -379,6 +424,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     document.addEventListener("copy", onCopy);
     document.addEventListener("paste", onPaste);
     document.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("keydown", onKeyDown);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -388,8 +434,9 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       document.removeEventListener("copy", onCopy);
       document.removeEventListener("paste", onPaste);
       document.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("keydown", onKeyDown);
     };
-  }, [attemptId, attemptMeta?.mode, submittedResult, terminatedReason]);
+  }, [attemptId, attemptMeta?.mode, isStrictProctoring, submittedResult, terminatedReason]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -450,150 +497,200 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
   // 2. Post-Submission Graded Review View (Answer Keys joined server-side ONLY after submit)
   if (submittedResult) {
     const { summary, reviewItems } = submittedResult;
+    const isScoreWithheld = Boolean(summary.scoreWithheld);
+    const isAnswersWithheld = Boolean(summary.answersWithheld);
+
     return (
       <div className={styles.resultsContainer}>
         <div className={styles.scoreCard}>
-          <h2>Exam Submitted & Graded Server-Side</h2>
-          <div className={styles.scoreCircle}>
-            <span>{summary.percentage}%</span>
-          </div>
-          <p>
-            You scored <strong>{summary.correctCount}</strong> out of{" "}
-            <strong>{summary.questionCount}</strong> ({summary.subjectCode.toUpperCase()} ·{" "}
-            {summary.examBody})
-          </p>
+          <h2>
+            {summary.examTitle
+              ? `${summary.examTitle} — Submitted & Recorded`
+              : "Exam Submitted & Graded Server-Side"}
+          </h2>
+
+          {isScoreWithheld ? (
+            <div
+              style={{
+                background: "var(--status-info-bg)",
+                border: "1px solid var(--status-info-border)",
+                color: "var(--status-info-text)",
+                padding: "1.1rem 1.25rem",
+                borderRadius: "10px",
+                margin: "1rem 0",
+                fontWeight: 700,
+              }}
+            >
+              <FiLock style={{ marginRight: "0.4rem", verticalAlign: "middle" }} />
+              Your answers have been locked and graded confidentially on the server ({summary.questionCount} questions). Your official score will appear once the Examiner closes the exam hall.
+            </div>
+          ) : (
+            <>
+              <div className={styles.scoreCircle}>
+                <span>{summary.percentage}%</span>
+              </div>
+              <p>
+                You scored <strong>{summary.correctCount}</strong> out of{" "}
+                <strong>{summary.questionCount}</strong> ({summary.subjectCode.toUpperCase()} ·{" "}
+                {summary.examBody})
+              </p>
+            </>
+          )}
+
           <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            Integrity Strikes Recorded: {summary.hardStrikes} / 2
+            Integrity Strikes Recorded: {summary.hardStrikes} / {attemptMeta?.maxStrikes || 2}
           </p>
           <div className={styles.resultActions}>
             <Link href="/portal/cbt" className={styles.dashboardBtn}>
-              Start New CBT Session
+              Return to CBT Portal
             </Link>
           </div>
 
-          {/* Faithbot Gemini AI Performance Review Card */}
-          <div className={styles.aiTutorCard}>
-            <div className={styles.aiTutorHeader}>
-              <FiCpu className={styles.aiIcon} />
-              <div>
-                <h4>Faithbot AI Academic Diagnosis</h4>
-                <p>Curriculum-aligned performance review powered by Google Gemini</p>
-              </div>
-            </div>
-
-            {!aiAnalysis ? (
-              <button
-                type="button"
-                className={styles.aiTutorBtn}
-                onClick={handleFetchAiAnalysis}
-                disabled={loadingAiAnalysis}
-              >
-                <FiCpu /> {loadingAiAnalysis ? "Analyzing Your Attempt with Gemini..." : "Generate AI Exam Performance Breakdown"}
-              </button>
-            ) : (
-              <div className={styles.aiAnalysisContent}>
-                <p className={styles.aiFeedback}>{aiAnalysis.overallFeedback}</p>
-                {aiAnalysis.strengths.length > 0 && (
-                  <div className={styles.aiSection}>
-                    <strong style={{ color: "var(--status-success-text)" }}>Key Strengths:</strong>
-                    <ul>
-                      {aiAnalysis.strengths.map((s, idx) => (
-                        <li key={idx}>{s}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {aiAnalysis.weaknesses.length > 0 && (
-                  <div className={styles.aiSection}>
-                    <strong style={{ color: "var(--status-error-text)" }}>Areas for Revision:</strong>
-                    <ul>
-                      {aiAnalysis.weaknesses.map((w, idx) => (
-                        <li key={idx}>{w}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {aiAnalysis.recommendations.length > 0 && (
-                  <div className={styles.aiSection}>
-                    <strong style={{ color: "var(--status-info-text)" }}>Examiner Recommendations:</strong>
-                    <ul>
-                      {aiAnalysis.recommendations.map((r, idx) => (
-                        <li key={idx}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className={styles.correctionsWrapper}>
-          <h3>Attempt Review & Step-by-Step Explanations</h3>
-          {reviewItems.map((item: any) => {
-            const isCorrect = item.isCorrect;
-            return (
-              <div
-                key={item.position}
-                className={`${styles.correctionItem} ${isCorrect ? styles.correct : styles.wrong}`}
-              >
-                <div className={styles.questionText}>
-                  <strong>{item.position}.</strong> <span>{cleanHtmlText(item.stem)}</span>
+          {!isAnswersWithheld && (
+            <div className={styles.aiTutorCard}>
+              <div className={styles.aiTutorHeader}>
+                <FiCpu className={styles.aiIcon} />
+                <div>
+                  <h4>Faithbot AI Academic Diagnosis</h4>
+                  <p>Curriculum-aligned performance review powered by Google Gemini</p>
                 </div>
-                {item.imageUrl && (
-                  <img src={item.imageUrl} alt="Question figure" className={styles.qImage} />
-                )}
+              </div>
 
-                <div className={styles.optionsList}>
-                  {item.options.map((opt: { key: string; text: string }) => {
-                    const isSelected = item.selectedKey === opt.key;
-                    const isActualAnswer = item.correctKey === opt.key;
-
-                    let itemClass = styles.optionItem;
-                    if (isActualAnswer) itemClass += ` ${styles.optionActual}`;
-                    else if (isSelected && !isCorrect) itemClass += ` ${styles.optionWrong}`;
-
-                    return (
-                      <div key={opt.key} className={itemClass}>
-                        <span className={styles.optionLetter}>{opt.key.toUpperCase()}</span>
-                        <span>{cleanHtmlText(opt.text)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Official Solution */}
-                {item.explanation && (
-                  <div className={styles.solutionBox}>
-                    <strong>Official Solution:</strong>
-                    <div>{cleanHtmlText(item.explanation)}</div>
-                  </div>
-                )}
-
-                {/* Gemini AI Detailed Step-by-Step Explanation */}
-                {aiExplanations[item.position] ? (
-                  <div className={styles.aiSolutionBox}>
-                    <strong>Faithbot AI Step-by-Step Solution:</strong>
-                    <div style={{ whiteSpace: "pre-line", marginTop: "0.25rem" }}>
-                      {aiExplanations[item.position]}
+              {!aiAnalysis ? (
+                <button
+                  type="button"
+                  className={styles.aiTutorBtn}
+                  onClick={handleFetchAiAnalysis}
+                  disabled={loadingAiAnalysis}
+                >
+                  <FiCpu /> {loadingAiAnalysis ? "Analyzing Your Attempt with Gemini..." : "Generate AI Exam Performance Breakdown"}
+                </button>
+              ) : (
+                <div className={styles.aiAnalysisContent}>
+                  <p className={styles.aiFeedback}>{aiAnalysis.overallFeedback}</p>
+                  {aiAnalysis.strengths.length > 0 && (
+                    <div className={styles.aiSection}>
+                      <strong style={{ color: "var(--status-success-text)" }}>Key Strengths:</strong>
+                      <ul>
+                        {aiAnalysis.strengths.map((s, idx) => (
+                          <li key={idx}>{s}</li>
+                        ))}
+                      </ul>
                     </div>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: "0.75rem" }}>
-                    <button
-                      type="button"
-                      className={styles.askAiBtn}
-                      onClick={() => handleExplainQuestion(item)}
-                      disabled={loadingExplanationFor === item.position}
-                    >
-                      <FiCpu /> {loadingExplanationFor === item.position ? "Generating AI Explanation..." : "Explain with Faithbot AI"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  )}
+                  {aiAnalysis.weaknesses.length > 0 && (
+                    <div className={styles.aiSection}>
+                      <strong style={{ color: "var(--status-error-text)" }}>Areas for Revision:</strong>
+                      <ul>
+                        {aiAnalysis.weaknesses.map((w, idx) => (
+                          <li key={idx}>{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {aiAnalysis.recommendations.length > 0 && (
+                    <div className={styles.aiSection}>
+                      <strong style={{ color: "var(--status-info-text)" }}>Examiner Recommendations:</strong>
+                      <ul>
+                        {aiAnalysis.recommendations.map((r, idx) => (
+                          <li key={idx}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
+        {isAnswersWithheld ? (
+          <div
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-primary)",
+              borderRadius: "12px",
+              padding: "1.5rem",
+              textAlign: "center",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <FiShield size={28} color="var(--color-navy-blue)" style={{ marginBottom: "0.5rem" }} />
+            <h3 style={{ margin: "0 0 0.4rem 0", color: "var(--color-navy-blue)" }}>
+              Question Review &amp; Solutions Held Confidential
+            </h3>
+            <p style={{ margin: 0, fontSize: "0.9rem" }}>
+              To protect examination integrity while other students complete their attempt, questions, official solutions, and AI explanations remain hidden until released by your Examiner.
+            </p>
+          </div>
+        ) : (
+          <div className={styles.correctionsWrapper}>
+            <h3>Attempt Review &amp; Step-by-Step Explanations</h3>
+            {reviewItems.map((item: any) => {
+              const isCorrect = item.isCorrect;
+              return (
+                <div
+                  key={item.position}
+                  className={`${styles.correctionItem} ${isCorrect ? styles.correct : styles.wrong}`}
+                >
+                  <div className={styles.questionText}>
+                    <strong>{item.position}.</strong> <span>{cleanHtmlText(item.stem)}</span>
+                  </div>
+                  {item.imageUrl && (
+                    <img src={item.imageUrl} alt="Question figure" className={styles.qImage} />
+                  )}
+
+                  <div className={styles.optionsList}>
+                    {item.options.map((opt: { key: string; text: string }) => {
+                      const isSelected = item.selectedKey === opt.key;
+                      const isActualAnswer = item.correctKey === opt.key;
+
+                      let itemClass = styles.optionItem;
+                      if (isActualAnswer) itemClass += ` ${styles.optionActual}`;
+                      else if (isSelected && !isCorrect) itemClass += ` ${styles.optionWrong}`;
+
+                      return (
+                        <div key={opt.key} className={itemClass}>
+                          <span className={styles.optionLetter}>{opt.key.toUpperCase()}</span>
+                          <span>{cleanHtmlText(opt.text)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Official Solution */}
+                  {item.explanation && (
+                    <div className={styles.solutionBox}>
+                      <strong>Official Solution:</strong>
+                      <div>{cleanHtmlText(item.explanation)}</div>
+                    </div>
+                  )}
+
+                  {/* Gemini AI Detailed Step-by-Step Explanation */}
+                  {aiExplanations[item.position] ? (
+                    <div className={styles.aiSolutionBox}>
+                      <strong>Faithbot AI Step-by-Step Solution:</strong>
+                      <div style={{ whiteSpace: "pre-line", marginTop: "0.25rem" }}>
+                        {aiExplanations[item.position]}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <button
+                        type="button"
+                        className={styles.askAiBtn}
+                        onClick={() => handleExplainQuestion(item)}
+                        disabled={loadingExplanationFor === item.position}
+                      >
+                        <FiCpu /> {loadingExplanationFor === item.position ? "Generating AI Explanation..." : "Explain with Faithbot AI"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
@@ -627,6 +724,61 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       className={styles.quizLayout}
       style={{ position: "relative", userSelect: "none", WebkitUserSelect: "none" }}
     >
+      {/* Mandatory Fullscreen Exam Hall Gate for Official EXAM Strict Mode */}
+      {attemptMeta?.mode === "EXAM" &&
+        attemptMeta?.strictMode !== false &&
+        !isFullscreen &&
+        !warningModal && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(10, 37, 64, 0.97)",
+              zIndex: 9998,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "1.5rem",
+              color: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                maxWidth: "520px",
+                background: "#0f172a",
+                border: "2px solid #22c55e",
+                borderRadius: "16px",
+                padding: "2.25rem",
+                textAlign: "center",
+              }}
+            >
+              <FiMaximize size={48} color="#22c55e" style={{ marginBottom: "0.9rem" }} />
+              <h2 style={{ margin: "0 0 0.65rem 0", color: "#ffffff" }}>
+                {attemptMeta?.examTitle || "Official CBT Examination — Strict Mode"}
+              </h2>
+              <p style={{ fontSize: "0.95rem", lineHeight: 1.6, color: "#cbd5e1", marginBottom: "1.35rem" }}>
+                Full-screen Exam Hall mode is required before questions are displayed. Exiting full-screen, switching tabs, copying, or opening developer tools counts as a strike ({attemptMeta?.maxStrikes || 2}-strike termination policy).
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await document.documentElement.requestFullscreen?.();
+                    hasEnteredFullscreenRef.current = true;
+                    setIsFullscreen(true);
+                  } catch {
+                    setIsFullscreen(true);
+                  }
+                }}
+                className="btn btn-primary"
+                style={{ fontSize: "1rem", padding: "0.85rem 1.75rem" }}
+              >
+                Enter Fullscreen Exam Hall
+              </button>
+            </div>
+          </div>
+        )}
+
       {/* Strike 1 Full-Screen Warning Modal (10-second countdown per Decision 10.3) */}
       {warningModal && (
         <div
@@ -715,10 +867,14 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
           }}
         >
           <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-            <FiShield color={attemptMeta?.mode === "MOCK" ? "#ef4444" : "#22c55e"} />{" "}
-            {attemptMeta?.mode === "MOCK" ? "Strict Exam Integrity" : "Self-Paced Practice"}
+            <FiShield color={isStrictProctoring ? "#ef4444" : "#22c55e"} />{" "}
+            {attemptMeta?.mode === "EXAM"
+              ? "Exam Strict Mode"
+              : attemptMeta?.mode === "MOCK"
+              ? "Strict Exam Integrity"
+              : "Self-Paced Practice"}
           </div>
-          {attemptMeta?.mode === "MOCK" ? (
+          {isStrictProctoring ? (
             <div>
               Strikes:{" "}
               <strong style={{ color: (attemptMeta?.hardStrikes || 0) > 0 ? "var(--status-error-text)" : "var(--status-success-text)" }}>
@@ -731,7 +887,14 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
             </div>
           )}
           <div style={{ marginTop: "0.25rem" }}>
-            Mode: <strong>{attemptMeta?.mode === "MOCK" ? "Strict Exam" : "Self-Paced Study"}</strong>
+            Mode:{" "}
+            <strong>
+              {attemptMeta?.mode === "EXAM"
+                ? "Official Class Exam"
+                : attemptMeta?.mode === "MOCK"
+                ? "Strict Exam"
+                : "Self-Paced Study"}
+            </strong>
           </div>
         </div>
 
@@ -784,7 +947,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            {attemptMeta?.mode === "MOCK" && (
+            {isStrictProctoring && (
               <button
                 type="button"
                 onClick={() => document.documentElement.requestFullscreen?.().catch(() => {})}

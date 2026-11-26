@@ -30,7 +30,9 @@ import {
   FiDownload,
   FiEdit2,
   FiArchive,
+  FiLock,
 } from "react-icons/fi";
+import ExamBankAndSchedulerStudio from "@/components/cbt/ExamBankAndSchedulerStudio";
 
 export interface CbtAttemptAnalyticsRow {
   id: string;
@@ -101,8 +103,8 @@ export default function AdminCbtClient({
   const [recentEvents] = useState(initialRecentEvents);
   const [providerDiag, setProviderDiag] = useState<any>(initialProviderDiagnostics);
   const [activeTab, setActiveTab] = useState<
-    "locks" | "attempts" | "events" | "providers" | "bank" | "analytics"
-  >("locks");
+    "locks" | "attempts" | "events" | "providers" | "bank" | "exams" | "analytics"
+  >("exams");
   const [loading, setLoading] = useState(false);
   const [syncingSubject, setSyncingSubject] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
@@ -116,6 +118,7 @@ export default function AdminCbtClient({
   >(initialInternalSubjectCounts);
 
   const [bankSubjectFilter, setBankSubjectFilter] = useState("all");
+  const [bankScopeFilter, setBankScopeFilter] = useState<"ALL" | "OPEN_BANK" | "EXAM_ONLY">("ALL");
   const [bankSearch, setBankSearch] = useState("");
   const [includeInactiveBank, setIncludeInactiveBank] = useState(true);
   const [bankLoading, setBankLoading] = useState(false);
@@ -125,6 +128,7 @@ export default function AdminCbtClient({
   const [qSubjectSelect, setQSubjectSelect] = useState("basicscience");
   const [qCustomSubject, setQCustomSubject] = useState("");
   const [qExamBody, setQExamBody] = useState("SCHOOL_INTERNAL");
+  const [qBankScope, setQBankScope] = useState<"OPEN_BANK" | "EXAM_ONLY">("OPEN_BANK");
   const [qTopic, setQTopic] = useState("School Term Assessment");
   const [qStem, setQStem] = useState("");
   const [qImageUrl, setQImageUrl] = useState("");
@@ -139,6 +143,7 @@ export default function AdminCbtClient({
   // Bulk CSV Import state
   const [csvDefaultSubject, setCsvDefaultSubject] = useState("basicscience");
   const [csvDefaultExamBody, setCsvDefaultExamBody] = useState("SCHOOL_INTERNAL");
+  const [csvBankScope, setCsvBankScope] = useState<"OPEN_BANK" | "EXAM_ONLY">("OPEN_BANK");
   const [csvText, setCsvText] = useState("");
   const [importingCsv, setImportingCsv] = useState(false);
   const [csvImportErrors, setCsvImportErrors] = useState<Array<{ rowNumber: number; error: string }>>([]);
@@ -148,15 +153,18 @@ export default function AdminCbtClient({
 
   const refreshBankAndAnalytics = async (overrides?: {
     subjectCode?: string;
+    bankScope?: "ALL" | "OPEN_BANK" | "EXAM_ONLY";
     search?: string;
     includeInactive?: boolean;
   }) => {
     setBankLoading(true);
     const subj = overrides?.subjectCode ?? bankSubjectFilter;
+    const scope = overrides?.bankScope ?? bankScopeFilter;
     const searchVal = overrides?.search ?? bankSearch;
     const showArch = overrides?.includeInactive ?? includeInactiveBank;
     const res = await getAdminCbtBankAndAnalytics({
       subjectCode: subj !== "all" ? subj : undefined,
+      bankScope: scope,
       search: searchVal || undefined,
       includeInactive: showArch,
     });
@@ -194,6 +202,7 @@ export default function AdminCbtClient({
       setQCustomSubject(q.subjectCode);
     }
     setQExamBody(q.examBody || "SCHOOL_INTERNAL");
+    setQBankScope(q.bankScope || "OPEN_BANK");
     setQTopic(q.topic || "School Assessment");
     setQStem(q.stem);
     setQImageUrl(q.imageUrl || "");
@@ -223,6 +232,7 @@ export default function AdminCbtClient({
       id: editingQuestionId || undefined,
       subjectCode: resolvedSubject,
       examBody: qExamBody,
+      bankScope: qBankScope,
       topic: qTopic,
       stem: qStem,
       imageUrl: qImageUrl || null,
@@ -261,6 +271,7 @@ export default function AdminCbtClient({
       csvText,
       defaultSubjectCode: csvDefaultSubject,
       defaultExamBody: csvDefaultExamBody,
+      bankScope: csvBankScope,
     });
     if (res.success) {
       setCsvImportErrors(res.errors || []);
@@ -574,6 +585,24 @@ export default function AdminCbtClient({
           flexWrap: "wrap",
         }}
       >
+        <button
+          onClick={() => setActiveTab("exams")}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0.75rem 1rem",
+            fontWeight: "bold",
+            color: activeTab === "exams" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
+            borderBottom: activeTab === "exams" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.4rem",
+          }}
+        >
+          <FiLock /> Strict Exams &amp; Paper OCR
+        </button>
+
         <button
           onClick={() => setActiveTab("locks")}
           style={{
@@ -1081,7 +1110,7 @@ export default function AdminCbtClient({
                 )}
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, marginBottom: "0.3rem" }}>
                     Subject *
@@ -1114,6 +1143,20 @@ export default function AdminCbtClient({
                     <option value="UTME">UTME</option>
                     <option value="NECO">NECO</option>
                     <option value="POST_UTME">POST-UTME</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, marginBottom: "0.3rem" }}>
+                    Target Bank Isolation
+                  </label>
+                  <select
+                    value={qBankScope}
+                    onChange={(e) => setQBankScope(e.target.value as "OPEN_BANK" | "EXAM_ONLY")}
+                    style={{ width: "100%", padding: "0.6rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-300)" }}
+                  >
+                    <option value="OPEN_BANK">OPEN_BANK (Student Practice)</option>
+                    <option value="EXAM_ONLY">EXAM_ONLY (Strict Official Exam)</option>
                   </select>
                 </div>
               </div>
@@ -1302,7 +1345,7 @@ export default function AdminCbtClient({
                 Rows missing <code>subjectCode</code> or <code>examBody</code> inherit the defaults below.
               </p>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, marginBottom: "0.25rem" }}>
                     Default Subject (Fallback)
@@ -1332,6 +1375,19 @@ export default function AdminCbtClient({
                     <option value="WASSCE">WASSCE</option>
                     <option value="UTME">UTME</option>
                     <option value="NECO">NECO</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, marginBottom: "0.25rem" }}>
+                    Target Bank Isolation
+                  </label>
+                  <select
+                    value={csvBankScope}
+                    onChange={(e) => setCsvBankScope(e.target.value as "OPEN_BANK" | "EXAM_ONLY")}
+                    style={{ width: "100%", padding: "0.55rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-300)" }}
+                  >
+                    <option value="OPEN_BANK">OPEN_BANK (Practice)</option>
+                    <option value="EXAM_ONLY">EXAM_ONLY (Official Exam)</option>
                   </select>
                 </div>
               </div>
@@ -1447,6 +1503,20 @@ export default function AdminCbtClient({
 
               <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
                 <select
+                  value={bankScopeFilter}
+                  onChange={(e) => {
+                    const val = e.target.value as "ALL" | "OPEN_BANK" | "EXAM_ONLY";
+                    setBankScopeFilter(val);
+                    refreshBankAndAnalytics({ bankScope: val });
+                  }}
+                  style={{ padding: "0.5rem 0.7rem", borderRadius: "var(--radius-sm)", border: "1px solid var(--color-gray-300)" }}
+                >
+                  <option value="ALL">All Bank Scopes</option>
+                  <option value="EXAM_ONLY">EXAM_ONLY (Confidential)</option>
+                  <option value="OPEN_BANK">OPEN_BANK (Practice)</option>
+                </select>
+
+                <select
                   value={bankSubjectFilter}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -1525,6 +1595,18 @@ export default function AdminCbtClient({
                         </span>
                         <span style={{ padding: "0.2rem 0.55rem", borderRadius: "999px", background: "var(--color-gray-100)", color: "var(--color-gray-700)", fontSize: "0.75rem", fontWeight: 600 }}>
                           {q.examBody}
+                        </span>
+                        <span
+                          style={{
+                            padding: "0.18rem 0.55rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            fontWeight: 700,
+                            background: q.bankScope === "EXAM_ONLY" ? "var(--status-error-bg)" : "var(--status-info-bg)",
+                            color: q.bankScope === "EXAM_ONLY" ? "var(--status-error-text)" : "var(--status-info-text)",
+                          }}
+                        >
+                          {q.bankScope}
                         </span>
                         <span style={{ fontSize: "0.8rem", color: "var(--color-gray-600)" }}>
                           Topic: <strong>{q.topic}</strong>
@@ -1605,6 +1687,9 @@ export default function AdminCbtClient({
           </div>
         </div>
       )}
+
+      {/* TAB: STRICT EXAMS & PAPER OCR STUDIO */}
+      {activeTab === "exams" && <ExamBankAndSchedulerStudio mode="admin" />}
 
       {/* TAB 6: EXAM ANALYTICS & EXPORTS */}
       {activeTab === "analytics" && (

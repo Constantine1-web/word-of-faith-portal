@@ -59,6 +59,21 @@ import {
   buildSignedStudentVerifyUrl,
 } from "../../qr-verify";
 import { validateReceiptBinary } from "../../payment-ledger";
+import {
+  hashExamPin,
+  verifyExamPin,
+  evaluateExamWindow,
+  getExamPostSubmitVisibility,
+  scaleCbtTenthsToComponent,
+  getPracticePoolBankScope,
+  seededShuffle,
+} from "../../cbt-exam-policy";
+import {
+  validateExamDocumentBinary,
+  parseNumberedMcqText,
+  normalizeExtractedQuestions,
+  MAX_EXAM_UPLOAD_BYTES,
+} from "../../cbt-ocr";
 
 async function runSecurityRegressionSuite() {
   let passed = 0;
@@ -898,7 +913,127 @@ async function runSecurityRegressionSuite() {
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/18 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // 19. Exam Strict Mode Confidentiality, PIN Verification, Windowing & Pool Isolation
+  {
+    assert.equal(getPracticePoolBankScope(), "OPEN_BANK");
+
+    const pinHash = hashExamPin(" math2026 ");
+    assert.equal(verifyExamPin("MATH2026", pinHash), true);
+    assert.equal(verifyExamPin("wrongpin", pinHash), false);
+    assert.equal(verifyExamPin("", pinHash), false);
+
+    const now = new Date("2026-11-26T10:00:00.000Z");
+    assert.equal(evaluateExamWindow({ status: "DRAFT" }, now).eligible, false);
+    assert.equal(evaluateExamWindow({ status: "SCHEDULED" }, now).eligible, false);
+    assert.equal(evaluateExamWindow({ status: "CLOSED" }, now).eligible, false);
+    assert.equal(
+      evaluateExamWindow(
+        {
+          status: "LIVE",
+          startsAt: new Date("2026-11-26T09:00:00.000Z"),
+          endsAt: new Date("2026-11-26T11:00:00.000Z"),
+        },
+        now
+      ).eligible,
+      true
+    );
+    assert.equal(
+      evaluateExamWindow(
+        { status: "LIVE", endsAt: new Date("2026-11-26T09:30:00.000Z") },
+        now
+      ).eligible,
+      false
+    );
+
+    // Post-submit visibility: PRACTICE & MOCK always show review; EXAM strictly respects examiner flags
+    assert.deepEqual(getExamPostSubmitVisibility("PRACTICE", null), {
+      canSeeScore: true,
+      canSeeAnswersAndAi: true,
+    });
+    assert.deepEqual(
+      getExamPostSubmitVisibility("EXAM", { revealScoreAfterSubmit: false, answersReleased: false }),
+      { canSeeScore: false, canSeeAnswersAndAi: false }
+    );
+    assert.deepEqual(
+      getExamPostSubmitVisibility("EXAM", { revealScoreAfterSubmit: true, answersReleased: false }),
+      { canSeeScore: true, canSeeAnswersAndAi: false }
+    );
+    assert.deepEqual(
+      getExamPostSubmitVisibility("EXAM", { revealScoreAfterSubmit: false, answersReleased: true }),
+      { canSeeScore: true, canSeeAnswersAndAi: true }
+    );
+
+    assert.equal(scaleCbtTenthsToComponent(850, 60), 51);
+    assert.equal(scaleCbtTenthsToComponent(750, 40), 30);
+    assert.equal(seededShuffle(["a", "b", "c", "d"], "seed-1").length, 4);
+    passed++;
+  }
+
+  // 20. Exam Document Upload Binary Signatures & Handwritten/Text Question Extraction Parser
+  {
+    assert.equal(
+      validateExamDocumentBinary(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]), "image/jpeg").valid,
+      true
+    );
+    assert.equal(
+      validateExamDocumentBinary(Buffer.from("%PDF-1.7\n..."), "application/pdf").valid,
+      true
+    );
+    assert.equal(
+      validateExamDocumentBinary(Buffer.from("%PDF-1.7\n..."), "image/png").valid,
+      false
+    );
+    assert.equal(
+      validateExamDocumentBinary(Buffer.alloc(MAX_EXAM_UPLOAD_BYTES + 1, 0xff), "image/jpeg").valid,
+      false
+    );
+
+    const parsedQuestions = parseNumberedMcqText(
+      `1. Which organelle produces ATP in eukaryotic cells?
+A) Nucleus
+B) Mitochondrion
+C) Ribosome
+D) Vacuole
+Answer: B
+
+2. Evaluate 2^3 + 4.
+A) 10
+B) 11
+C) 12
+D) 14`,
+      "Cell Biology"
+    );
+    assert.equal(parsedQuestions.length, 2);
+    assert.equal(parsedQuestions[0].correctKey, "b");
+    assert.equal(parsedQuestions[0].answerConfidence, "EXPLICIT");
+    assert.equal(parsedQuestions[1].answerConfidence, "NEEDS_REVIEW");
+
+    const normalized = normalizeExtractedQuestions([
+      {
+        stem: "Duplicate stem sample?",
+        optionA: "One",
+        optionB: "Two",
+        optionC: "Three",
+        optionD: "Four",
+        correctKey: "C",
+        answerConfidence: "AI_INFERRED",
+      },
+      {
+        stem: "Duplicate stem sample?",
+        optionA: "One",
+        optionB: "Two",
+        optionC: "Three",
+        optionD: "Four",
+        correctKey: "C",
+      },
+    ]);
+    assert.equal(normalized.length, 1);
+    assert.equal(normalized[0].correctKey, "c");
+    assert.equal(normalized[0].answerConfidence, "AI_INFERRED");
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/20 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {

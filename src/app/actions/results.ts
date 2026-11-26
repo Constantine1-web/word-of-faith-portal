@@ -28,6 +28,7 @@ import {
 } from "@/lib/authz";
 import { SAFE_USER_SELECT, requireStepUpIfTotpEnabled } from "@/lib/security";
 import { sendResultPublishedNotification } from "@/lib/email";
+import { mapSubjectNameToCbtCodes } from "@/lib/cbt-constants";
 
 const ScoreRowSchema = z.object({
   studentId: z.number().int().positive(),
@@ -2085,34 +2086,6 @@ export async function uploadBulkResults(csvData: string) {
 // ==========================================================================
 // 1-CLICK CBT QUIZ SCORE -> CONTINUOUS ASSESSMENT (CA) SYNC (Option C)
 // ==========================================================================
-
-function mapSubjectNameToCbtCodes(subjectName?: string | null): string[] {
-  const s = (subjectName || "").trim().toLowerCase();
-  const codes = new Set<string>();
-  if (!s) return [];
-
-  if (s.includes("math")) codes.add("mathematics");
-  if (s.includes("english")) codes.add("english");
-  if (s.includes("lit")) codes.add("englishlit");
-  if (s.includes("bio") || s.includes("basic science")) codes.add("biology");
-  if (s.includes("chem")) codes.add("chemistry");
-  if (s.includes("phys")) codes.add("physics");
-  if (s.includes("civic")) codes.add("civiledu");
-  if (s.includes("christian") || s.includes("crk") || s.includes("crs")) codes.add("crk");
-  if (s.includes("islamic") || s.includes("irk") || s.includes("irs")) codes.add("irk");
-  if (s.includes("econ")) codes.add("economics");
-  if (s.includes("gov")) codes.add("government");
-  if (s.includes("geo")) codes.add("geography");
-  if (s.includes("comm")) codes.add("commerce");
-  if (s.includes("account")) codes.add("accounting");
-  if (s.includes("hist")) codes.add("history");
-  if (s.includes("insur")) codes.add("insurance");
-  if (s.includes("current")) codes.add("currentaffairs");
-
-  // Also include raw slug for custom school CBT banks
-  codes.add(s.replace(/[^a-z0-9]/g, ""));
-  return Array.from(codes).filter(Boolean);
-}
 
 export async function previewCbtScoresForSubjectCa(params: {
   classId: number;

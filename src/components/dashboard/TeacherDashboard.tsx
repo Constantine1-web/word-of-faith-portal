@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   getTeacherDashboardData,
   getStudentsAndScoresForSubject,
@@ -25,6 +25,9 @@ import { SUBJECTS, EXAM_TYPES } from "@/lib/cbt-constants";
 import { calculateGrade } from "@/lib/grading";
 import Link from "next/link";
 import ClassListSyncModal from "@/components/portal/ClassListSyncModal";
+import ExamBankAndSchedulerStudio, {
+  type AppliedExamScoreSyncPayload,
+} from "@/components/cbt/ExamBankAndSchedulerStudio";
 import {
   FiCheckCircle,
   FiClock,
@@ -154,7 +157,9 @@ export default function TeacherDashboard({
   const [qOptD, setQOptD] = useState<string>("");
   const [qCorrectKey, setQCorrectKey] = useState<"A" | "B" | "C" | "D">("A");
   const [qExplanation, setQExplanation] = useState<string>("");
+  const [qBankScope, setQBankScope] = useState<"OPEN_BANK" | "EXAM_ONLY">("EXAM_ONLY");
   const [savingQuestion, setSavingQuestion] = useState(false);
+  const pendingExamSyncRef = useRef<AppliedExamScoreSyncPayload | null>(null);
 
   const loadElearningStudio = async () => {
     const qRes = await getTeacherCustomCbtQuestions();
@@ -210,6 +215,7 @@ export default function TeacherDashboard({
     const res = await createCustomCbtQuestion({
       subjectCode: qSubject,
       examBody: qExamBody,
+      bankScope: qBankScope,
       topic: qTopic,
       stem: qStem,
       optionA: qOptA,
@@ -220,7 +226,9 @@ export default function TeacherDashboard({
       explanation: qExplanation,
     });
     if (res.success) {
-      setSuccess("✅ Custom CBT Question published to the school question bank!");
+      setSuccess(
+        `✅ Question published to ${qBankScope === "EXAM_ONLY" ? "Confidential Exam Bank (hidden from student practice)" : "Student Practice Question Bank"}!`
+      );
       setQStem("");
       setQOptA("");
       setQOptB("");
@@ -277,6 +285,29 @@ export default function TeacherDashboard({
             exam: draft?.exam !== undefined ? draft.exam : r?.ExamScore !== undefined ? r.ExamScore.toString() : ""
           };
         });
+
+        const pendingSync = pendingExamSyncRef.current;
+        if (
+          pendingSync &&
+          pendingSync.classId === allocation.ClassID &&
+          pendingSync.subjectId === allocation.SubjectID
+        ) {
+          let mergedCount = 0;
+          for (const item of pendingSync.items) {
+            if (item.hasAttempt && item.scaledScore !== null && initialMap[item.studentId]) {
+              initialMap[item.studentId] = {
+                ...initialMap[item.studentId],
+                [pendingSync.targetColumn]: String(item.scaledScore),
+              };
+              mergedCount++;
+            }
+          }
+          pendingExamSyncRef.current = null;
+          setSuccess(
+            `✅ Populated ${pendingSync.targetColumn.toUpperCase()} scores for ${mergedCount} student(s) from "${pendingSync.examTitle}" (/${pendingSync.maxWeight}). Review and click Save Draft!`
+          );
+        }
+
         setScoreInputs(initialMap);
       }
       setLoadingStudents(false);
@@ -451,6 +482,43 @@ export default function TeacherDashboard({
       setError(res.error || "Failed to commit import batch.");
     }
     setSavingScores(false);
+  };
+
+  const handleApplyStrictExamScores = (payload: AppliedExamScoreSyncPayload) => {
+    const matchingAlloc = dashboardData?.subjectAllocations?.find(
+      (a: any) => a.ClassID === payload.classId && a.SubjectID === payload.subjectId
+    );
+    if (!matchingAlloc) {
+      setError("Could not locate matching subject allocation for this exam score sheet.");
+      return;
+    }
+
+    if (selectedAllocationId === matchingAlloc.id.toString() && !loadingStudents) {
+      let updatedCount = 0;
+      setScoreInputs((prev) => {
+        const next = { ...prev };
+        for (const item of payload.items) {
+          if (item.hasAttempt && item.scaledScore !== null) {
+            next[item.studentId] = {
+              ca: next[item.studentId]?.ca ?? "",
+              exam: next[item.studentId]?.exam ?? "",
+              [payload.targetColumn]: String(item.scaledScore),
+            };
+            updatedCount++;
+          }
+        }
+        return next;
+      });
+      setSuccess(
+        `✅ Populated ${payload.targetColumn.toUpperCase()} scores for ${updatedCount} student(s) from "${payload.examTitle}" (/${payload.maxWeight}). Review and click "Save Draft" or "Submit to Class Teacher".`
+      );
+      setActiveTab("subject-scores");
+      return;
+    }
+
+    pendingExamSyncRef.current = payload;
+    setSelectedAllocationId(matchingAlloc.id.toString());
+    setActiveTab("subject-scores");
   };
 
   const handleOpenCbtSyncModal = async (overrideWeight?: number) => {
@@ -786,7 +854,7 @@ export default function TeacherDashboard({
             gap: "0.5rem"
           }}
         >
-          <FiCpu /> Custom CBT Quiz Builder
+          <FiCpu /> Exam Bank &amp; Strict CBT Studio
         </button>
       </div>
 
@@ -1498,11 +1566,16 @@ export default function TeacherDashboard({
       )}
 
       {/* ========================================================================= */}
-      {/* MODE 4: CUSTOM CBT QUESTION AUTHORING (TRACK A)                           */}
+      {/* MODE 4: EXAM QUESTION BANK, SCANNER & STRICT CBT STUDIO (TRACK A)         */}
       {/* ========================================================================= */}
       {activeTab === "elearning-studio" && (
-        <div style={{ maxWidth: "820px" }}>
-          {/* Custom CBT Objective Question Authoring */}
+        <div style={{ maxWidth: "1080px" }}>
+          <ExamBankAndSchedulerStudio
+            mode="teacher"
+            onApplyScoresToResultGrid={handleApplyStrictExamScores}
+          />
+
+          {/* Quick Single-Question Authoring */}
           <div
             style={{
               background: "var(--color-white)",
@@ -1512,13 +1585,24 @@ export default function TeacherDashboard({
               boxShadow: "var(--shadow-sm)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
               <h3 style={{ color: "var(--color-navy-blue)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <FiCpu color="var(--color-primary-green)" /> Custom CBT Question Authoring
+                <FiCpu color="var(--color-primary-green)" /> Quick Manual CBT Question Authoring
               </h3>
-              <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
-                {customQuestions.length} School Questions
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <select
+                  className="form-input"
+                  value={qBankScope}
+                  onChange={(e) => setQBankScope(e.target.value as "OPEN_BANK" | "EXAM_ONLY")}
+                  style={{ width: "auto", padding: "0.28rem 0.6rem", fontSize: "0.78rem", fontWeight: 700 }}
+                >
+                  <option value="EXAM_ONLY">Save to Confidential EXAM_ONLY Bank</option>
+                  <option value="OPEN_BANK">Save to Student Practice OPEN_BANK</option>
+                </select>
+                <span style={{ fontSize: "0.75rem", fontWeight: 700, background: "var(--status-success-bg)", color: "var(--status-success-text)", border: "1px solid var(--status-success-border)", padding: "0.2rem 0.6rem", borderRadius: "999px" }}>
+                  {customQuestions.length} School Questions
+                </span>
+              </div>
             </div>
             <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
               Questions published here are stored in the internal Word of Faith CBT bank and automatically served to students taking practice or mock CBT sessions.

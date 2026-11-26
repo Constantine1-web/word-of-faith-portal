@@ -18,6 +18,7 @@ import {
   getAttemptAiAnalysis,
 } from "@/app/actions/cbt";
 import { getCbtAnalyticsAndLeaderboard } from "@/app/actions/elearning";
+import StudentScheduledExamsPanel from "@/components/cbt/StudentScheduledExamsPanel";
 import {
   FiShield,
   FiLock,
@@ -322,6 +323,11 @@ export default function CBTLandingPage() {
           {errorMsg}
         </div>
       )}
+
+      <StudentScheduledExamsPanel
+        isDayLocked={Boolean(studentStatus?.isLocked)}
+        activeAttemptId={studentStatus?.activeAttemptId}
+      />
 
       <div className={styles.card}>
         <h2 className={styles.cardTitle}>Configure New CBT Session</h2>
@@ -864,9 +870,12 @@ export default function CBTLandingPage() {
                 </thead>
                 <tbody>
                   {pastAttempts.map((att: any) => {
+                    const isWithheldScore = Boolean(att.scoreWithheld);
+                    const isAnswersWithheld = Boolean(att.answersWithheld);
                     const pct =
                       typeof att.scoreTenths === "number" ? Math.round(att.scoreTenths / 10) : 0;
-                    const isMock = att.mode === "MOCK";
+                    const isOfficialExam = att.mode === "EXAM";
+                    const isMock = att.mode === "MOCK" || isOfficialExam;
                     const isTerminated = att.status === "TERMINATED";
                     const scoreColor =
                       pct >= 70 ? "var(--badge-success-text)" : pct >= 50 ? "var(--badge-warn-text)" : "var(--badge-danger-text)";
@@ -891,7 +900,7 @@ export default function CBTLandingPage() {
                         <td style={{ padding: "0.75rem", fontWeight: 700, color: "var(--color-gray-900)", textTransform: "capitalize" }}>
                           {att.subjectCode}
                           <div style={{ fontSize: "0.75rem", color: "var(--color-gray-500)", fontWeight: 600 }}>
-                            {att.examBody}
+                            {att.scheduledExam?.title || att.examBody}
                           </div>
                         </td>
                         <td style={{ padding: "0.75rem" }}>
@@ -902,12 +911,20 @@ export default function CBTLandingPage() {
                               borderRadius: "999px",
                               fontSize: "0.74rem",
                               fontWeight: 700,
-                              background: isMock ? "var(--badge-info-bg)" : "var(--badge-success-bg)",
-                              color: isMock ? "var(--badge-info-text)" : "var(--badge-success-text)",
+                              background: isOfficialExam
+                                ? "var(--badge-danger-bg)"
+                                : isMock
+                                ? "var(--badge-info-bg)"
+                                : "var(--badge-success-bg)",
+                              color: isOfficialExam
+                                ? "var(--badge-danger-text)"
+                                : isMock
+                                ? "var(--badge-info-text)"
+                                : "var(--badge-success-text)",
                               border: "1px solid var(--color-gray-200)",
                             }}
                           >
-                            {isMock ? "Strict Exam" : "Self-Paced"}
+                            {isOfficialExam ? "Official Exam" : isMock ? "Strict Exam" : "Self-Paced"}
                           </span>
                         </td>
                         <td style={{ padding: "0.75rem", textAlign: "center", fontWeight: 600, color: "var(--color-gray-800)" }}>
@@ -917,6 +934,10 @@ export default function CBTLandingPage() {
                           {isTerminated ? (
                             <span style={{ color: "var(--badge-danger-text)", fontWeight: 700, fontSize: "0.78rem" }}>
                               —
+                            </span>
+                          ) : isWithheldScore ? (
+                            <span style={{ color: "var(--color-gray-600)", fontWeight: 700, fontSize: "0.76rem" }}>
+                              Withheld
                             </span>
                           ) : (
                             <span
@@ -946,27 +967,33 @@ export default function CBTLandingPage() {
                           </span>
                         </td>
                         <td style={{ padding: "0.75rem", textAlign: "right" }}>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenReview(att.id)}
-                            disabled={reviewLoadingId === att.id}
-                            style={{
-                              background: "var(--brand-secondary)",
-                              color: "var(--brand-secondary-text)",
-                              border: "none",
-                              borderRadius: "8px",
-                              padding: "0.42rem 0.8rem",
-                              fontSize: "0.78rem",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "0.35rem",
-                            }}
-                          >
-                            <FiBookOpen size={13} />
-                            {reviewLoadingId === att.id ? "Loading..." : "Review & AI Tutor"}
-                          </button>
+                          {isAnswersWithheld ? (
+                            <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--color-gray-500)" }}>
+                              Solutions Locked
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenReview(att.id)}
+                              disabled={reviewLoadingId === att.id}
+                              style={{
+                                background: "var(--brand-secondary)",
+                                color: "var(--brand-secondary-text)",
+                                border: "none",
+                                borderRadius: "8px",
+                                padding: "0.42rem 0.8rem",
+                                fontSize: "0.78rem",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.35rem",
+                              }}
+                            >
+                              <FiBookOpen size={13} />
+                              {reviewLoadingId === att.id ? "Loading..." : "Review & AI Tutor"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1005,13 +1032,19 @@ export default function CBTLandingPage() {
                   Completed Attempt Review · {selectedReview.summary.examBody}
                 </div>
                 <h3 style={{ margin: "0.2rem 0", color: "var(--color-gray-900)", textTransform: "capitalize", fontSize: "1.2rem" }}>
-                  {selectedReview.summary.subjectCode} — Score: {selectedReview.summary.correctCount} /{" "}
-                  {selectedReview.summary.questionCount} ({selectedReview.summary.percentage}%)
+                  {selectedReview.summary.subjectCode} —{" "}
+                  {selectedReview.summary.scoreWithheld
+                    ? "Score Held Until Examiner Release"
+                    : `Score: ${selectedReview.summary.correctCount} / ${selectedReview.summary.questionCount} (${selectedReview.summary.percentage}%)`}
                 </h3>
                 <div style={{ fontSize: "0.82rem", color: "var(--color-gray-500)" }}>
                   Mode:{" "}
                   <strong>
-                    {selectedReview.summary.mode === "MOCK" ? "Strict Timed Exam" : "Self-Paced Practice"}
+                    {selectedReview.summary.mode === "EXAM"
+                      ? "Official Exam Strict Mode"
+                      : selectedReview.summary.mode === "MOCK"
+                      ? "Strict Timed Exam"
+                      : "Self-Paced Practice"}
                   </strong>{" "}
                   · Time Spent:{" "}
                   <strong>
@@ -1022,27 +1055,29 @@ export default function CBTLandingPage() {
               </div>
 
               <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => handleRunAiTutor(selectedReview.summary.attemptId)}
-                  disabled={aiLoading}
-                  style={{
-                    background: "linear-gradient(135deg, #15803d, #14532d)",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: "8px",
-                    padding: "0.5rem 0.95rem",
-                    fontSize: "0.82rem",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.4rem",
-                  }}
-                >
-                  <FiCpu size={15} />
-                  {aiLoading ? "Analyzing with AI Tutor..." : "Run AI Tutor Breakdown"}
-                </button>
+                {!selectedReview.summary.answersWithheld && (
+                  <button
+                    type="button"
+                    onClick={() => handleRunAiTutor(selectedReview.summary.attemptId)}
+                    disabled={aiLoading}
+                    style={{
+                      background: "linear-gradient(135deg, #15803d, #14532d)",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "8px",
+                      padding: "0.5rem 0.95rem",
+                      fontSize: "0.82rem",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                    }}
+                  >
+                    <FiCpu size={15} />
+                    {aiLoading ? "Analyzing with AI Tutor..." : "Run AI Tutor Breakdown"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {

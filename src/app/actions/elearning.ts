@@ -16,6 +16,8 @@ import {
 export async function createCustomCbtQuestion(data: {
   subjectCode: string;
   examBody?: string;
+  bankScope?: "OPEN_BANK" | "EXAM_ONLY";
+  targetClassLevel?: string;
   topic?: string;
   stem: string;
   optionA: string;
@@ -67,7 +69,9 @@ export async function createCustomCbtQuestion(data: {
       .update(`${subjectCode}:${normalizedStem}:${JSON.stringify(optionsArr)}`)
       .digest("hex");
 
-    const externalId = `wof-custom-${contentHash.slice(0, 16)}`;
+    const bankScope = data.bankScope === "EXAM_ONLY" ? "EXAM_ONLY" : "OPEN_BANK";
+    const idPrefix = bankScope === "EXAM_ONLY" ? "wof-exam" : "wof-custom";
+    const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
 
     const created = await prisma.$transaction(async (tx) => {
       const q = await tx.cbtQuestion.upsert({
@@ -80,6 +84,9 @@ export async function createCustomCbtQuestion(data: {
         update: {
           examBody,
           subjectCode,
+          bankScope,
+          targetClassLevel: data.targetClassLevel?.trim() || null,
+          authoredById: actor.UserID,
           topic: data.topic?.trim() || "School Class Quiz",
           stem,
           optionsJson: optionsArr,
@@ -91,6 +98,9 @@ export async function createCustomCbtQuestion(data: {
           externalId,
           examBody,
           subjectCode,
+          bankScope,
+          targetClassLevel: data.targetClassLevel?.trim() || null,
+          authoredById: actor.UserID,
           examYear: new Date().getFullYear(),
           topic: data.topic?.trim() || "School Class Quiz",
           stem,
@@ -173,6 +183,8 @@ export async function getTeacherCustomCbtQuestions(subjectCode?: string) {
         id: q.id,
         subjectCode: q.subjectCode,
         examBody: q.examBody,
+        bankScope: q.bankScope,
+        targetClassLevel: q.targetClassLevel || null,
         topic: q.topic || "School Class Quiz",
         stem: q.stem,
         options: Array.isArray(q.optionsJson) ? q.optionsJson : [],
@@ -260,9 +272,15 @@ export async function getCbtAnalyticsAndLeaderboard() {
       include: { Class: true },
     });
 
-    // Fetch all submitted attempts across the school for leaderboard + current student breakdown
+    // Fetch submitted attempts (excluding unreleased official EXAM scores until Examiner releases them)
     const allSubmitted = await prisma.cbtAttempt.findMany({
-      where: { status: "SUBMITTED" },
+      where: {
+        status: "SUBMITTED",
+        OR: [
+          { mode: { not: "EXAM" } },
+          { scheduledExam: { answersReleased: true } },
+        ],
+      },
       include: {
         student: {
           select: {

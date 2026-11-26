@@ -17,6 +17,10 @@ import {
 } from "@/lib/authz";
 import { rateLimit } from "@/lib/security";
 import { IntegrityEventType, AttemptMode } from "@prisma/client";
+import {
+  getExamPostSubmitVisibility,
+  getPracticePoolBankScope,
+} from "@/lib/cbt-exam-policy";
 
 // Decision 10.3: 2 Hard Strikes before terminating attempt & locking for the current Lagos day.
 // Commercial Policy: CBT Practice & Mock exams remain free for all registered students;
@@ -145,9 +149,20 @@ export async function getCbtStudentStatus() {
       await submitAttempt(activeAttempt.id);
     }
 
-    const [recentAttempts, internalSubjectRows] = await Promise.all([
+    const [recentAttemptsRaw, internalSubjectRows] = await Promise.all([
       prisma.cbtAttempt.findMany({
         where: { studentId: student.StudentID },
+        include: {
+          scheduledExam: {
+            select: {
+              id: true,
+              title: true,
+              examType: true,
+              revealScoreAfterSubmit: true,
+              answersReleased: true,
+            },
+          },
+        },
         orderBy: { startedAt: "desc" },
         take: 25,
       }),
@@ -155,12 +170,23 @@ export async function getCbtStudentStatus() {
         by: ["subjectCode"],
         where: {
           provider: "SCHOOL_INTERNAL",
+          bankScope: getPracticePoolBankScope(),
           isActive: true,
           answerKey: { isNot: null },
         },
         _count: { id: true },
       }),
     ]);
+
+    const recentAttempts = recentAttemptsRaw.map((att) => {
+      const visibility = getExamPostSubmitVisibility(att.mode, att.scheduledExam);
+      return {
+        ...att,
+        scoreTenths: visibility.canSeeScore ? att.scoreTenths : null,
+        scoreWithheld: !visibility.canSeeScore,
+        answersWithheld: !visibility.canSeeAnswersAndAi,
+      };
+    });
 
     return {
       success: true,
@@ -290,11 +316,12 @@ export async function startAttempt(params: {
         .trim()
         .toLowerCase();
 
-    // Load active cached questions and deduplicate strictly by normalized question stem
+    // Load active OPEN_BANK questions only — EXAM_ONLY questions NEVER appear in Practice/Mock sessions.
     const poolRows = await prisma.cbtQuestion.findMany({
       where: {
         subjectCode,
         isActive: true,
+        bankScope: getPracticePoolBankScope(),
         ...(isSchoolInternalOnly ? { provider: "SCHOOL_INTERNAL" } : {}),
         NOT: { stem: { startsWith: "[" } },
         answerKey: { isNot: null },
@@ -529,6 +556,16 @@ export async function getQuestion(
     const attempt = await prisma.cbtAttempt.findUnique({
       where: { id: attemptId },
       include: {
+        scheduledExam: {
+          select: {
+            id: true,
+            title: true,
+            examType: true,
+            strictMode: true,
+            maxStrikes: true,
+            status: true,
+          },
+        },
         items: {
           orderBy: { position: "asc" },
           select: {
@@ -544,7 +581,7 @@ export async function getQuestion(
     }
 
     if (
-      attempt.mode === "MOCK" &&
+      (attempt.mode === "MOCK" || attempt.mode === "EXAM") &&
       attempt.sessionId?.startsWith("tab:") &&
       sessionToken &&
       sessionToken !== attempt.sessionId
@@ -628,6 +665,14 @@ export async function getQuestion(
       .map((k) => rawOptions.find((o) => o.key === k))
       .filter((o): o is { key: string; text: string } => Boolean(o));
 
+    const effectiveMaxStrikes =
+      attempt.mode === "EXAM" && attempt.scheduledExam
+        ? Math.max(1, Math.min(3, attempt.scheduledExam.maxStrikes))
+        : CBT_HARD_STRIKES_BEFORE_LOCK;
+    const isStrictMonitoring =
+      attempt.mode === "MOCK" ||
+      (attempt.mode === "EXAM" && (attempt.scheduledExam?.strictMode ?? true));
+
     return {
       success: true,
       attempt: {
@@ -635,11 +680,15 @@ export async function getQuestion(
         subjectCode: attempt.subjectCode,
         examBody: attempt.examBody,
         mode: attempt.mode,
+        examTitle: attempt.scheduledExam?.title || null,
+        examType: attempt.scheduledExam?.examType || null,
+        isOfficialExam: attempt.mode === "EXAM",
+        strictMode: isStrictMonitoring,
         questionCount: attempt.questionCount,
         durationSec: attempt.durationSec,
         expiresAt: attempt.expiresAt.toISOString(),
         hardStrikes: attempt.hardStrikes,
-        maxStrikes: CBT_HARD_STRIKES_BEFORE_LOCK,
+        maxStrikes: effectiveMaxStrikes,
         answeredMap: attempt.items.reduce(
           (acc, cur) => {
             acc[cur.position] = Boolean(cur.selectedKey);
@@ -700,7 +749,7 @@ export async function saveAnswer(params: {
     }
 
     if (
-      attempt.mode === "MOCK" &&
+      (attempt.mode === "MOCK" || attempt.mode === "EXAM") &&
       attempt.sessionId?.startsWith("tab:") &&
       params.sessionToken &&
       params.sessionToken !== attempt.sessionId
@@ -780,15 +829,32 @@ export async function reportIntegrityEvent(params: {
     const { actor, student } = await resolveCurrentStudent();
     const attempt = await prisma.cbtAttempt.findUnique({
       where: { id: params.attemptId },
+      include: {
+        scheduledExam: {
+          select: {
+            strictMode: true,
+            maxStrikes: true,
+          },
+        },
+      },
     });
 
     if (!attempt || attempt.studentId !== student.StudentID || attempt.status !== "ACTIVE") {
       return { success: false, status: attempt?.status || "INACTIVE" };
     }
 
-    // Strict CBT 2-Strike policy applies ONLY to Supervised Exam Mode (MOCK).
+    const effectiveMaxStrikes =
+      attempt.mode === "EXAM" && attempt.scheduledExam
+        ? Math.max(1, Math.min(3, attempt.scheduledExam.maxStrikes))
+        : CBT_HARD_STRIKES_BEFORE_LOCK;
+
+    const isStrictEnforced =
+      attempt.mode === "MOCK" ||
+      (attempt.mode === "EXAM" && (attempt.scheduledExam?.strictMode ?? true));
+
+    // Strict CBT strike policy applies to Supervised Mock (MOCK) and Official Exam Strict Mode (EXAM when strictMode enabled).
     // Self-paced Practice Mode (PRACTICE) never penalizes, warns, terminates, or day-locks students.
-    if (attempt.mode !== "MOCK") {
+    if (!isStrictEnforced) {
       await prisma.cbtAttempt.update({
         where: { id: attempt.id },
         data: { lastHeartbeatAt: new Date() },
@@ -797,7 +863,7 @@ export async function reportIntegrityEvent(params: {
         success: true,
         status: "ACTIVE",
         hardStrikes: 0,
-        maxStrikes: CBT_HARD_STRIKES_BEFORE_LOCK,
+        maxStrikes: effectiveMaxStrikes,
       };
     }
 
@@ -828,15 +894,15 @@ export async function reportIntegrityEvent(params: {
         success: true,
         status: "ACTIVE",
         hardStrikes: attempt.hardStrikes,
-        maxStrikes: CBT_HARD_STRIKES_BEFORE_LOCK,
+        maxStrikes: effectiveMaxStrikes,
       };
     }
 
     const nextStrikes = attempt.hardStrikes + 1;
-    const shouldTerminate = nextStrikes >= CBT_HARD_STRIKES_BEFORE_LOCK;
+    const shouldTerminate = nextStrikes >= effectiveMaxStrikes;
 
     if (shouldTerminate) {
-      const reason = `Terminated after ${nextStrikes}/${CBT_HARD_STRIKES_BEFORE_LOCK} hard integrity violations (last event: ${params.type}).`;
+      const reason = `Terminated after ${nextStrikes}/${effectiveMaxStrikes} hard integrity violations (last event: ${params.type}).`;
 
       await prisma.$transaction(async (tx) => {
         await tx.cbtAttempt.update({
@@ -892,7 +958,7 @@ export async function reportIntegrityEvent(params: {
         status: "TERMINATED",
         dayLocked: true,
         hardStrikes: nextStrikes,
-        maxStrikes: CBT_HARD_STRIKES_BEFORE_LOCK,
+        maxStrikes: effectiveMaxStrikes,
         message: reason,
       };
     }
@@ -910,8 +976,8 @@ export async function reportIntegrityEvent(params: {
       success: true,
       status: "WARNING",
       hardStrikes: nextStrikes,
-      maxStrikes: CBT_HARD_STRIKES_BEFORE_LOCK,
-      message: `STRIKE ${nextStrikes} OF ${CBT_HARD_STRIKES_BEFORE_LOCK}: Focus loss or fullscreen exit detected (${params.type}). Return to the exam immediately—one more violation will terminate your attempt and lock your CBT access for today.`,
+      maxStrikes: effectiveMaxStrikes,
+      message: `STRIKE ${nextStrikes} OF ${effectiveMaxStrikes}: Focus loss or fullscreen exit detected (${params.type}). Return to the exam immediately—one more violation will terminate your attempt and lock your CBT access for today.`,
     };
   } catch (error: any) {
     console.error("reportIntegrityEvent error:", error);
@@ -972,6 +1038,15 @@ export async function submitAttempt(attemptId: string) {
     const attempt = await prisma.cbtAttempt.findUnique({
       where: { id: attemptId },
       include: {
+        scheduledExam: {
+          select: {
+            id: true,
+            title: true,
+            examType: true,
+            revealScoreAfterSubmit: true,
+            answersReleased: true,
+          },
+        },
         items: {
           orderBy: { position: "asc" },
           include: {
@@ -1069,18 +1144,28 @@ export async function submitAttempt(attemptId: string) {
       }
     });
 
+    const visibility = getExamPostSubmitVisibility(attempt.mode, attempt.scheduledExam);
+
     return {
       success: true,
       summary: {
         attemptId: attempt.id,
         subjectCode: attempt.subjectCode,
         examBody: attempt.examBody,
-        correctCount,
+        mode: attempt.mode,
+        examTitle: attempt.scheduledExam?.title || null,
+        correctCount: visibility.canSeeScore ? correctCount : null,
         questionCount: attempt.questionCount,
-        percentage: attempt.questionCount > 0 ? Math.trunc((correctCount / attempt.questionCount) * 100) : 0,
+        percentage: visibility.canSeeScore
+          ? attempt.questionCount > 0
+            ? Math.trunc((correctCount / attempt.questionCount) * 100)
+            : 0
+          : null,
         hardStrikes: attempt.hardStrikes,
+        scoreWithheld: !visibility.canSeeScore,
+        answersWithheld: !visibility.canSeeAnswersAndAi,
       },
-      reviewItems,
+      reviewItems: visibility.canSeeAnswersAndAi ? reviewItems : [],
     };
   } catch (error: any) {
     console.error("submitAttempt error:", error);
@@ -1098,6 +1183,15 @@ export async function getCompletedAttemptReview(attemptId: string) {
     const attempt = await prisma.cbtAttempt.findUnique({
       where: { id: attemptId },
       include: {
+        scheduledExam: {
+          select: {
+            id: true,
+            title: true,
+            examType: true,
+            revealScoreAfterSubmit: true,
+            answersReleased: true,
+          },
+        },
         items: {
           orderBy: { position: "asc" },
           include: {
@@ -1121,6 +1215,8 @@ export async function getCompletedAttemptReview(attemptId: string) {
         error: "Cannot review answer keys while an attempt is still active.",
       };
     }
+
+    const visibility = getExamPostSubmitVisibility(attempt.mode, attempt.scheduledExam);
 
     let correctCount = 0;
     const reviewItems = attempt.items.map((item) => {
@@ -1155,18 +1251,24 @@ export async function getCompletedAttemptReview(attemptId: string) {
         subjectCode: attempt.subjectCode,
         examBody: attempt.examBody,
         mode: attempt.mode,
+        examTitle: attempt.scheduledExam?.title || null,
         status: attempt.status,
-        correctCount,
+        correctCount: visibility.canSeeScore ? correctCount : null,
         questionCount: attempt.questionCount,
-        percentage:
-          attempt.questionCount > 0 ? Math.trunc((correctCount / attempt.questionCount) * 100) : 0,
+        percentage: visibility.canSeeScore
+          ? attempt.questionCount > 0
+            ? Math.trunc((correctCount / attempt.questionCount) * 100)
+            : 0
+          : null,
         hardStrikes: attempt.hardStrikes,
+        scoreWithheld: !visibility.canSeeScore,
+        answersWithheld: !visibility.canSeeAnswersAndAi,
         startedAt: attempt.startedAt.toISOString(),
         submittedAt: attempt.submittedAt ? attempt.submittedAt.toISOString() : null,
         durationSpentSec,
         durationAllocatedSec: attempt.durationSec,
       },
-      reviewItems,
+      reviewItems: visibility.canSeeAnswersAndAi ? reviewItems : [],
     };
   } catch (error: any) {
     console.error("getCompletedAttemptReview error:", error);
@@ -1184,6 +1286,11 @@ export async function getAttemptAiAnalysis(attemptId: string) {
     const attempt = await prisma.cbtAttempt.findUnique({
       where: { id: attemptId },
       include: {
+        scheduledExam: {
+          select: {
+            answersReleased: true,
+          },
+        },
         items: {
           orderBy: { position: "asc" },
           include: {
@@ -1201,6 +1308,13 @@ export async function getAttemptAiAnalysis(attemptId: string) {
 
     if (attempt.status === "ACTIVE") {
       return { success: false, error: "AI analysis is only available after exam submission." };
+    }
+
+    if (!getExamPostSubmitVisibility(attempt.mode, attempt.scheduledExam).canSeeAnswersAndAi) {
+      return {
+        success: false,
+        error: "Official solutions and AI breakdown are withheld until your Examiner releases exam review.",
+      };
     }
 
     const wrongItems = attempt.items.filter((it) => !it.isCorrect);
@@ -1246,6 +1360,7 @@ export async function getAttemptAiAnalysis(attemptId: string) {
  */
 export async function getQuestionAiExplanation(params: {
   questionId?: string;
+  attemptId?: string;
   stem: string;
   options: { key: string; text: string }[];
   correctKey: string;
@@ -1285,6 +1400,23 @@ export async function getQuestionAiExplanation(params: {
         };
       }
 
+      if (params.attemptId) {
+        const targetAttempt = await prisma.cbtAttempt.findUnique({
+          where: { id: params.attemptId },
+          include: { scheduledExam: { select: { answersReleased: true } } },
+        });
+        if (
+          !targetAttempt ||
+          targetAttempt.studentId !== student.StudentID ||
+          !getExamPostSubmitVisibility(targetAttempt.mode, targetAttempt.scheduledExam).canSeeAnswersAndAi
+        ) {
+          return {
+            success: false,
+            error: "AI explanations are withheld until the Examiner releases solutions for this exam.",
+          };
+        }
+      }
+
       if (params.questionId) {
         const completedAttempt = await prisma.cbtAttempt.findFirst({
           where: {
@@ -1292,13 +1424,22 @@ export async function getQuestionAiExplanation(params: {
             status: { in: ["SUBMITTED", "EXPIRED"] },
             items: { some: { questionId: String(params.questionId) } },
           },
-          select: { id: true },
+          include: {
+            scheduledExam: { select: { answersReleased: true } },
+          },
         });
 
         if (!completedAttempt) {
           return {
             success: false,
             error: "AI explanations are only available for questions in your completed CBT attempts.",
+          };
+        }
+
+        if (!getExamPostSubmitVisibility(completedAttempt.mode, completedAttempt.scheduledExam).canSeeAnswersAndAi) {
+          return {
+            success: false,
+            error: "AI explanations are withheld until the Examiner releases solutions for this exam.",
           };
         }
       }
