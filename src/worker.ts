@@ -1,5 +1,5 @@
-import { Worker } from 'bullmq';
-import { redis } from './lib/redis';
+import { Worker, type ConnectionOptions } from 'bullmq';
+import { getTcpRedisClient, redis } from './lib/redis';
 import { sendEmail } from './lib/email';
 import { PrismaClient } from '@prisma/client';
 import { invalidateCache } from './lib/cache';
@@ -32,6 +32,8 @@ cron.schedule("*/2 * * * *", async () => {
 
 console.log("Scheduled automated CBT timeout reaper (every 2 minutes).");
 
+const bullmqConnection = (getTcpRedisClient() || redis) as unknown as ConnectionOptions;
+
 // 1. Email Worker (Processes SMTP dispatch)
 const emailWorker = new Worker('email-queue', async job => {
   console.log(`[EmailWorker] Processing job ${job.id} - sending email to ${job.data.to}`);
@@ -42,7 +44,7 @@ const emailWorker = new Worker('email-queue', async job => {
     throw new Error("Failed to send email");
   }
   console.log(`[EmailWorker] Job ${job.id} completed successfully`);
-}, { connection: redis as any });
+}, { connection: bullmqConnection });
 
 // 2. Payment Worker (Deprecated placeholder disabled for security — Paystack webhook + Bursar ledger are authoritative)
 const paymentWorker = new Worker(
@@ -55,7 +57,7 @@ const paymentWorker = new Worker(
       "Legacy payment-queue worker is disabled. Payments must be verified via signed Paystack webhook or Bursar ledger."
     );
   },
-  { connection: redis as any }
+  { connection: bullmqConnection }
 );
 
 // Error handling

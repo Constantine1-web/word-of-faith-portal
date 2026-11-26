@@ -20,6 +20,7 @@ import {
   rateLimit,
   z,
 } from "../index";
+import { createUpstashRestClient, resolveUpstashRestConfig } from "../../redis";
 import { gradeFor, computeBroadsheetRankings } from "../../../server/domain/grading";
 import { computeCumulativeBroadsheet } from "../../cumulative-broadsheet";
 import { encodeQrMatrix, generateQrSvgMarkup } from "../../qr";
@@ -1317,7 +1318,81 @@ D) 14`,
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/25 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // =========================================================================
+  // SUITE 26: Upstash Redis REST Resolution & Stateless Fetch Transport
+  // =========================================================================
+  {
+    assert.deepEqual(
+      resolveUpstashRestConfig({
+        KV_REST_API_URL: " https://example-kv.upstash.io/ ",
+        KV_REST_API_TOKEN: " kv_tok_123 ",
+      }),
+      { url: "https://example-kv.upstash.io", token: "kv_tok_123" }
+    );
+
+    assert.deepEqual(
+      resolveUpstashRestConfig({
+        UPSTASH_REDIS_REST_URL: "https://primary.upstash.io/",
+        UPSTASH_REDIS_REST_TOKEN: "up_tok_456",
+        KV_REST_API_URL: "https://fallback.upstash.io/",
+        KV_REST_API_TOKEN: "kv_tok_123",
+      }),
+      { url: "https://primary.upstash.io", token: "up_tok_456" }
+    );
+
+    assert.equal(resolveUpstashRestConfig({ KV_REST_API_URL: "https://only-url.upstash.io" }), null);
+
+    const calls: Array<{ url: string; auth: string | null; body: unknown }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = (init?.headers || {}) as Record<string, string>;
+      const parsedBody = JSON.parse(String(init?.body || "[]"));
+      calls.push({
+        url: String(input),
+        auth: headers.Authorization || null,
+        body: parsedBody,
+      });
+
+      const cmd = String(parsedBody[0] || "").toUpperCase();
+      let result: unknown = "OK";
+      if (cmd === "GET") result = parsedBody[1] === "missing" ? null : '{"cached":true}';
+      else if (cmd === "INCR") result = 3;
+      else if (cmd === "EXPIRE") result = 1;
+      else if (cmd === "TTL") result = 58;
+      else if (cmd === "DEL") result = 2;
+
+      return new Response(JSON.stringify({ result }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const client = createUpstashRestClient("https://wofs.upstash.io/", "secret_token");
+      assert.equal(await client.get("exam:1"), '{"cached":true}');
+      assert.equal(await client.get("missing"), null);
+      assert.equal(await client.set("k1", "v1", "ex", 45), "OK");
+      assert.equal(await client.setex("k2", 95, "1"), "OK");
+      assert.equal(await client.incr("rl:k"), 3);
+      assert.equal(await client.expire("rl:k", 60), 1);
+      assert.equal(await client.ttl("rl:k"), 58);
+      assert.equal(await client.del("k1", "k2"), 2);
+      assert.equal(await client.del(), 0);
+
+      assert.equal(calls.length, 8);
+      assert.equal(calls[0].url, "https://wofs.upstash.io");
+      assert.equal(calls[0].auth, "Bearer secret_token");
+      assert.deepEqual(calls[2].body, ["SET", "k1", "v1", "EX", 45]);
+      assert.deepEqual(calls[3].body, ["SETEX", "k2", 95, "1"]);
+      assert.deepEqual(calls[7].body, ["DEL", "k1", "k2"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/26 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {
