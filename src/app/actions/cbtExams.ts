@@ -4,7 +4,13 @@ import crypto from "crypto";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireActiveUser, requireRole, writeAuditLog, can } from "@/lib/authz";
+import {
+  requireActiveUser,
+  requireRole,
+  writeAuditLog,
+  can,
+  checkStudentFeeClearance,
+} from "@/lib/authz";
 import { rateLimit, validateInput } from "@/lib/security";
 import { mapSubjectNameToCbtCodes } from "@/lib/cbt-constants";
 import { normalizeCbtSubjectCode } from "@/lib/cbt-csv";
@@ -75,40 +81,13 @@ async function assertCanManageClassExam(
 
 async function checkStudentTermFeeClearance(
   studentId: number,
-  hasPaidFeesFlag: boolean,
+  _hasPaidFeesFlag: boolean,
   termId: number
 ): Promise<boolean> {
-  if (hasPaidFeesFlag) return true;
-
-  const invoice = await prisma.invoice.findFirst({
-    where: {
-      StudentID: studentId,
-      TermID: termId,
-      Status: { not: "VOID" },
-    },
-    select: {
-      Status: true,
-      IsWaived: true,
-      portalFeeExempt: true,
-      AmountKobo: true,
-      Payments: {
-        where: {
-          Status: { in: ["Approved", "Successful", "APPROVED", "SUCCESSFUL"] },
-        },
-        select: { AmountKobo: true },
-      },
-    },
-  });
-
-  if (!invoice) return false;
-  if (invoice.Status === "PAID") return true;
-  if (invoice.IsWaived && invoice.portalFeeExempt) return true;
-
-  const paidSum = invoice.Payments.reduce(
-    (acc, p) => acc + BigInt(p.AmountKobo || 0),
-    BigInt(0)
-  );
-  return paidSum >= BigInt(invoice.AmountKobo || 0) && BigInt(invoice.AmountKobo || 0) > BigInt(0);
+  // Always derive clearance strictly from active term invoice + ledger payments + board exemptions
+  // (never bypass using stale global Student.HasPaidFees across terms).
+  const clearance = await checkStudentFeeClearance(studentId, termId);
+  return clearance.isCleared;
 }
 
 export async function getTeacherExamStudioData() {
@@ -846,7 +825,7 @@ export async function previewStrictExamScoresForResultSync(params: {
 
 export async function getAdminScheduledExamsDashboard() {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
     if (!isExamSupervisor(actor)) {
       return { success: false, error: "Forbidden", exams: [] };
     }
@@ -932,7 +911,7 @@ export async function generateExamRoomCodeAction(params: {
   autoOpenRoom?: boolean;
 }) {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
     if (!isExamSupervisor(actor)) {
       return { success: false, error: "Forbidden: Examination Officer privileges required." };
     }
@@ -951,10 +930,40 @@ export async function generateExamRoomCodeAction(params: {
       return { success: false, error: "Scheduled examination not found." };
     }
 
+    if (exam.status === "CLOSED") {
+      return {
+        success: false,
+        error: "This examination room is CLOSED. Reopen to SCHEDULED before issuing a new Morning Room Code.",
+      };
+    }
+
     if (exam.submission && exam.submission.status !== "APPROVED") {
       return {
         success: false,
         error: `Cannot generate Room Code until the teacher's question submission is APPROVED (current: ${exam.submission.status}).`,
+      };
+    }
+
+    if (exam._count.questions === 0) {
+      const availableCount = await prisma.cbtQuestion.count({
+        where: {
+          provider: "SCHOOL_INTERNAL",
+          bankScope: "EXAM_ONLY",
+          subjectCode: exam.subjectCode,
+          isActive: true,
+          answerKey: { isNot: null },
+        },
+      });
+      if (availableCount < exam.questionCount) {
+        return {
+          success: false,
+          error: `Subject "${exam.subjectCode}" only has ${availableCount} active EXAM_ONLY question(s); ${exam.questionCount} required before issuing a Room Code.`,
+        };
+      }
+    } else if (exam._count.questions < exam.questionCount) {
+      return {
+        success: false,
+        error: `Exam has ${exam._count.questions} pinned question(s), fewer than required ${exam.questionCount}.`,
       };
     }
 
@@ -1061,7 +1070,7 @@ export async function batchGenerateMorningRoomCodesAction(params: {
   autoOpenRooms?: boolean;
 }) {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
     if (!isExamSupervisor(actor)) {
       return { success: false, error: "Forbidden", generated: [] };
     }
@@ -1122,7 +1131,7 @@ export async function revokeExamRoomCodeAction(params: {
   reason?: string;
 }) {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
     if (!isExamSupervisor(actor)) {
       return { success: false, error: "Forbidden" };
     }
@@ -1444,19 +1453,37 @@ export async function startStrictExamAttempt(params: {
     // Factor 5: Rate-Limited Subject-Bound Examination Room Code Verification
     const activeRoomCode = exam.roomCodes[0] || null;
     if (exam.requireAccessCode || activeRoomCode) {
-      const codeRl = await rateLimit(`exam_code_guess:${actor.UserID}:${exam.id}`, 5, 600);
-      if (!codeRl.success) {
+      if (!activeRoomCode && !exam.accessCodeHash) {
+        return {
+          success: false,
+          error:
+            "This Examination Room Code has been revoked or has not been issued by the Examination Officer yet.",
+        };
+      }
+
+      const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000);
+      const dbFailedAttempts = await prisma.auditLog.count({
+        where: {
+          ActorID: actor.UserID,
+          Entity: "CbtScheduledExam",
+          EntityID: exam.id,
+          Action: "EXAM_SECURITY_ALERT_INVALID_ROOM_CODE",
+          CreatedAt: { gte: tenMinsAgo },
+        },
+      });
+
+      if (dbFailedAttempts >= 5) {
         await writeAuditLog({
           actorId: actor.UserID,
           action: "EXAM_SECURITY_ALERT_CODE_BRUTE_FORCE_LOCKED",
           entity: "CbtScheduledExam",
           entityId: exam.id,
-          newValue: { studentId: student.StudentID, admissionNo: student.AdmissionNo },
+          newValue: { studentId: student.StudentID, admissionNo: student.AdmissionNo, dbFailedAttempts },
         });
         return {
           success: false,
           error:
-            "Too many invalid Examination Room Code attempts. Room entry is temporarily locked for 10 minutes and logged for the Exam Officer.",
+            "Too many invalid Examination Room Code attempts. Room entry is locked for 10 minutes and logged for the Exam Officer.",
         };
       }
 
@@ -1480,6 +1507,7 @@ export async function startStrictExamAttempt(params: {
       }
 
       if (!codeValid) {
+        const codeRl = await rateLimit(`exam_code_guess:${actor.UserID}:${exam.id}`, 5, 600);
         await writeAuditLog({
           actorId: actor.UserID,
           action: "EXAM_SECURITY_ALERT_INVALID_ROOM_CODE",
@@ -1489,8 +1517,18 @@ export async function startStrictExamAttempt(params: {
             studentId: student.StudentID,
             admissionNo: student.AdmissionNo,
             subjectCode: exam.subjectCode,
+            remainingFastBucket: codeRl.remaining,
           },
         });
+        if (!codeRl.success) {
+          await writeAuditLog({
+            actorId: actor.UserID,
+            action: "EXAM_SECURITY_ALERT_CODE_BRUTE_FORCE_LOCKED",
+            entity: "CbtScheduledExam",
+            entityId: exam.id,
+            newValue: { studentId: student.StudentID, admissionNo: student.AdmissionNo },
+          });
+        }
         return {
           success: false,
           error: codeFailureReason,
@@ -1544,55 +1582,84 @@ export async function startStrictExamAttempt(params: {
     const expiresAt = new Date(startedAt.getTime() + durationSec * 1000);
     const activeTabToken = `tab:${crypto.randomUUID()}`;
 
-    const attempt = await prisma.$transaction(async (tx) => {
-      const created = await tx.cbtAttempt.create({
-        data: {
-          studentId: student.StudentID,
-          subjectCode: exam.subjectCode,
-          examBody: "SCHOOL_INTERNAL",
-          mode: "EXAM",
-          status: "ACTIVE",
-          seed,
-          questionCount: chosenIds.length,
-          durationSec,
-          startedAt,
-          expiresAt,
-          dayKey,
-          hardStrikes: 0,
-          sessionId: activeTabToken,
-          scheduledExamId: exam.id,
-        },
-      });
-
-      for (let idx = 0; idx < chosenIds.length; idx++) {
-        const optionKeys = seededShuffle(["a", "b", "c", "d"], `${seed}:${idx}`);
-        await tx.cbtAttemptQuestion.create({
+    let attempt;
+    try {
+      attempt = await prisma.$transaction(async (tx) => {
+        const created = await tx.cbtAttempt.create({
           data: {
-            attemptId: created.id,
-            questionId: chosenIds[idx],
-            position: idx + 1,
-            optionOrder: optionKeys,
+            studentId: student.StudentID,
+            subjectCode: exam.subjectCode,
+            examBody: "SCHOOL_INTERNAL",
+            mode: "EXAM",
+            status: "ACTIVE",
+            seed,
+            questionCount: chosenIds.length,
+            durationSec,
+            startedAt,
+            expiresAt,
+            dayKey,
+            hardStrikes: 0,
+            sessionId: activeTabToken,
+            scheduledExamId: exam.id,
           },
         });
-      }
 
-      await writeAuditLog({
-        tx,
-        actorId: actor.UserID,
-        action: "CBT_STRICT_EXAM_STARTED",
-        entity: "CbtAttempt",
-        entityId: created.id,
-        newValue: {
-          studentId: student.StudentID,
-          scheduledExamId: exam.id,
-          examTitle: exam.title,
-          questionCount: chosenIds.length,
-          durationMinutes: exam.durationMinutes,
-        },
+        for (let idx = 0; idx < chosenIds.length; idx++) {
+          const optionKeys = seededShuffle(["a", "b", "c", "d"], `${seed}:${idx}`);
+          await tx.cbtAttemptQuestion.create({
+            data: {
+              attemptId: created.id,
+              questionId: chosenIds[idx],
+              position: idx + 1,
+              optionOrder: optionKeys,
+            },
+          });
+        }
+
+        await writeAuditLog({
+          tx,
+          actorId: actor.UserID,
+          action: "CBT_STRICT_EXAM_STARTED",
+          entity: "CbtAttempt",
+          entityId: created.id,
+          newValue: {
+            studentId: student.StudentID,
+            scheduledExamId: exam.id,
+            examTitle: exam.title,
+            questionCount: chosenIds.length,
+            durationMinutes: exam.durationMinutes,
+          },
+        });
+
+        return created;
       });
-
-      return created;
-    });
+    } catch (raceErr: unknown) {
+      const code = (raceErr as { code?: string })?.code;
+      if (code === "P2002") {
+        const racedExisting = await prisma.cbtAttempt.findFirst({
+          where: {
+            studentId: student.StudentID,
+            scheduledExamId: exam.id,
+            isRetakeCleared: false,
+          },
+          orderBy: { startedAt: "desc" },
+        });
+        if (racedExisting?.status === "ACTIVE") {
+          return {
+            success: true,
+            attemptId: racedExisting.id,
+            sessionToken: racedExisting.sessionId,
+            resumed: true,
+          };
+        }
+        return {
+          success: false,
+          error:
+            "Your examination attempt has already been registered. Refresh the page to continue or view status.",
+        };
+      }
+      throw raceErr;
+    }
 
     return {
       success: true,

@@ -1,8 +1,10 @@
 {
-  "crons": [
-    {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "schedules": {
+    "cbt-reaper": {
+      "schedule": "*/15 * * * *",
       "path": "/api/cron/cbt-reaper",
-      "schedule": "0 1 * * *"
+      "requestMethod": "GET"
     }
-  ]
+  }
 }

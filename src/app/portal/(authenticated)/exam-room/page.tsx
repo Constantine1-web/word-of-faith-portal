@@ -95,7 +95,20 @@ export default function StudentExaminationRoomPage() {
     setErrorMsg("");
 
     if (selectedExam.myAttempt?.status === "ACTIVE") {
-      router.push(`/portal/cbt/quiz?attemptId=${encodeURIComponent(selectedExam.myAttempt.id)}`);
+      setLaunching(true);
+      const resumeRes = await startStrictExamAttempt({ scheduledExamId: selectedExam.id });
+      if (resumeRes.success && resumeRes.attemptId) {
+        if (resumeRes.sessionToken && typeof window !== "undefined") {
+          window.sessionStorage.setItem(
+            `wofs_cbt_tok_${resumeRes.attemptId}`,
+            resumeRes.sessionToken
+          );
+        }
+        router.push(`/portal/cbt/quiz?attemptId=${encodeURIComponent(resumeRes.attemptId)}`);
+        return;
+      }
+      setErrorMsg(resumeRes.error || "Unable to resume active examination.");
+      setLaunching(false);
       return;
     }
 

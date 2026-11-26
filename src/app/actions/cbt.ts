@@ -208,6 +208,18 @@ export async function getCbtStudentStatus() {
         activeAttempt && new Date() <= new Date(activeAttempt.expiresAt.getTime() + 5000)
           ? activeAttempt.id
           : null,
+      activeAttemptMode:
+        activeAttempt && new Date() <= new Date(activeAttempt.expiresAt.getTime() + 5000)
+          ? activeAttempt.mode
+          : null,
+      activeAttemptScheduledExamId:
+        activeAttempt && new Date() <= new Date(activeAttempt.expiresAt.getTime() + 5000)
+          ? activeAttempt.scheduledExamId
+          : null,
+      activeAttemptSessionToken:
+        activeAttempt && new Date() <= new Date(activeAttempt.expiresAt.getTime() + 5000)
+          ? activeAttempt.sessionId
+          : null,
       recentAttempts,
       schoolInternalSubjects: internalSubjectRows
         .filter((r) => r._count.id > 0)
@@ -282,6 +294,13 @@ export async function startAttempt(params: {
     });
 
     if (existingActive) {
+      if (existingActive.mode === "EXAM") {
+        return {
+          success: false,
+          error:
+            "You currently have an active Official Examination in progress. Resume and submit your Official Exam in the Examination Room before starting Practice or Mock mode.",
+        };
+      }
       await submitAttempt(existingActive.id);
     }
 
@@ -855,6 +874,11 @@ export async function saveAnswerBatch(params: {
       };
     }
 
+    if (new Date() > new Date(attempt.expiresAt.getTime() + 5000)) {
+      await submitAttempt(attempt.id);
+      return { success: false, expired: true, error: "Exam timer expired." };
+    }
+
     const validAnswers = (params.answers || [])
       .filter(
         (a) =>
@@ -1200,8 +1224,8 @@ export async function submitAttempt(attemptId: string) {
         attempt.questionCount > 0 ? Math.trunc((correctCount / attempt.questionCount) * 1000) : 0;
 
       if (attempt.status === "ACTIVE") {
-        await tx.cbtAttempt.update({
-          where: { id: attempt.id },
+        const finalized = await tx.cbtAttempt.updateMany({
+          where: { id: attempt.id, status: "ACTIVE" },
           data: {
             status: "SUBMITTED",
             submittedAt: new Date(),
@@ -1209,19 +1233,21 @@ export async function submitAttempt(attemptId: string) {
           },
         });
 
-        await writeAuditLog({
-          tx,
-          actorId: actor.UserID,
-          action: "CBT_ATTEMPT_SUBMITTED",
-          entity: "CbtAttempt",
-          entityId: attempt.id,
-          newValue: {
-            studentId: student.StudentID,
-            correctCount,
-            questionCount: attempt.questionCount,
-            scoreTenths: percentageTenths,
-          },
-        });
+        if (finalized.count === 1) {
+          await writeAuditLog({
+            tx,
+            actorId: actor.UserID,
+            action: "CBT_ATTEMPT_SUBMITTED",
+            entity: "CbtAttempt",
+            entityId: attempt.id,
+            newValue: {
+              studentId: student.StudentID,
+              correctCount,
+              questionCount: attempt.questionCount,
+              scoreTenths: percentageTenths,
+            },
+          });
+        }
       }
     });
 
@@ -1666,9 +1692,9 @@ export async function reapExpiredCbtAttempts(limit = 50) {
     for (const attempt of expiredAttempts) {
       let correctCount = 0;
 
-      await prisma.$transaction(async (tx) => {
+      const didReap = await prisma.$transaction(async (tx) => {
         for (const item of attempt.items) {
-          const correctKey = (item.question.answerKey?.correctKey || "").toLowerCase().trim();
+          const correctKey = decryptAnswerKeyValue(item.question.answerKey?.correctKey);
           const isCorrect = Boolean(
             correctKey && item.selectedKey && item.selectedKey.toLowerCase().trim() === correctKey
           );
@@ -1683,8 +1709,8 @@ export async function reapExpiredCbtAttempts(limit = 50) {
         const percentageTenths =
           attempt.questionCount > 0 ? Math.trunc((correctCount / attempt.questionCount) * 1000) : 0;
 
-        await tx.cbtAttempt.update({
-          where: { id: attempt.id },
+        const claimed = await tx.cbtAttempt.updateMany({
+          where: { id: attempt.id, status: "ACTIVE" },
           data: {
             status: "EXPIRED",
             submittedAt: now,
@@ -1692,6 +1718,10 @@ export async function reapExpiredCbtAttempts(limit = 50) {
             terminationReason: "Exam timer expired (automatically finalized by CBT Reaper)",
           },
         });
+
+        if (claimed.count === 0) {
+          return false;
+        }
 
         await writeAuditLog({
           tx,
@@ -1707,9 +1737,13 @@ export async function reapExpiredCbtAttempts(limit = 50) {
             reapedAt: now.toISOString(),
           },
         });
+
+        return true;
       });
 
-      reapedIds.push(attempt.id);
+      if (didReap) {
+        reapedIds.push(attempt.id);
+      }
     }
 
     return {

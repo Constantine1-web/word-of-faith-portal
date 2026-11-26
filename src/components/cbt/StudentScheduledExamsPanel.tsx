@@ -52,7 +52,20 @@ export default function StudentScheduledExamsPanel({
   const handleLaunchExam = async (ex: any) => {
     setErrMsg("");
     if (ex.myAttempt?.status === "ACTIVE") {
-      router.push(`/portal/cbt/quiz?attemptId=${encodeURIComponent(ex.myAttempt.id)}`);
+      setLaunchingId(ex.id);
+      const resumeRes = await startStrictExamAttempt({ scheduledExamId: ex.id });
+      if (resumeRes.success && resumeRes.attemptId) {
+        if (resumeRes.sessionToken && typeof window !== "undefined") {
+          window.sessionStorage.setItem(
+            `wofs_cbt_tok_${resumeRes.attemptId}`,
+            resumeRes.sessionToken
+          );
+        }
+        router.push(`/portal/cbt/quiz?attemptId=${encodeURIComponent(resumeRes.attemptId)}`);
+        return;
+      }
+      setErrMsg(resumeRes.error || "Unable to resume active official exam.");
+      setLaunchingId(null);
       return;
     }
 

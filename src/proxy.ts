@@ -61,12 +61,19 @@ export async function proxy(request: NextRequest) {
 
   // Allow non-portal routes with security headers
   if (!pathname.startsWith("/portal")) {
-    return applySecurityHeaders(NextResponse.next());
+    const res = applySecurityHeaders(NextResponse.next());
+    if (pathname.startsWith("/api")) {
+      res.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+      res.headers.set("Pragma", "no-cache");
+    }
+    return res;
   }
 
   // Allow explicit public authentication & error routes under /portal
   if (PUBLIC_PORTAL_ALLOWLIST.has(pathname)) {
-    return applySecurityHeaders(NextResponse.next());
+    const res = applySecurityHeaders(NextResponse.next());
+    res.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+    return res;
   }
 
   // Default-deny for all other /portal/* routes: verify JWT explicitly (fail-closed)
@@ -89,21 +96,31 @@ export async function proxy(request: NextRequest) {
     if (pathname.startsWith("/portal/")) {
       loginUrl.searchParams.set("callbackUrl", pathname);
     }
-    return applySecurityHeaders(NextResponse.redirect(loginUrl));
+    const res = applySecurityHeaders(NextResponse.redirect(loginUrl));
+    res.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+    return res;
   }
 
   const userRoles = new Set<string>([
     token.role as string,
     ...((Array.isArray(token.roles) ? token.roles : []) as string[]),
   ]);
+  const userCaps = new Set<string>(
+    (Array.isArray(token.capabilities) ? token.capabilities : []) as string[]
+  );
 
   // Gate 1: Admin Control Center (/portal/admin/*)
   if (pathname.startsWith("/portal/admin")) {
-    const canAccessAdmin = Array.from(userRoles).some((r) => ADMIN_ALLOWED_ROLES.has(r));
+    const isExamControlRoute = pathname.startsWith("/portal/admin/cbt");
+    const canAccessAdmin =
+      Array.from(userRoles).some((r) => ADMIN_ALLOWED_ROLES.has(r)) ||
+      (isExamControlRoute && userCaps.has("MANAGE_CBT"));
     if (!canAccessAdmin) {
-      return applySecurityHeaders(
+      const res = applySecurityHeaders(
         NextResponse.redirect(new URL("/portal/unauthorized?zone=admin", request.url))
       );
+      res.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+      return res;
     }
   }
 
@@ -111,13 +128,18 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/portal/teacher")) {
     const canAccessTeacher = Array.from(userRoles).some((r) => TEACHER_ALLOWED_ROLES.has(r));
     if (!canAccessTeacher) {
-      return applySecurityHeaders(
+      const res = applySecurityHeaders(
         NextResponse.redirect(new URL("/portal/unauthorized?zone=teacher", request.url))
       );
+      res.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+      return res;
     }
   }
 
-  return applySecurityHeaders(NextResponse.next());
+  const res = applySecurityHeaders(NextResponse.next());
+  res.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate, max-age=0");
+  res.headers.set("Pragma", "no-cache");
+  return res;
 }
 
 export const config = {

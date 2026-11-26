@@ -17,6 +17,9 @@ import {
   decryptAnswerKeyValue,
 } from "@/lib/exam-vault";
 
+import { mapSubjectNameToCbtCodes } from "@/lib/cbt-constants";
+import { normalizeCbtSubjectCode } from "@/lib/cbt-csv";
+
 // ============================================================================
 // TRACK A: TEACHER-CREATED CUSTOM CBT QUESTIONS & CLASS QUIZZES
 // ============================================================================
@@ -26,6 +29,7 @@ export async function createCustomCbtQuestion(data: {
   examBody?: string;
   bankScope?: "OPEN_BANK" | "EXAM_ONLY";
   targetClassLevel?: string;
+  submissionId?: string;
   topic?: string;
   stem: string;
   optionA: string;
@@ -45,7 +49,31 @@ export async function createCustomCbtQuestion(data: {
       "Admin",
     ]);
 
-    const subjectCode = (data.subjectCode || "english").trim().toLowerCase();
+    const isSupervisor =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("ADMIN") ||
+      actor.roles.has("Admin") ||
+      can(actor, "MANAGE_CBT");
+
+    const subjectCode = normalizeCbtSubjectCode(data.subjectCode || "english") || "english";
+    if (!isSupervisor) {
+      const allocations = await prisma.teacher_Subject_Map.findMany({
+        where: { TeacherID: actor.UserID },
+        include: { Subject: { select: { SubjectName: true, SubjectCode: true } } },
+      });
+      const allowedCodes = new Set<string>();
+      for (const a of allocations) {
+        for (const c of mapSubjectNameToCbtCodes(a.Subject?.SubjectName)) allowedCodes.add(c);
+        if (a.Subject?.SubjectCode) allowedCodes.add(normalizeCbtSubjectCode(a.Subject.SubjectCode));
+      }
+      if (allowedCodes.size === 0 || !allowedCodes.has(subjectCode)) {
+        return {
+          success: false,
+          error: "Authorization denied: You can only author CBT questions for subjects assigned to you.",
+        };
+      }
+    }
     const examBody = (data.examBody || "WASSCE").trim().toUpperCase();
     const stem = (data.stem || "").trim();
     const optA = (data.optionA || "").trim();
@@ -88,9 +116,49 @@ export async function createCustomCbtQuestion(data: {
         : data.explanation.trim()
       : null;
     const idPrefix = bankScope === "EXAM_ONLY" ? "wof-exam" : "wof-custom";
-    const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
+    const externalId = `${idPrefix}-u${actor.UserID}-${contentHash.slice(0, 14)}`;
+
+    if (data.submissionId) {
+      const targetSub = await prisma.cbtQuestionSubmission.findUnique({
+        where: { id: data.submissionId },
+        select: { id: true, teacherId: true, status: true },
+      });
+      if (!targetSub) {
+        return { success: false, error: "Question submission packet not found." };
+      }
+      if (!isSupervisor && targetSub.teacherId !== actor.UserID) {
+        return { success: false, error: "Forbidden: Packet belongs to another teacher." };
+      }
+      if (!isSupervisor && targetSub.status !== "DRAFT" && targetSub.status !== "REVISION_REQUESTED") {
+        return {
+          success: false,
+          error: `Submission Locked: Cannot attach questions while packet is ${targetSub.status}.`,
+        };
+      }
+    }
 
     const created = await prisma.$transaction(async (tx) => {
+      const existing = await tx.cbtQuestion.findUnique({
+        where: {
+          provider_externalId: {
+            provider: "SCHOOL_INTERNAL",
+            externalId,
+          },
+        },
+        include: { submission: { select: { status: true } } },
+      });
+      if (
+        existing &&
+        !isSupervisor &&
+        existing.submission &&
+        existing.submission.status !== "DRAFT" &&
+        existing.submission.status !== "REVISION_REQUESTED"
+      ) {
+        throw new Error(
+          `Submission Locked: Question cannot be overwritten while packet status is ${existing.submission.status}.`
+        );
+      }
+
       const q = await tx.cbtQuestion.upsert({
         where: {
           provider_externalId: {
@@ -103,6 +171,7 @@ export async function createCustomCbtQuestion(data: {
           subjectCode,
           bankScope,
           isEncrypted: shouldEncrypt,
+          ...(data.submissionId ? { submissionId: data.submissionId } : {}),
           targetClassLevel: data.targetClassLevel?.trim() || null,
           authoredById: actor.UserID,
           topic: data.topic?.trim() || "School Class Quiz",
@@ -118,6 +187,7 @@ export async function createCustomCbtQuestion(data: {
           subjectCode,
           bankScope,
           isEncrypted: shouldEncrypt,
+          submissionId: data.submissionId || null,
           targetClassLevel: data.targetClassLevel?.trim() || null,
           authoredById: actor.UserID,
           examYear: new Date().getFullYear(),

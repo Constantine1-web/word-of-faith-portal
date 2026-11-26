@@ -170,20 +170,29 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     return tok;
   }, [attemptId]);
 
-  const flushOfflineAnswerQueue = useCallback(async () => {
-    if (typeof window === "undefined") return;
+  const readPendingQueueMap = useCallback((): Record<
+    string,
+    { position: number; selectedKey: string; timeSpentMs?: number }
+  > => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.sessionStorage.getItem(`wofs_cbt_pending_${attemptId}`);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }, [attemptId]);
+
+  const flushOfflineAnswerQueue = useCallback(async (): Promise<boolean> => {
+    if (typeof window === "undefined") return true;
     const qKey = `wofs_cbt_pending_${attemptId}`;
-    const raw = window.sessionStorage.getItem(qKey);
-    if (!raw) return;
+    const parsedMap = readPendingQueueMap();
+    const list = Object.values(parsedMap);
+    if (list.length === 0) return true;
 
     try {
-      const parsedMap = JSON.parse(raw) as Record<
-        string,
-        { position: number; selectedKey: string; timeSpentMs?: number }
-      >;
-      const list = Object.values(parsedMap);
-      if (list.length === 0) return;
-
       const res = await saveAnswerBatch({
         attemptId,
         sessionToken: getTabSessionToken(),
@@ -192,11 +201,13 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       if (res.success) {
         window.sessionStorage.removeItem(qKey);
         setQueuedAnswerCount(0);
+        return true;
       }
+      return false;
     } catch {
-      // Keep queued in sessionStorage until next reconnect
+      return false;
     }
-  }, [attemptId, getTabSessionToken]);
+  }, [attemptId, getTabSessionToken, readPendingQueueMap]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -207,33 +218,54 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     return () => window.removeEventListener("online", onOnline);
   }, [flushOfflineAnswerQueue]);
 
-  const handleFinalSubmit = useCallback(async () => {
-    setLoadingQuestion(true);
-    await flushOfflineAnswerQueue();
-    const res = await submitAttempt(attemptId);
-    if (res.success && res.summary) {
-      setSubmittedResult({
-        summary: res.summary,
-        reviewItems: res.reviewItems || [],
-      });
-    } else if (res.terminated) {
-      setTerminatedReason(res.error || "Attempt was terminated.");
-    } else {
-      setErrorMsg(res.error || "Failed to submit exam.");
-    }
-    setLoadingQuestion(false);
-  }, [attemptId, flushOfflineAnswerQueue]);
+  const handleFinalSubmit = useCallback(
+    async (isManualClick = false) => {
+      setLoadingQuestion(true);
+      const pendingBeforeSubmit = Object.keys(readPendingQueueMap()).length;
+      const synced = await flushOfflineAnswerQueue();
+      if (!synced && isManualClick && pendingBeforeSubmit > 0) {
+        setErrorMsg(
+          `Network offline: ${pendingBeforeSubmit} locally saved answer(s) could not be synced yet. Restore internet connectivity and click Submit again so none of your answers are lost.`
+        );
+        setLoadingQuestion(false);
+        return;
+      }
+
+      const res = await submitAttempt(attemptId);
+      if (res.success && res.summary) {
+        setSubmittedResult({
+          summary: res.summary,
+          reviewItems: res.reviewItems || [],
+        });
+      } else if (res.terminated) {
+        setTerminatedReason(res.error || "Attempt was terminated.");
+      } else {
+        setErrorMsg(res.error || "Failed to submit exam.");
+      }
+      setLoadingQuestion(false);
+    },
+    [attemptId, flushOfflineAnswerQueue, readPendingQueueMap]
+  );
 
   // Fetch ONLY the single active question slot from the server
   const loadQuestionSlot = useCallback(
     async (targetPos: number) => {
       setLoadingQuestion(true);
       setErrorMsg(null);
+      await flushOfflineAnswerQueue();
       const res = await getQuestion(attemptId, targetPos, getTabSessionToken());
       if (res.success && res.question && res.attempt) {
-        setAttemptMeta(res.attempt);
+        const pendingMap = readPendingQueueMap();
+        const mergedAnswered = { ...res.attempt.answeredMap };
+        for (const pKey of Object.keys(pendingMap)) {
+          mergedAnswered[Number(pKey)] = true;
+        }
+        const pendingForSlot = pendingMap[String(res.question.position)];
+        setAttemptMeta({ ...res.attempt, answeredMap: mergedAnswered });
         setWatermark(res.watermark || null);
-        setCurrentQuestion(res.question);
+        setCurrentQuestion(
+          pendingForSlot ? { ...res.question, selectedKey: pendingForSlot.selectedKey } : res.question
+        );
         setPosition(res.question.position);
         questionLoadedAtRef.current = Date.now();
 
@@ -253,18 +285,33 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       }
       setLoadingQuestion(false);
     },
-    [attemptId, getTabSessionToken]
+    [attemptId, getTabSessionToken, flushOfflineAnswerQueue, readPendingQueueMap]
   );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const initialPending = readPendingQueueMap();
+      const initialCount = Object.keys(initialPending).length;
+      if (!cancelled && initialCount > 0) {
+        setQueuedAnswerCount(initialCount);
+        await flushOfflineAnswerQueue();
+      }
+
       const res = await getQuestion(attemptId, 1, getTabSessionToken());
       if (cancelled) return;
       if (res.success && res.question && res.attempt) {
-        setAttemptMeta(res.attempt);
+        const remainingPending = readPendingQueueMap();
+        const mergedAnswered = { ...res.attempt.answeredMap };
+        for (const pKey of Object.keys(remainingPending)) {
+          mergedAnswered[Number(pKey)] = true;
+        }
+        const pendingForSlot = remainingPending[String(res.question.position)];
+        setAttemptMeta({ ...res.attempt, answeredMap: mergedAnswered });
         setWatermark(res.watermark || null);
-        setCurrentQuestion(res.question);
+        setCurrentQuestion(
+          pendingForSlot ? { ...res.question, selectedKey: pendingForSlot.selectedKey } : res.question
+        );
         setPosition(res.question.position);
         questionLoadedAtRef.current = Date.now();
         setTimeLeft(getRemainingSeconds(res.attempt.expiresAt));
@@ -288,7 +335,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [attemptId, getTabSessionToken]);
+  }, [attemptId, getTabSessionToken, flushOfflineAnswerQueue, readPendingQueueMap]);
 
   // Server-authoritative countdown timer
   useEffect(() => {
@@ -967,7 +1014,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
           style={{ marginTop: "1rem", width: "100%", justifyContent: "center" }}
           onClick={() => {
             if (confirm("Are you ready to submit your CBT attempt for server-side grading?")) {
-              handleFinalSubmit();
+              handleFinalSubmit(true);
             }
           }}
           disabled={loadingQuestion}
@@ -1087,7 +1134,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
               className={styles.submitBtn}
               onClick={() => {
                 if (confirm("Are you ready to submit your CBT attempt for server-side grading?")) {
-                  handleFinalSubmit();
+                  handleFinalSubmit(true);
                 }
               }}
               disabled={loadingQuestion}

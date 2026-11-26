@@ -335,6 +335,16 @@ export default function AdminDashboard() {
           </div>
         </Link>
 
+        <Link href="/portal/admin/cbt" style={{ textDecoration: "none" }}>
+          <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
+              <div style={{ background: "var(--status-success-bg)", color: "var(--status-success-text)", padding: "0.5rem", borderRadius: "8px", display: "flex" }}><FiShield size={20} /></div>
+              <h4 style={{ margin: 0, color: "var(--color-navy-blue)" }}>Examination Control Centre</h4>
+            </div>
+            <p style={{ color: "var(--color-gray-600)", fontSize: "0.85rem", margin: 0 }}>Monitor teacher uploads, approve encrypted exams, issue morning Room Codes, and track live halls.</p>
+          </div>
+        </Link>
+
         <Link href="/portal/admin/teachers" style={{ textDecoration: "none" }}>
           <div className="hover-lift" style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", border: "1px solid var(--color-gray-200)", height: "100%" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>

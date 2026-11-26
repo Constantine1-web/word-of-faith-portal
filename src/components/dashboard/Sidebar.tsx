@@ -47,6 +47,8 @@ export default function Sidebar() {
   const userRoles: string[] = ((session?.user as any)?.roles || [session?.user?.role || "Student"]).map((r: string) =>
     String(r).toLowerCase()
   );
+  const userCaps: string[] = (session?.user as any)?.capabilities || [];
+  const hasManageCbt = userCaps.includes("MANAGE_CBT");
   const isAdminStaff = userRoles.some(r => ["admin", "super_admin", "principal", "bursar", "admissions"].includes(r));
   const isEducator = userRoles.some(r => ["teacher", "form_master"].includes(r));
   const isParent = !isAdminStaff && !isEducator && userRoles.includes("parent");
@@ -109,15 +111,18 @@ export default function Sidebar() {
     if (userRole === "teacher") {
       return [
         { name: "Educator Workspace", href: "/portal/teacher", icon: <FiHome /> },
+        ...(hasManageCbt
+          ? [{ name: "Examination Control Centre", href: "/portal/admin/cbt", icon: <FiAward /> }]
+          : []),
         { 
           name: "Academics", 
           icon: <FiBookOpen />, 
           children: [
             { name: "Score Entry & CA", href: "/portal/teacher" },
-            { name: "Custom CBT Quiz Builder", href: "/portal/teacher?tab=elearning-studio" },
+            { name: "Exam Submissions & CBT Studio", href: "/portal/teacher?tab=elearning-studio" },
             { name: "Attendance Roll Call", href: "/portal/teacher?tab=attendance-hub" },
             { name: "Class Teacher Hub", href: "/portal/teacher?tab=class-teacher-hub" },
-            { name: "CBT Exams", href: "/portal/cbt" },
+            { name: "CBT Practice Studio", href: "/portal/cbt" },
           ]
         },
         { name: "Admin–Teacher Comms", href: "/portal/messages", icon: <FiFileText /> },

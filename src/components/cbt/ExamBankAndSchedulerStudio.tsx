@@ -1344,7 +1344,7 @@ export default function ExamBankAndSchedulerStudio({
               />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 170px), 1fr))", gap: "0.75rem" }}>
               <div>
                 <label className="form-label" style={{ fontSize: "0.8rem" }}>
                   Exam Bank Subject Code *
@@ -1382,7 +1382,7 @@ export default function ExamBankAndSchedulerStudio({
               {pinnedQuestionIds.length > 0 ? ` · (${pinnedQuestionIds.length} manually pinned)` : ""}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.65rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 145px), 1fr))", gap: "0.65rem" }}>
               <div>
                 <label className="form-label" style={{ fontSize: "0.78rem" }}>
                   Questions / Student
@@ -1424,7 +1424,7 @@ export default function ExamBankAndSchedulerStudio({
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 170px), 1fr))", gap: "0.75rem" }}>
               <div>
                 <label className="form-label" style={{ fontSize: "0.78rem" }}>
                   Invigilator PIN (Optional)
@@ -1458,7 +1458,7 @@ export default function ExamBankAndSchedulerStudio({
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 170px), 1fr))", gap: "0.75rem" }}>
               <div>
                 <label className="form-label" style={{ fontSize: "0.75rem" }}>
                   Opens At (Optional Window)

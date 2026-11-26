@@ -26,8 +26,10 @@ export default async function AdminLayout({
     redirect("/portal/login?callbackUrl=/portal/admin");
   }
 
-  // Strict server-side role verification (no developer email bypass)
-  const isAuthorized = actor.roles.some((r) => ADMIN_STAFF_ROLES.includes(r));
+  // Strict server-side role/capability verification (allows delegated Exam Officer with MANAGE_CBT)
+  const isAuthorized =
+    actor.roles.some((r) => ADMIN_STAFF_ROLES.includes(r)) ||
+    actor.capabilities.has("MANAGE_CBT");
   if (!isAuthorized) {
     redirect("/portal/unauthorized?zone=admin");
   }

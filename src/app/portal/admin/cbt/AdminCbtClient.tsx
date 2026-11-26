@@ -1129,7 +1129,7 @@ export default function AdminCbtClient({
                 )}
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 155px), 1fr))", gap: "0.75rem" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, marginBottom: "0.3rem" }}>
                     Subject *
@@ -1364,7 +1364,7 @@ export default function AdminCbtClient({
                 Rows missing <code>subjectCode</code> or <code>examBody</code> inherit the defaults below.
               </p>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 155px), 1fr))", gap: "0.75rem" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, marginBottom: "0.25rem" }}>
                     Default Subject (Fallback)
@@ -1609,7 +1609,7 @@ export default function AdminCbtClient({
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "1rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem", alignItems: "center" }}>
-                        <span style={{ padding: "0.2rem 0.55rem", borderRadius: "999px", background: "var(--color-navy-blue)", color: "#fff", fontSize: "0.75rem", fontWeight: 700 }}>
+                        <span style={{ padding: "0.2rem 0.55rem", borderRadius: "999px", background: "var(--brand-secondary)", color: "var(--brand-secondary-text)", fontSize: "0.75rem", fontWeight: 700 }}>
                           {formatCbtSubjectLabel(q.subjectCode)}
                         </span>
                         <span style={{ padding: "0.2rem 0.55rem", borderRadius: "999px", background: "var(--color-gray-100)", color: "var(--color-gray-700)", fontSize: "0.75rem", fontWeight: 600 }}>

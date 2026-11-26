@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import prisma from "./db";
 import bcrypt from "bcryptjs";
 import { rateLimit } from "./rateLimit";
+import { resolveActorCapabilities } from "@/server/security/capabilities";
 
 declare module "next-auth" {
   interface Session {
@@ -10,6 +11,7 @@ declare module "next-auth" {
       id: number;
       role: string;
       roles?: string[];
+      capabilities?: string[];
       tokenVersion?: number;
       email?: string | null;
       name?: string | null;
@@ -20,6 +22,7 @@ declare module "next-auth" {
     id: number;
     role: string;
     roles?: string[];
+    capabilities?: string[];
     tokenVersion?: number;
   }
 }
@@ -29,6 +32,7 @@ declare module "next-auth/jwt" {
     id: number;
     role: string;
     roles?: string[];
+    capabilities?: string[];
     tokenVersion?: number;
   }
 }
@@ -211,12 +215,20 @@ export const authOptions: NextAuthOptions = {
 
         const assignedRoles = user.RoleAssignments?.map((r) => r.Role) || [];
         const allRoles = Array.from(new Set([user.Role.RoleName, ...assignedRoles]));
+        const caps = Array.from(
+          resolveActorCapabilities(
+            (user as { Capabilities?: string[] }).Capabilities,
+            assignedRoles,
+            user.Role.RoleName
+          )
+        );
 
         return {
           id: user.UserID,
           email: user.Email,
           role: user.Role.RoleName,
           roles: allRoles,
+          capabilities: caps,
           tokenVersion: user.TokenVersion ?? 1,
         };
       },
@@ -239,6 +251,7 @@ export const authOptions: NextAuthOptions = {
         token.id = Number(user.id);
         token.role = user.role as string;
         token.roles = user.roles || [user.role as string];
+        token.capabilities = user.capabilities || [];
         token.tokenVersion = user.tokenVersion ?? 1;
       } else if (!token.id && token.sub) {
         token.id = Number(token.sub);
@@ -253,6 +266,7 @@ export const authOptions: NextAuthOptions = {
         }
         session.user.role = (token.role as string) || "Student";
         session.user.roles = (token.roles as string[]) || [session.user.role];
+        session.user.capabilities = (token.capabilities as string[]) || [];
         session.user.tokenVersion = (token.tokenVersion as number) ?? 1;
       }
       return session;

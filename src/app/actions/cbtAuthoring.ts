@@ -77,9 +77,11 @@ async function assertCanManageSubjectCode(
 ) {
   if (isCbtAdminActor(actor)) return;
   const allowed = await getTeacherAllowedCbtSubjects(actor.UserID);
-  if (allowed.size > 0 && !allowed.has(normalizeCbtSubjectCode(subjectCode))) {
+  if (allowed.size === 0 || !allowed.has(normalizeCbtSubjectCode(subjectCode))) {
     throw new Error(
-      `Authorization denied: You are only assigned to teach ${Array.from(allowed).join(", ").toUpperCase()}. Ask Admin if you need access to "${subjectCode}".`
+      allowed.size === 0
+        ? `Authorization denied: No subjects are assigned to your teaching account yet. Ask Admin to configure Teacher Subject Allocations.`
+        : `Authorization denied: You are only assigned to teach ${Array.from(allowed).join(", ").toUpperCase()}. Ask Admin if you need access to "${subjectCode}".`
     );
   }
 }
@@ -123,7 +125,18 @@ export async function getAdminCbtBankAndAnalytics(filters?: {
   includeInactive?: boolean;
 }) {
   try {
-    await requireRole(CBT_VIEW_ROLES);
+    const actor = await requireRole(CBT_VIEW_ROLES);
+    if (!isCbtAdminActor(actor)) {
+      return {
+        success: false,
+        error:
+          "Forbidden: Examination Officer, Principal, or Super Admin authority is required to access the school-wide CBT bank.",
+        questions: [],
+        internalSubjectCounts: [],
+        subjectAnalytics: [],
+        attemptRows: [],
+      };
+    }
 
     const subjectFilter = filters?.subjectCode
       ? normalizeCbtSubjectCode(filters.subjectCode)
@@ -387,6 +400,25 @@ export async function upsertSchoolCbtQuestion(
 
     const isAdmin = isCbtAdminActor(actor);
 
+    if (data.submissionId) {
+      const targetSub = await prisma.cbtQuestionSubmission.findUnique({
+        where: { id: data.submissionId },
+        select: { id: true, teacherId: true, subjectCode: true, status: true },
+      });
+      if (!targetSub) {
+        return { success: false, error: "Target question submission packet not found." };
+      }
+      if (!isAdmin && targetSub.teacherId !== actor.UserID) {
+        return { success: false, error: "Forbidden: You cannot attach questions to another teacher's packet." };
+      }
+      if (!isAdmin && targetSub.status !== "DRAFT" && targetSub.status !== "REVISION_REQUESTED") {
+        return {
+          success: false,
+          error: `Submission Locked: Cannot attach questions while packet status is ${targetSub.status}.`,
+        };
+      }
+    }
+
     const saved = await prisma.$transaction(async (tx) => {
       if (data.id) {
         const existing = await tx.cbtQuestion.findUnique({
@@ -455,7 +487,28 @@ export async function upsertSchoolCbtQuestion(
       }
 
       const idPrefix = bankScope === "EXAM_ONLY" ? "wof-exam" : "wof-custom";
-      const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
+      const externalId = `${idPrefix}-u${actor.UserID}-${contentHash.slice(0, 14)}`;
+      const existingCollision = await tx.cbtQuestion.findUnique({
+        where: {
+          provider_externalId: {
+            provider: "SCHOOL_INTERNAL",
+            externalId,
+          },
+        },
+        include: { submission: { select: { status: true } } },
+      });
+      if (
+        existingCollision &&
+        !isAdmin &&
+        existingCollision.submission &&
+        existingCollision.submission.status !== "DRAFT" &&
+        existingCollision.submission.status !== "REVISION_REQUESTED"
+      ) {
+        throw new Error(
+          `Submission Locked: This question is sealed in a ${existingCollision.submission.status} packet and cannot be overwritten.`
+        );
+      }
+
       const createdQ = await tx.cbtQuestion.upsert({
         where: {
           provider_externalId: {
@@ -587,7 +640,7 @@ export async function bulkImportSchoolCbtQuestionsCsv(params: {
           .createHash("sha256")
           .update(`${row.subjectCode}:${normalizedStem}:${JSON.stringify(optionsArr)}`)
           .digest("hex");
-        const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
+        const externalId = `${idPrefix}-u${actor.UserID}-${contentHash.slice(0, 14)}`;
         const storedStem = shouldEncrypt ? encryptExamVaultString(row.stem) : row.stem;
         const storedOptions = encryptExamOptionsJson(optionsArr, shouldEncrypt);
         const storedCorrect = shouldEncrypt ? encryptExamVaultString(row.correctKey) : row.correctKey;
@@ -883,6 +936,38 @@ export async function bulkSaveReviewedExamQuestions(
     const shouldEncrypt = bankScope === "EXAM_ONLY";
     const targetClassLevel = data.targetClassLevel?.trim() || null;
     const idPrefix = bankScope === "EXAM_ONLY" ? "wof-exam" : "wof-custom";
+    const isAdmin = isCbtAdminActor(actor);
+
+    if (rawInput.submissionId) {
+      const targetSub = await prisma.cbtQuestionSubmission.findUnique({
+        where: { id: rawInput.submissionId },
+        select: { id: true, teacherId: true, status: true },
+      });
+      if (!targetSub) {
+        return {
+          success: false,
+          savedCount: 0,
+          savedIds: [],
+          error: "Target question submission packet not found.",
+        };
+      }
+      if (!isAdmin && targetSub.teacherId !== actor.UserID) {
+        return {
+          success: false,
+          savedCount: 0,
+          savedIds: [],
+          error: "Forbidden: You cannot commit questions to another teacher's submission packet.",
+        };
+      }
+      if (!isAdmin && targetSub.status !== "DRAFT" && targetSub.status !== "REVISION_REQUESTED") {
+        return {
+          success: false,
+          savedCount: 0,
+          savedIds: [],
+          error: `Submission Locked: Cannot modify questions while packet status is ${targetSub.status}.`,
+        };
+      }
+    }
 
     const savedIds: string[] = [];
 
@@ -899,7 +984,7 @@ export async function bulkSaveReviewedExamQuestions(
           .createHash("sha256")
           .update(`${subjectCode}:${normalizedStem}:${JSON.stringify(optionsArr)}`)
           .digest("hex");
-        const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
+        const externalId = `${idPrefix}-u${actor.UserID}-${contentHash.slice(0, 14)}`;
         const correctKey = item.correctKey.toLowerCase() as "a" | "b" | "c" | "d";
         const storedStem = shouldEncrypt ? encryptExamVaultString(item.stem) : item.stem;
         const storedOptions = encryptExamOptionsJson(optionsArr, shouldEncrypt);

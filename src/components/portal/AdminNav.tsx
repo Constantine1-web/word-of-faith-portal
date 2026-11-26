@@ -266,7 +266,7 @@ export default function AdminNav({
               borderRadius: "0.5rem",
             }}
           >
-            <FiCheckSquare /> CBT & Day Locks
+            <FiCheckSquare /> Examination Control Centre
           </Link>
         )}
         {hasAnyCap(["MANAGE_USERS"]) && (

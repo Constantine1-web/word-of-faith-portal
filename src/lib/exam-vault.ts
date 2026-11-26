@@ -5,13 +5,31 @@ import { normalizeCbtSubjectCode } from "@/lib/cbt-csv";
 const VAULT_PREFIX = "ev:v1:";
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+function resolveVaultSecret(purpose: string, devFallback: string): string {
+  const configured =
+    process.env.EXAM_VAULT_SECRET?.trim() ||
+    process.env.TOTP_ENCRYPTION_KEY?.trim() ||
+    process.env.NEXTAUTH_SECRET?.trim() ||
+    process.env.AUTH_SECRET?.trim();
+
+  if (configured && configured.length >= 16) {
+    return configured;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      `CRITICAL_SECURITY_ERROR: EXAM_VAULT_SECRET (or NEXTAUTH_SECRET / TOTP_ENCRYPTION_KEY) must be configured in production for ${purpose}.`
+    );
+  }
+
+  return configured || devFallback;
+}
+
 function getExamVaultKey(): Buffer {
-  const secret =
-    process.env.EXAM_VAULT_SECRET ||
-    process.env.TOTP_ENCRYPTION_KEY ||
-    process.env.NEXTAUTH_SECRET ||
-    process.env.AUTH_SECRET ||
-    "wofs-default-exam-vault-key-change-in-prod";
+  const secret = resolveVaultSecret(
+    "AES-256-GCM question encryption",
+    "wofs-default-exam-vault-key-change-in-prod"
+  );
   return crypto.createHash("sha256").update(`wofs:exam-vault:v1:${secret}`).digest();
 }
 
@@ -136,7 +154,7 @@ export function hashSubjectExamRoomCode(
   if (!normCode || normCode.length < 4) {
     throw new Error("Examination room code must be at least 4 characters.");
   }
-  const pepper = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || "wofs-exam-room-code-v1";
+  const pepper = resolveVaultSecret("room code hashing", "wofs-exam-room-code-v1");
   return hashTokenSha256(`${pepper}:ROOM_CODE:${scheduledExamId}:${normSubj}:${normCode}`);
 }
 

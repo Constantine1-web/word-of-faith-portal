@@ -75,6 +75,9 @@ import {
   MAX_EXAM_UPLOAD_BYTES,
 } from "../../cbt-ocr";
 import {
+  resolveActorCapabilities,
+} from "../../../server/security/capabilities";
+import {
   encryptExamVaultString,
   decryptExamVaultString,
   encryptExamOptionsJson,
@@ -1240,7 +1243,81 @@ D) 14`,
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/23 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // =========================================================================
+  // SUITE 24: Exam Vault Production Fail-Closed Secret & Invalid Transitions
+  // =========================================================================
+  {
+    const prevEnv = { ...process.env };
+    try {
+      (process.env as Record<string, string | undefined>).NODE_ENV = "production";
+      delete process.env.EXAM_VAULT_SECRET;
+      delete process.env.TOTP_ENCRYPTION_KEY;
+      delete process.env.NEXTAUTH_SECRET;
+      delete process.env.AUTH_SECRET;
+
+      assert.throws(
+        () => encryptExamVaultString("Should fail closed in prod without vault secret"),
+        /CRITICAL_SECURITY_ERROR/
+      );
+      assert.throws(
+        () => hashSubjectExamRoomCode("ex-1", "biology", "BIO-123456-WOF"),
+        /CRITICAL_SECURITY_ERROR/
+      );
+    } finally {
+      process.env = prevEnv;
+    }
+
+    // State machine must reject empty packets or submitting an APPROVED packet again
+    assert.throws(
+      () =>
+        computeSubmissionTransition({
+          currentStatus: "DRAFT",
+          currentInitialSubmittedAt: null,
+          currentRevisionNumber: 1,
+          action: "SUBMIT",
+          actorId: 101,
+          teacherId: 101,
+          questionCount: 0,
+        }),
+      /Attach at least 1 question/
+    );
+    assert.throws(
+      () =>
+        computeSubmissionTransition({
+          currentStatus: "APPROVED",
+          currentInitialSubmittedAt: new Date(),
+          currentRevisionNumber: 1,
+          action: "SUBMIT",
+          actorId: 101,
+          teacherId: 101,
+          questionCount: 10,
+        }),
+      /Cannot submit packet while status is APPROVED/
+    );
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 25: Delegated Exam Officer (MANAGE_CBT) & Separation from Regular Staff
+  // =========================================================================
+  {
+    const delegatedOfficerCaps = resolveActorCapabilities(["MANAGE_CBT"], [], "Teacher");
+    assert.equal(delegatedOfficerCaps.has("MANAGE_CBT"), true);
+    assert.equal(delegatedOfficerCaps.has("APPROVE_PAYMENTS"), false);
+
+    const regularTeacherCaps = resolveActorCapabilities([], [], "Teacher");
+    assert.equal(regularTeacherCaps.has("MANAGE_CBT"), false);
+
+    const bursarCaps = resolveActorCapabilities([], ["BURSAR"], "Teacher");
+    assert.equal(bursarCaps.has("MANAGE_CBT"), false);
+    assert.equal(bursarCaps.has("APPROVE_PAYMENTS"), true);
+
+    const principalCaps = resolveActorCapabilities([], ["PRINCIPAL"], "Admin");
+    assert.equal(principalCaps.has("MANAGE_CBT"), true);
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/25 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {

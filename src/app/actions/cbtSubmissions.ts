@@ -343,14 +343,24 @@ export async function submitQuestionPacketForReview(params: {
     });
 
     await prisma.$transaction(async (tx) => {
-      await tx.cbtQuestionSubmission.update({
-        where: { id: submission.id },
+      const claimed = await tx.cbtQuestionSubmission.updateMany({
+        where: {
+          id: submission.id,
+          status: submission.status,
+          revisionNumber: submission.revisionNumber,
+        },
         data: {
           status: transition.nextStatus,
           initialSubmittedAt: transition.initialSubmittedAt,
           revisionNumber: transition.nextRevisionNumber,
         },
       });
+
+      if (claimed.count === 0) {
+        throw new Error(
+          "Concurrent update detected on this question packet. Refresh and try submitting again."
+        );
+      }
 
       await tx.cbtSubmissionRevision.create({
         data: {
@@ -538,10 +548,37 @@ export async function getExamUploadProgressDashboard(filters?: {
       (r) => r.status === "SUBMITTED" || r.status === "UNDER_REVIEW"
     ).length;
     const approvedCount = rankedTimeline.filter((r) => r.status === "APPROVED").length;
-    const revisionOrRejectedCount = rankedTimeline.filter(
-      (r) => r.status === "REVISION_REQUESTED" || r.status === "REJECTED"
+    const revisionRequestedCount = rankedTimeline.filter(
+      (r) => r.status === "REVISION_REQUESTED"
     ).length;
+    const rejectedCount = rankedTimeline.filter((r) => r.status === "REJECTED").length;
+    const revisionOrRejectedCount = revisionRequestedCount + rejectedCount;
     const overdueCount = rankedTimeline.filter((r) => r.isOverdue).length;
+
+    const latestAuditRows = await prisma.auditLog.findMany({
+      where: {
+        OR: [
+          {
+            Entity: {
+              in: [
+                "CbtQuestionSubmission",
+                "CbtScheduledExam",
+                "CbtExamRoomCode",
+                "CbtAttempt",
+                "CbtDayLock",
+              ],
+            },
+          },
+          { Action: { startsWith: "EXAM_" } },
+          { Action: { startsWith: "CBT_SUBMISSION_" } },
+        ],
+      },
+      include: {
+        Actor: { select: { Email: true } },
+      },
+      orderBy: { CreatedAt: "desc" },
+      take: 15,
+    });
 
     return {
       success: true,
@@ -553,6 +590,8 @@ export async function getExamUploadProgressDashboard(filters?: {
         outstandingCount,
         awaitingReviewCount,
         approvedCount,
+        revisionRequestedCount,
+        rejectedCount,
         revisionOrRejectedCount,
         overdueCount,
         completionPct:
@@ -565,6 +604,15 @@ export async function getExamUploadProgressDashboard(filters?: {
             : 0,
       },
       timeline: rankedTimeline,
+      latestActivity: latestAuditRows.map((log) => ({
+        id: log.id,
+        action: log.Action,
+        entity: log.Entity,
+        entityId: log.EntityID,
+        actorEmail: log.Actor?.Email || (log.ActorID ? `User #${log.ActorID}` : "System"),
+        reason: log.Reason || null,
+        createdAt: log.CreatedAt.toISOString(),
+      })),
     };
   } catch (error: unknown) {
     return {
@@ -580,7 +628,7 @@ export async function getExamUploadProgressDashboard(filters?: {
  */
 export async function inspectQuestionSubmissionForReview(submissionId: string) {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
     if (!isExamOfficerOrAdmin(actor)) {
       return { success: false, error: "Forbidden: Reviewer authority required." };
     }
@@ -700,7 +748,7 @@ export async function decideQuestionSubmissionReview(
   rawInput: z.infer<typeof DecideSubmissionSchema>
 ) {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
     if (!isExamOfficerOrAdmin(actor)) {
       return { success: false, error: "Forbidden: Examination Officer authority required." };
     }
@@ -746,8 +794,12 @@ export async function decideQuestionSubmissionReview(
     let scheduledExamId: string | null = null;
 
     await prisma.$transaction(async (tx) => {
-      await tx.cbtQuestionSubmission.update({
-        where: { id: submission.id },
+      const claimed = await tx.cbtQuestionSubmission.updateMany({
+        where: {
+          id: submission.id,
+          status: submission.status,
+          revisionNumber: submission.revisionNumber,
+        },
         data: {
           status: transition.nextStatus,
           reviewerId: actor.UserID,
@@ -755,6 +807,12 @@ export async function decideQuestionSubmissionReview(
           reviewerNotes: data.reviewerNotes || null,
         },
       });
+
+      if (claimed.count === 0) {
+        throw new Error(
+          "Concurrent review conflict: another Examination Officer already updated this packet. Refresh and inspect the latest version."
+        );
+      }
 
       await tx.cbtSubmissionRevision.create({
         data: {
@@ -905,7 +963,7 @@ export async function sendSubmissionReminderToTeacher(params: {
   customNote?: string;
 }) {
   try {
-    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
     if (!isExamOfficerOrAdmin(actor)) {
       return { success: false, error: "Forbidden" };
     }
@@ -938,6 +996,104 @@ export async function sendSubmissionReminderToTeacher(params: {
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to send reminder.",
+    };
+  }
+}
+
+/**
+ * Allows the Examination Officer / Principal to configure submission deadlines for the active term,
+ * automatically creating DRAFT tracker rows for assigned teachers so overdue tracking is live.
+ */
+export async function setSubmissionDeadlineAction(params: {
+  examType: "CA_TEST" | "MIDTERM" | "TERMINAL_EXAM";
+  deadlineAt: string | null;
+}) {
+  try {
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin", "TEACHER", "FORM_MASTER"]);
+    if (!isExamOfficerOrAdmin(actor)) {
+      return { success: false, error: "Forbidden: Examination Officer authority required." };
+    }
+
+    const activeTerm = await prisma.academic_Term.findFirst({
+      where: { IsActive: true },
+      orderBy: { TermID: "desc" },
+    });
+    if (!activeTerm) {
+      return { success: false, error: "No active academic term configured." };
+    }
+
+    let deadlineDate: Date | null = null;
+    if (params.deadlineAt) {
+      const parsed = new Date(params.deadlineAt);
+      if (Number.isNaN(parsed.getTime())) {
+        return { success: false, error: "Invalid submission deadline date/time." };
+      }
+      deadlineDate = parsed;
+    }
+
+    const allocations = await prisma.teacher_Subject_Map.findMany({
+      include: {
+        Class: { select: { ClassName: true } },
+        Subject: { select: { SubjectName: true, SubjectCode: true } },
+      },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      for (const alloc of allocations) {
+        const codes = mapSubjectNameToCbtCodes(alloc.Subject?.SubjectName || alloc.Subject?.SubjectCode);
+        const primaryCode = codes[0] || "general";
+        await tx.cbtQuestionSubmission.upsert({
+          where: {
+            teacherId_classId_subjectId_termId_examType: {
+              teacherId: alloc.TeacherID,
+              classId: alloc.ClassID,
+              subjectId: alloc.SubjectID,
+              termId: activeTerm.TermID,
+              examType: params.examType,
+            },
+          },
+          update: {
+            deadlineAt: deadlineDate,
+          },
+          create: {
+            teacherId: alloc.TeacherID,
+            classId: alloc.ClassID,
+            subjectId: alloc.SubjectID,
+            subjectCode: primaryCode,
+            termId: activeTerm.TermID,
+            examType: params.examType,
+            title: `${alloc.Class?.ClassName || "Class"} ${alloc.Subject?.SubjectName || "Subject"} (${params.examType.replace(/_/g, " ")})`,
+            status: "DRAFT",
+            deadlineAt: deadlineDate,
+          },
+        });
+      }
+
+      await writeAuditLog({
+        tx,
+        actorId: actor.UserID,
+        actorRoles: Array.from(actor.roles).join(","),
+        action: "CBT_SUBMISSION_DEADLINE_UPDATED",
+        entity: "CbtQuestionSubmission",
+        entityId: `${activeTerm.TermID}:${params.examType}`,
+        newValue: {
+          examType: params.examType,
+          deadlineAt: deadlineDate ? deadlineDate.toISOString() : null,
+          affectedPapers: allocations.length,
+        },
+      });
+    });
+
+    revalidatePath("/portal/admin/cbt");
+    revalidatePath("/portal/teacher");
+    return {
+      success: true,
+      updatedCount: allocations.length,
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update submission deadline.",
     };
   }
 }

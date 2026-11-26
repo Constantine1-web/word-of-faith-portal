@@ -6,6 +6,7 @@ import {
   inspectQuestionSubmissionForReview,
   decideQuestionSubmissionReview,
   sendSubmissionReminderToTeacher,
+  setSubmissionDeadlineAction,
 } from "@/app/actions/cbtSubmissions";
 import {
   getAdminScheduledExamsDashboard,
@@ -51,9 +52,14 @@ export default function ExaminationControlCentre() {
   const [examTypeFilter, setExamTypeFilter] = useState<string>("TERMINAL_EXAM");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [classFilter, setClassFilter] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [sortBy, setSortBy] = useState<"PRIORITY" | "STATUS">("PRIORITY");
+  const [deadlineInput, setDeadlineInput] = useState<string>("");
+  const [savingDeadline, setSavingDeadline] = useState(false);
   const [termLabel, setTermLabel] = useState("");
   const [kpis, setKpis] = useState<any>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
+  const [latestActivity, setLatestActivity] = useState<any[]>([]);
   const [remindingKey, setRemindingKey] = useState<string | null>(null);
 
   // Submission Inspection & Approval Modal State
@@ -89,6 +95,7 @@ export default function ExaminationControlCentre() {
         setTermLabel(progressRes.termLabel || "");
         setKpis(progressRes.kpis || null);
         setTimeline(progressRes.timeline || []);
+        setLatestActivity(progressRes.latestActivity || []);
       } else if (progressRes.error) {
         setError(progressRes.error);
       }
@@ -251,12 +258,46 @@ export default function ExaminationControlCentre() {
     }
   };
 
+  const handleSaveDeadline = async () => {
+    setError("");
+    setSuccess("");
+    setSavingDeadline(true);
+    const res = await setSubmissionDeadlineAction({
+      examType: examTypeFilter as "CA_TEST" | "MIDTERM" | "TERMINAL_EXAM",
+      deadlineAt: deadlineInput ? new Date(deadlineInput).toISOString() : null,
+    });
+    setSavingDeadline(false);
+    if (res.success) {
+      setSuccess(
+        deadlineInput
+          ? `Submission deadline updated for ${res.updatedCount || 0} assigned papers.`
+          : `Submission deadline cleared for ${examTypeFilter.replace(/_/g, " ")}.`
+      );
+      await refreshAll();
+    } else {
+      setError(res.error || "Failed to update submission deadline.");
+    }
+  };
+
   const distinctClasses = Array.from(new Set(timeline.map((r) => r.className))).sort();
-  const filteredTimeline = timeline.filter((r) => {
-    if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
-    if (classFilter !== "ALL" && r.className !== classFilter) return false;
-    return true;
-  });
+  const qLower = searchQuery.trim().toLowerCase();
+  const filteredTimeline = timeline
+    .filter((r) => {
+      if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
+      if (classFilter !== "ALL" && r.className !== classFilter) return false;
+      if (qLower) {
+        const hay = `${r.teacherEmail} ${r.subjectName} ${r.className} ${r.status}`.toLowerCase();
+        if (!hay.includes(qLower)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "STATUS") {
+        if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+        return String(a.status).localeCompare(String(b.status));
+      }
+      return 0;
+    });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -380,10 +421,13 @@ export default function ExaminationControlCentre() {
                 </div>
                 <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "12px", padding: "1rem" }}>
                   <div style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
-                    Outstanding / Revision
+                    Revision / Rejected / Overdue
                   </div>
-                  <div style={{ fontSize: "1.65rem", fontWeight: 800, color: kpis.outstandingCount > 0 ? "var(--status-error-text)" : "var(--text-muted)" }}>
-                    {kpis.outstandingCount} / {kpis.revisionOrRejectedCount}
+                  <div style={{ fontSize: "1.45rem", fontWeight: 800, color: kpis.overdueCount > 0 || kpis.rejectedCount > 0 ? "var(--status-error-text)" : "var(--text-muted)" }}>
+                    {kpis.revisionRequestedCount ?? 0} / {kpis.rejectedCount ?? 0} / {kpis.overdueCount ?? 0}
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                    Outstanding: {kpis.outstandingCount}
                   </div>
                 </div>
               </div>
@@ -404,28 +448,62 @@ export default function ExaminationControlCentre() {
             </>
           )}
 
-          {/* Filters */}
-          <div style={{ display: "flex", gap: "0.65rem", flexWrap: "wrap", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "12px", padding: "0.9rem 1.1rem" }}>
-            <select className="form-input" value={examTypeFilter} onChange={(e) => setExamTypeFilter(e.target.value)} style={{ width: "auto" }}>
-              <option value="TERMINAL_EXAM">End-of-Term Examination</option>
-              <option value="MIDTERM">Midterm Examination</option>
-              <option value="CA_TEST">Continuous Assessment (CA)</option>
-            </select>
-            <select className="form-input" value={classFilter} onChange={(e) => setClassFilter(e.target.value)} style={{ width: "auto" }}>
-              <option value="ALL">All Class Arms</option>
-              {distinctClasses.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <select className="form-input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: "auto" }}>
-              <option value="ALL">All Statuses</option>
-              <option value="SUBMITTED">Submitted (Awaiting Review)</option>
-              <option value="UNDER_REVIEW">Under Review</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REVISION_REQUESTED">Revision Requested</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="PENDING_NOT_STARTED">Not Submitted Yet</option>
-            </select>
+          {/* Filters, Search, Sort & Deadline Manager */}
+          <div style={{ display: "flex", gap: "0.65rem", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "12px", padding: "0.9rem 1.1rem" }}>
+            <div style={{ display: "flex", gap: "0.55rem", flexWrap: "wrap", alignItems: "center" }}>
+              <select className="form-input" value={examTypeFilter} onChange={(e) => setExamTypeFilter(e.target.value)} style={{ width: "auto" }}>
+                <option value="TERMINAL_EXAM">End-of-Term Examination</option>
+                <option value="MIDTERM">Midterm Examination</option>
+                <option value="CA_TEST">Continuous Assessment (CA)</option>
+              </select>
+              <select className="form-input" value={classFilter} onChange={(e) => setClassFilter(e.target.value)} style={{ width: "auto" }}>
+                <option value="ALL">All Class Arms</option>
+                {distinctClasses.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <select className="form-input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: "auto" }}>
+                <option value="ALL">All Statuses</option>
+                <option value="SUBMITTED">Submitted (Awaiting Review)</option>
+                <option value="UNDER_REVIEW">Under Review</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REVISION_REQUESTED">Revision Requested</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="PENDING_NOT_STARTED">Not Submitted Yet</option>
+              </select>
+              <select className="form-input" value={sortBy} onChange={(e) => setSortBy(e.target.value as "PRIORITY" | "STATUS")} style={{ width: "auto" }}>
+                <option value="PRIORITY">Sort: First-Submitted Priority</option>
+                <option value="STATUS">Sort: Overdue &amp; Status First</option>
+              </select>
+              <input
+                type="search"
+                className="form-input"
+                placeholder="Search teacher or subject..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ width: "210px" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "0.45rem", alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="datetime-local"
+                className="form-input"
+                value={deadlineInput}
+                onChange={(e) => setDeadlineInput(e.target.value)}
+                title="Set Term Submission Deadline"
+                style={{ width: "auto", fontSize: "0.8rem" }}
+              />
+              <button
+                type="button"
+                onClick={handleSaveDeadline}
+                disabled={savingDeadline}
+                className="btn btn-outline"
+                style={{ fontSize: "0.78rem", padding: "0.42rem 0.75rem" }}
+              >
+                {savingDeadline ? "Saving..." : "Set Deadline"}
+              </button>
+            </div>
           </div>
 
           {/* Ranked Submission Priority Timeline */}
@@ -552,6 +630,51 @@ export default function ExaminationControlCentre() {
               </tbody>
             </table>
           </div>
+
+          {/* Latest Exam Workflow & Security Activity */}
+          {latestActivity.length > 0 && (
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "12px", padding: "1.1rem 1.25rem" }}>
+              <h3 style={{ margin: "0 0 0.75rem 0", fontSize: "0.98rem", color: "var(--color-navy-blue)" }}>
+                Latest Examination Workflow &amp; Security Alerts (Audit Trail)
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", maxHeight: "230px", overflowY: "auto", fontSize: "0.8rem" }}>
+                {latestActivity.map((ev) => (
+                  <div
+                    key={ev.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "0.5rem",
+                      padding: "0.45rem 0.65rem",
+                      borderRadius: "6px",
+                      background: "var(--bg-secondary)",
+                      border: `1px solid ${ev.action.includes("ALERT") || ev.action.includes("BLOCKED") ? "var(--status-error-border)" : "var(--border-subtle)"}`,
+                    }}
+                  >
+                    <div>
+                      <strong
+                        style={{
+                          fontFamily: "monospace",
+                          color: ev.action.includes("ALERT") || ev.action.includes("BLOCKED") ? "var(--status-error-text)" : "var(--text-heading)",
+                        }}
+                      >
+                        {ev.action}
+                      </strong>{" "}
+                      <span style={{ color: "var(--text-muted)" }}>
+                        · {ev.actorEmail} · {ev.entity} #{String(ev.entityId).slice(-8)}
+                        {ev.reason ? ` — ${ev.reason}` : ""}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                      {new Date(ev.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -736,10 +859,20 @@ export default function ExaminationControlCentre() {
                           <button
                             type="button"
                             onClick={async () => {
-                              await updateScheduledExamStatus({
+                              setError("");
+                              const res = await updateScheduledExamStatus({
                                 examId: ex.id,
                                 status: ex.status === "LIVE" ? "CLOSED" : "LIVE",
                               });
+                              if (!res.success) {
+                                setError(res.error || "Failed to update room status.");
+                              } else {
+                                setSuccess(
+                                  ex.status === "LIVE"
+                                    ? `Examination Room "${ex.title}" closed.`
+                                    : `Examination Room "${ex.title}" is now LIVE.`
+                                );
+                              }
                               await refreshAll();
                             }}
                             className="btn btn-outline"

@@ -300,7 +300,15 @@ export default function CBTLandingPage() {
             </span>
           </div>
           <button
-            onClick={() => router.push(`/portal/cbt/quiz?attemptId=${studentStatus.activeAttemptId}`)}
+            onClick={() => {
+              if (studentStatus.activeAttemptSessionToken && typeof window !== "undefined") {
+                window.sessionStorage.setItem(
+                  `wofs_cbt_tok_${studentStatus.activeAttemptId}`,
+                  studentStatus.activeAttemptSessionToken
+                );
+              }
+              router.push(`/portal/cbt/quiz?attemptId=${studentStatus.activeAttemptId}`);
+            }}
             className="btn btn-primary"
             style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
           >
