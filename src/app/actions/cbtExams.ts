@@ -16,6 +16,11 @@ import {
   seededShuffle,
   verifyExamPin,
 } from "@/lib/cbt-exam-policy";
+import {
+  generateSubjectExamRoomCode,
+  hashSubjectExamRoomCode,
+  verifySubjectExamRoomCode,
+} from "@/lib/exam-vault";
 import { getLagosDayKey, submitAttempt } from "@/app/actions/cbt";
 
 const EXAM_STAFF_ROLES = [
@@ -68,6 +73,44 @@ async function assertCanManageClassExam(
   return { isSupervisory: false };
 }
 
+async function checkStudentTermFeeClearance(
+  studentId: number,
+  hasPaidFeesFlag: boolean,
+  termId: number
+): Promise<boolean> {
+  if (hasPaidFeesFlag) return true;
+
+  const invoice = await prisma.invoice.findFirst({
+    where: {
+      StudentID: studentId,
+      TermID: termId,
+      Status: { not: "VOID" },
+    },
+    select: {
+      Status: true,
+      IsWaived: true,
+      portalFeeExempt: true,
+      AmountKobo: true,
+      Payments: {
+        where: {
+          Status: { in: ["Approved", "Successful", "APPROVED", "SUCCESSFUL"] },
+        },
+        select: { AmountKobo: true },
+      },
+    },
+  });
+
+  if (!invoice) return false;
+  if (invoice.Status === "PAID") return true;
+  if (invoice.IsWaived && invoice.portalFeeExempt) return true;
+
+  const paidSum = invoice.Payments.reduce(
+    (acc, p) => acc + BigInt(p.AmountKobo || 0),
+    BigInt(0)
+  );
+  return paidSum >= BigInt(invoice.AmountKobo || 0) && BigInt(invoice.AmountKobo || 0) > BigInt(0);
+}
+
 export async function getTeacherExamStudioData() {
   try {
     const actor = await requireRole(EXAM_STAFF_ROLES);
@@ -91,7 +134,10 @@ export async function getTeacherExamStudioData() {
       orderBy: [{ Class: { ClassName: "asc" } }, { Subject: { SubjectName: "asc" } }],
     });
 
-    const allowedClassIds = Array.from(new Set(allocations.map((a) => a.ClassID)));
+    const allocPairs = allocations.map((a) => ({
+      classId: a.ClassID,
+      subjectId: a.SubjectID,
+    }));
 
     const [scheduledExams, bankGroups] = await Promise.all([
       prisma.cbtScheduledExam.findMany({
@@ -102,13 +148,24 @@ export async function getTeacherExamStudioData() {
             : {
                 OR: [
                   { createdById: actor.UserID },
-                  ...(allowedClassIds.length > 0 ? [{ classId: { in: allowedClassIds } }] : []),
+                  ...(allocPairs.length > 0
+                    ? allocPairs.map((pair) => ({
+                        classId: pair.classId,
+                        subjectId: pair.subjectId,
+                      }))
+                    : []),
                 ],
               }),
         },
         include: {
           classArm: { select: { ClassID: true, ClassName: true, Level: true } },
           subject: { select: { SubjectID: true, SubjectName: true, SubjectCode: true } },
+          submission: { select: { id: true, status: true, initialSubmittedAt: true, reviewerNotes: true } },
+          roomCodes: {
+            where: { isActive: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
           _count: { select: { questions: true, attempts: true } },
           attempts: {
             where: { isRetakeCleared: false },
@@ -177,8 +234,15 @@ export async function getTeacherExamStudioData() {
         startsAt: ex.startsAt ? ex.startsAt.toISOString() : null,
         endsAt: ex.endsAt ? ex.endsAt.toISOString() : null,
         requireAccessCode: ex.requireAccessCode,
+        requireFeeClearance: ex.requireFeeClearance,
         revealScoreAfterSubmit: ex.revealScoreAfterSubmit,
         answersReleased: ex.answersReleased,
+        submissionId: ex.submissionId || null,
+        submissionStatus: ex.submission?.status || (ex.approvedById ? "APPROVED" : null),
+        activeRoomCodePreview: ex.roomCodes[0]?.codePreview || null,
+        activeRoomCodeExpiresAt: ex.roomCodes[0]?.expiresAt
+          ? ex.roomCodes[0].expiresAt.toISOString()
+          : null,
         pinnedQuestionCount: ex._count.questions,
         totalAttempts: ex.attempts.length,
         activeCount: ex.attempts.filter((a) => a.status === "ACTIVE").length,
@@ -211,6 +275,7 @@ const SaveScheduledExamSchema = z.object({
   endsAt: z.string().trim().optional().nullable(),
   accessCode: z.string().trim().max(24).optional().nullable(),
   clearAccessCode: z.boolean().optional().default(false),
+  requireFeeClearance: z.boolean().optional().default(true),
   revealScoreAfterSubmit: z.boolean().default(false),
   answersReleased: z.boolean().default(false),
   status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "CLOSED"]).default("DRAFT"),
@@ -304,6 +369,13 @@ export async function saveScheduledExam(rawInput: z.infer<typeof SaveScheduledEx
     }
 
     const supervisor = isExamSupervisor(actor);
+    if (data.status === "LIVE" && !supervisor) {
+      return {
+        success: false,
+        error:
+          "Approval Required: Teachers must submit questions for Exam Officer approval. Only an authorized Exam Officer or Vice Principal can activate a LIVE Examination Room.",
+      };
+    }
 
     const saved = await prisma.$transaction(async (tx) => {
       const examRecord = existing
@@ -324,6 +396,7 @@ export async function saveScheduledExam(rawInput: z.infer<typeof SaveScheduledEx
               endsAt: endsAtDate,
               accessCodeHash: nextAccessHash,
               requireAccessCode: nextRequireAccess,
+              requireFeeClearance: data.requireFeeClearance,
               revealScoreAfterSubmit: data.revealScoreAfterSubmit,
               answersReleased: data.answersReleased,
               ...(supervisor && (data.status === "LIVE" || data.status === "SCHEDULED")
@@ -348,6 +421,7 @@ export async function saveScheduledExam(rawInput: z.infer<typeof SaveScheduledEx
               endsAt: endsAtDate,
               accessCodeHash: nextAccessHash,
               requireAccessCode: nextRequireAccess,
+              requireFeeClearance: data.requireFeeClearance,
               revealScoreAfterSubmit: data.revealScoreAfterSubmit,
               answersReleased: data.answersReleased,
               createdById: actor.UserID,
@@ -424,18 +498,42 @@ export async function updateScheduledExamStatus(params: {
   status?: "DRAFT" | "SCHEDULED" | "LIVE" | "CLOSED";
   answersReleased?: boolean;
   revealScoreAfterSubmit?: boolean;
+  requireFeeClearance?: boolean;
 }) {
   try {
     const actor = await requireRole(EXAM_STAFF_ROLES);
+    const supervisor = isExamSupervisor(actor);
     const exam = await prisma.cbtScheduledExam.findUnique({
       where: { id: params.examId },
-      include: { _count: { select: { questions: true } } },
+      include: {
+        submission: { select: { status: true } },
+        _count: { select: { questions: true } },
+      },
     });
     if (!exam) {
       return { success: false, error: "Scheduled exam not found." };
     }
 
     await assertCanManageClassExam(actor, exam.classId, exam.subjectId);
+
+    if (params.status === "LIVE" && !supervisor) {
+      return {
+        success: false,
+        error:
+          "Only an authorized Exam Officer or Vice Principal can activate a LIVE Examination Room after question approval.",
+      };
+    }
+
+    if (
+      params.status === "LIVE" &&
+      exam.submission &&
+      exam.submission.status !== "APPROVED"
+    ) {
+      return {
+        success: false,
+        error: `Cannot activate Examination Room: the linked question submission is currently ${exam.submission.status} and must be APPROVED first.`,
+      };
+    }
 
     if (params.status === "LIVE" || params.status === "SCHEDULED") {
       if (exam._count.questions > 0) {
@@ -474,7 +572,10 @@ export async function updateScheduledExamStatus(params: {
         ...(typeof params.revealScoreAfterSubmit === "boolean"
           ? { revealScoreAfterSubmit: params.revealScoreAfterSubmit }
           : {}),
-        ...(isExamSupervisor(actor) && (params.status === "LIVE" || params.status === "SCHEDULED")
+        ...(typeof params.requireFeeClearance === "boolean"
+          ? { requireFeeClearance: params.requireFeeClearance }
+          : {}),
+        ...(supervisor && (params.status === "LIVE" || params.status === "SCHEDULED")
           ? { approvedById: actor.UserID, approvedAt: new Date() }
           : {}),
       },
@@ -755,6 +856,12 @@ export async function getAdminScheduledExamsDashboard() {
         classArm: { select: { ClassID: true, ClassName: true } },
         subject: { select: { SubjectID: true, SubjectName: true } },
         term: { select: { SessionName: true, TermName: true } },
+        submission: { select: { id: true, status: true, initialSubmittedAt: true } },
+        roomCodes: {
+          where: { isActive: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
         _count: { select: { questions: true } },
         attempts: {
           where: { isRetakeCleared: false },
@@ -767,33 +874,295 @@ export async function getAdminScheduledExamsDashboard() {
 
     return {
       success: true,
-      exams: exams.map((ex) => ({
-        id: ex.id,
-        title: ex.title,
-        className: ex.classArm?.ClassName || "",
-        subjectName: ex.subject?.SubjectName || ex.subjectCode.toUpperCase(),
-        subjectCode: ex.subjectCode,
-        termLabel: `${ex.term?.SessionName || ""} · ${ex.term?.TermName || ""}`,
-        examType: ex.examType,
-        status: ex.status,
-        strictMode: ex.strictMode,
-        maxStrikes: ex.maxStrikes,
-        questionCount: ex.questionCount,
-        durationMinutes: ex.durationMinutes,
-        requireAccessCode: ex.requireAccessCode,
-        revealScoreAfterSubmit: ex.revealScoreAfterSubmit,
-        answersReleased: ex.answersReleased,
-        pinnedQuestionCount: ex._count.questions,
-        activeCount: ex.attempts.filter((a) => a.status === "ACTIVE").length,
-        submittedCount: ex.attempts.filter((a) => a.status === "SUBMITTED" || a.status === "EXPIRED").length,
-        terminatedCount: ex.attempts.filter((a) => a.status === "TERMINATED").length,
-      })),
+      exams: exams.map((ex) => {
+        const activeCode = ex.roomCodes[0] || null;
+        return {
+          id: ex.id,
+          title: ex.title,
+          classId: ex.classId,
+          className: ex.classArm?.ClassName || "",
+          subjectId: ex.subjectId,
+          subjectName: ex.subject?.SubjectName || ex.subjectCode.toUpperCase(),
+          subjectCode: ex.subjectCode,
+          termLabel: `${ex.term?.SessionName || ""} · ${ex.term?.TermName || ""}`,
+          examType: ex.examType,
+          status: ex.status,
+          strictMode: ex.strictMode,
+          maxStrikes: ex.maxStrikes,
+          questionCount: ex.questionCount,
+          durationMinutes: ex.durationMinutes,
+          requireAccessCode: ex.requireAccessCode,
+          requireFeeClearance: ex.requireFeeClearance,
+          revealScoreAfterSubmit: ex.revealScoreAfterSubmit,
+          answersReleased: ex.answersReleased,
+          submissionStatus: ex.submission?.status || (ex.approvedById ? "APPROVED" : "DIRECT"),
+          activeRoomCodeId: activeCode?.id || null,
+          activeRoomCodePreview: activeCode?.codePreview || null,
+          activeRoomCodeExpiresAt: activeCode?.expiresAt
+            ? activeCode.expiresAt.toISOString()
+            : null,
+          activeRoomCodeGeneratedBy: activeCode?.generatedByEmail || null,
+          pinnedQuestionCount: ex._count.questions,
+          activeCount: ex.attempts.filter((a) => a.status === "ACTIVE").length,
+          submittedCount: ex.attempts.filter(
+            (a) => a.status === "SUBMITTED" || a.status === "EXPIRED"
+          ).length,
+          terminatedCount: ex.attempts.filter((a) => a.status === "TERMINATED").length,
+        };
+      }),
     };
   } catch (error: unknown) {
     return {
       success: false,
       exams: [],
       error: error instanceof Error ? error.message : "Failed to load admin scheduled exams.",
+    };
+  }
+}
+
+/**
+ * Section 2: Morning-of-Exam Subject Room Code Generator.
+ * Deactivates any previous code for the examination, mints a cryptographically bound code,
+ * and optionally activates the Examination Room (`LIVE`) in one transaction.
+ */
+export async function generateExamRoomCodeAction(params: {
+  scheduledExamId: string;
+  validForMinutes?: number;
+  activatesAt?: string | null;
+  autoOpenRoom?: boolean;
+}) {
+  try {
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    if (!isExamSupervisor(actor)) {
+      return { success: false, error: "Forbidden: Examination Officer privileges required." };
+    }
+
+    const exam = await prisma.cbtScheduledExam.findUnique({
+      where: { id: params.scheduledExamId },
+      include: {
+        classArm: { select: { ClassName: true } },
+        subject: { select: { SubjectName: true } },
+        submission: { select: { status: true } },
+        _count: { select: { questions: true } },
+      },
+    });
+
+    if (!exam) {
+      return { success: false, error: "Scheduled examination not found." };
+    }
+
+    if (exam.submission && exam.submission.status !== "APPROVED") {
+      return {
+        success: false,
+        error: `Cannot generate Room Code until the teacher's question submission is APPROVED (current: ${exam.submission.status}).`,
+      };
+    }
+
+    const validMins = Math.min(720, Math.max(15, Number(params.validForMinutes) || Math.max(120, exam.durationMinutes + 60)));
+    const activatesAt = params.activatesAt ? new Date(params.activatesAt) : new Date();
+    const expiresAt = new Date(activatesAt.getTime() + validMins * 60 * 1000);
+
+    const { plainCode, codePreview } = generateSubjectExamRoomCode(exam.subjectCode);
+    const codeHash = hashSubjectExamRoomCode(exam.id, exam.subjectCode, plainCode);
+    const fallbackPinHash = hashExamPin(plainCode);
+
+    const createdCode = await prisma.$transaction(async (tx) => {
+      await tx.cbtExamRoomCode.updateMany({
+        where: { scheduledExamId: exam.id, isActive: true },
+        data: {
+          isActive: false,
+          revokedById: actor.UserID,
+          revokedAt: new Date(),
+          revokeReason: "Superseded by newly generated morning room code",
+        },
+      });
+
+      const codeRow = await tx.cbtExamRoomCode.create({
+        data: {
+          scheduledExamId: exam.id,
+          subjectCode: exam.subjectCode,
+          codeHash,
+          codePreview,
+          isActive: true,
+          activatesAt,
+          expiresAt,
+          generatedById: actor.UserID,
+          generatedByEmail: actor.Email,
+        },
+      });
+
+      await tx.cbtScheduledExam.update({
+        where: { id: exam.id },
+        data: {
+          requireAccessCode: true,
+          accessCodeHash: fallbackPinHash,
+          ...(params.autoOpenRoom !== false
+            ? {
+                status: "LIVE",
+                approvedById: actor.UserID,
+                approvedAt: new Date(),
+              }
+            : {}),
+        },
+      });
+
+      await writeAuditLog({
+        tx,
+        actorId: actor.UserID,
+        actorRoles: Array.from(actor.roles).join(","),
+        action: "CBT_EXAM_ROOM_CODE_GENERATED",
+        entity: "CbtExamRoomCode",
+        entityId: codeRow.id,
+        newValue: {
+          scheduledExamId: exam.id,
+          examTitle: exam.title,
+          subjectCode: exam.subjectCode,
+          codePreview,
+          activatesAt: activatesAt.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+          autoOpened: params.autoOpenRoom !== false,
+        },
+      });
+
+      return codeRow;
+    });
+
+    revalidatePath("/portal/admin/cbt");
+    revalidatePath("/portal/teacher");
+    revalidatePath("/portal/cbt");
+    revalidatePath("/portal/exam-room");
+
+    return {
+      success: true,
+      roomCodeId: createdCode.id,
+      examId: exam.id,
+      examTitle: exam.title,
+      className: exam.classArm?.ClassName || "",
+      subjectName: exam.subject?.SubjectName || exam.subjectCode.toUpperCase(),
+      plainCode,
+      codePreview,
+      activatesAt: activatesAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to generate examination room code.",
+    };
+  }
+}
+
+/**
+ * 1-Click Morning Batch Code Generator for all selected or scheduled exams today.
+ */
+export async function batchGenerateMorningRoomCodesAction(params: {
+  examIds: string[];
+  validForMinutes?: number;
+  autoOpenRooms?: boolean;
+}) {
+  try {
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    if (!isExamSupervisor(actor)) {
+      return { success: false, error: "Forbidden", generated: [] };
+    }
+
+    const targetIds = Array.from(new Set(params.examIds || [])).slice(0, 50);
+    if (targetIds.length === 0) {
+      return { success: false, error: "Select at least one examination to generate morning codes.", generated: [] };
+    }
+
+    const generated: Array<{
+      examId: string;
+      examTitle: string;
+      className: string;
+      subjectName: string;
+      plainCode: string;
+      codePreview: string;
+      expiresAt: string;
+    }> = [];
+
+    for (const examId of targetIds) {
+      const res = await generateExamRoomCodeAction({
+        scheduledExamId: examId,
+        validForMinutes: params.validForMinutes || 180,
+        autoOpenRoom: params.autoOpenRooms !== false,
+      });
+      if (res.success && res.plainCode) {
+        generated.push({
+          examId: res.examId!,
+          examTitle: res.examTitle!,
+          className: res.className!,
+          subjectName: res.subjectName!,
+          plainCode: res.plainCode,
+          codePreview: res.codePreview!,
+          expiresAt: res.expiresAt!,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      generatedCount: generated.length,
+      generated,
+    };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      generated: [],
+      error: error instanceof Error ? error.message : "Failed to batch-generate room codes.",
+    };
+  }
+}
+
+/**
+ * Deactivates / invalidates an examination room code immediately.
+ */
+export async function revokeExamRoomCodeAction(params: {
+  scheduledExamId: string;
+  reason?: string;
+}) {
+  try {
+    const actor = await requireRole(["SUPER_ADMIN", "PRINCIPAL", "ADMIN", "Admin"]);
+    if (!isExamSupervisor(actor)) {
+      return { success: false, error: "Forbidden" };
+    }
+
+    const reason = (params.reason || "Revoked by Examination Officer").trim();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.cbtExamRoomCode.updateMany({
+        where: { scheduledExamId: params.scheduledExamId, isActive: true },
+        data: {
+          isActive: false,
+          revokedById: actor.UserID,
+          revokedAt: new Date(),
+          revokeReason: reason,
+        },
+      });
+
+      await tx.cbtScheduledExam.update({
+        where: { id: params.scheduledExamId },
+        data: { accessCodeHash: null },
+      });
+
+      await writeAuditLog({
+        tx,
+        actorId: actor.UserID,
+        actorRoles: Array.from(actor.roles).join(","),
+        action: "CBT_EXAM_ROOM_CODE_REVOKED",
+        entity: "CbtScheduledExam",
+        entityId: params.scheduledExamId,
+        reason,
+      });
+    });
+
+    revalidatePath("/portal/admin/cbt");
+    revalidatePath("/portal/exam-room");
+    return { success: true };
+  } catch (error: unknown) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to revoke examination room code.",
     };
   }
 }
@@ -806,7 +1175,17 @@ export async function getStudentScheduledExams() {
     const actor = await requireActiveUser();
     const student = await prisma.student.findFirst({
       where: { UserID: actor.UserID },
-      select: { StudentID: true, ClassID: true, AdmissionNo: true },
+      select: {
+        StudentID: true,
+        ClassID: true,
+        AdmissionNo: true,
+        FirstName: true,
+        LastName: true,
+        PreferredName: true,
+        HasPaidFees: true,
+        EnrolmentStatus: true,
+        Class: { select: { ClassName: true, Level: true } },
+      },
     });
 
     if (!student) {
@@ -817,6 +1196,14 @@ export async function getStudentScheduledExams() {
       where: { IsActive: true },
       orderBy: { TermID: "desc" },
     });
+
+    const isFeeCleared = activeTerm
+      ? await checkStudentTermFeeClearance(
+          student.StudentID,
+          student.HasPaidFees,
+          activeTerm.TermID
+        )
+      : student.HasPaidFees;
 
     const exams = await prisma.cbtScheduledExam.findMany({
       where: {
@@ -837,6 +1224,18 @@ export async function getStudentScheduledExams() {
 
     return {
       success: true,
+      studentInfo: {
+        studentId: student.StudentID,
+        admissionNo: student.AdmissionNo,
+        name:
+          student.PreferredName ||
+          `${student.FirstName || ""} ${student.LastName || ""}`.trim() ||
+          student.AdmissionNo,
+        className: student.Class?.ClassName || "",
+        isFeeCleared,
+        enrolmentStatus: student.EnrolmentStatus,
+      },
+      termLabel: activeTerm ? `${activeTerm.SessionName} · ${activeTerm.TermName}` : "",
       exams: exams.map((ex) => {
         const myAtt = ex.attempts[0] || null;
         const vis = getExamPostSubmitVisibility("EXAM", ex);
@@ -855,6 +1254,8 @@ export async function getStudentScheduledExams() {
           startsAt: ex.startsAt ? ex.startsAt.toISOString() : null,
           endsAt: ex.endsAt ? ex.endsAt.toISOString() : null,
           requireAccessCode: ex.requireAccessCode,
+          requireFeeClearance: ex.requireFeeClearance,
+          feeEligible: !ex.requireFeeClearance || isFeeCleared,
           windowEligible: win.eligible,
           windowReason: win.reason || null,
           myAttempt: myAtt
@@ -884,7 +1285,12 @@ export async function getStudentScheduledExams() {
 
 /**
  * Starts or resumes an official scheduled Strict Exam for the authenticated student.
- * Questions come exclusively from pinned exam questions or the subject's confidential EXAM_ONLY bank.
+ * Enforces the 5-Factor Server Eligibility Gate:
+ * 1. Student Identity & Active Enrolment Status
+ * 2. Class & Subject Registration Match
+ * 3. Term Fee Clearance (`requireFeeClearance`)
+ * 4. Schedule Window, LIVE Room Status & No Active Day Lock
+ * 5. Rate-Limited Subject-Bound Examination Room Code Validation
  */
 export async function startStrictExamAttempt(params: {
   scheduledExamId: string;
@@ -900,6 +1306,13 @@ export async function startStrictExamAttempt(params: {
       return { success: false, error: "Official CBT exams are restricted to enrolled students." };
     }
 
+    if (student.EnrolmentStatus && student.EnrolmentStatus !== "ACTIVE") {
+      return {
+        success: false,
+        error: `Access Denied: Your school enrolment status is ${student.EnrolmentStatus}. Contact the Registry or Principal.`,
+      };
+    }
+
     const rl = await rateLimit(`cbt_strict_exam:${actor.UserID}`, 10, 60);
     if (!rl.success) {
       return { success: false, error: "Too many exam launch requests. Wait 60 seconds and retry." };
@@ -913,13 +1326,19 @@ export async function startStrictExamAttempt(params: {
       return {
         success: false,
         dayLocked: true,
-        error: `CBT access is locked for today (${dayKey}): ${activeLock.reason}. See your Invigilator or Principal to lift this lock.`,
+        error: `CBT access is locked for today (${dayKey}): ${activeLock.reason}. See your Invigilator or Exam Officer to lift this lock.`,
       };
     }
 
     const exam = await prisma.cbtScheduledExam.findUnique({
       where: { id: params.scheduledExamId },
       include: {
+        submission: { select: { status: true } },
+        roomCodes: {
+          where: { isActive: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
         questions: {
           orderBy: { sortOrder: "asc" },
           include: {
@@ -935,29 +1354,65 @@ export async function startStrictExamAttempt(params: {
       return { success: false, error: "Official exam record not found." };
     }
 
+    // Factor 2: Class & Subject Registration Verification
     if (exam.classId !== student.ClassID) {
+      await writeAuditLog({
+        actorId: actor.UserID,
+        action: "EXAM_SECURITY_ALERT_CROSS_CLASS_ATTEMPT",
+        entity: "CbtScheduledExam",
+        entityId: exam.id,
+        newValue: {
+          studentId: student.StudentID,
+          studentClassId: student.ClassID,
+          targetExamClassId: exam.classId,
+        },
+      });
       return {
         success: false,
-        error: "Forbidden: This examination is scheduled for a different class arm.",
+        error: "Forbidden: You are not registered in the class arm scheduled for this examination.",
       };
     }
 
+    if (exam.submission && exam.submission.status !== "APPROVED") {
+      return {
+        success: false,
+        error: "This examination paper has not yet received final Exam Officer approval.",
+      };
+    }
+
+    // Factor 3: Term Fee Clearance Verification
+    if (exam.requireFeeClearance) {
+      const feeCleared = await checkStudentTermFeeClearance(
+        student.StudentID,
+        student.HasPaidFees,
+        exam.termId
+      );
+      if (!feeCleared) {
+        await writeAuditLog({
+          actorId: actor.UserID,
+          action: "EXAM_ROOM_FEE_CLEARANCE_BLOCKED",
+          entity: "CbtScheduledExam",
+          entityId: exam.id,
+          newValue: { studentId: student.StudentID, termId: exam.termId },
+        });
+        return {
+          success: false,
+          error:
+            "Term Fee Clearance Required: Only registered students who have cleared their school fees for the term may enter this Examination Room. Please visit the Bursar.",
+        };
+      }
+    }
+
+    // Factor 4: Schedule Window & LIVE Room Status
     const windowCheck = evaluateExamWindow(exam);
     if (!windowCheck.eligible) {
       return {
         success: false,
-        error: windowCheck.reason || "This examination is not currently open.",
+        error: windowCheck.reason || "This examination room is not currently open.",
       };
     }
 
-    if (exam.requireAccessCode && !verifyExamPin(params.accessCode, exam.accessCodeHash)) {
-      return {
-        success: false,
-        error: "Invalid exam passcode / invigilator PIN. Ask your exam supervisor for today's code.",
-      };
-    }
-
-    // Check existing non-cleared attempt for this scheduled exam
+    // Check existing non-cleared attempt for this scheduled exam (allow seamless resume without burning code rate-limit)
     const existingExamAttempt = await prisma.cbtAttempt.findFirst({
       where: {
         studentId: student.StudentID,
@@ -984,6 +1439,63 @@ export async function startStrictExamAttempt(params: {
         error:
           "You already have a recorded attempt for this official exam. Request Examiner retake clearance if you experienced a technical interruption.",
       };
+    }
+
+    // Factor 5: Rate-Limited Subject-Bound Examination Room Code Verification
+    const activeRoomCode = exam.roomCodes[0] || null;
+    if (exam.requireAccessCode || activeRoomCode) {
+      const codeRl = await rateLimit(`exam_code_guess:${actor.UserID}:${exam.id}`, 5, 600);
+      if (!codeRl.success) {
+        await writeAuditLog({
+          actorId: actor.UserID,
+          action: "EXAM_SECURITY_ALERT_CODE_BRUTE_FORCE_LOCKED",
+          entity: "CbtScheduledExam",
+          entityId: exam.id,
+          newValue: { studentId: student.StudentID, admissionNo: student.AdmissionNo },
+        });
+        return {
+          success: false,
+          error:
+            "Too many invalid Examination Room Code attempts. Room entry is temporarily locked for 10 minutes and logged for the Exam Officer.",
+        };
+      }
+
+      let codeValid = false;
+      let codeFailureReason = "Invalid Examination Room Code for this subject.";
+
+      if (activeRoomCode) {
+        const check = verifySubjectExamRoomCode({
+          scheduledExamId: exam.id,
+          subjectCode: exam.subjectCode,
+          candidateCode: params.accessCode,
+          expectedHash: activeRoomCode.codeHash,
+          isActive: activeRoomCode.isActive,
+          activatesAt: activeRoomCode.activatesAt,
+          expiresAt: activeRoomCode.expiresAt,
+        });
+        codeValid = check.valid;
+        if (check.reason) codeFailureReason = check.reason;
+      } else if (exam.accessCodeHash) {
+        codeValid = verifyExamPin(params.accessCode, exam.accessCodeHash);
+      }
+
+      if (!codeValid) {
+        await writeAuditLog({
+          actorId: actor.UserID,
+          action: "EXAM_SECURITY_ALERT_INVALID_ROOM_CODE",
+          entity: "CbtScheduledExam",
+          entityId: exam.id,
+          newValue: {
+            studentId: student.StudentID,
+            admissionNo: student.AdmissionNo,
+            subjectCode: exam.subjectCode,
+          },
+        });
+        return {
+          success: false,
+          error: codeFailureReason,
+        };
+      }
     }
 
     // Auto-submit any unrelated open practice/mock attempt before launching the official exam

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   getStudentScheduledExams,
@@ -13,6 +14,8 @@ import {
   FiClock,
   FiCheckCircle,
   FiAlertTriangle,
+  FiArrowRight,
+  FiKey,
 } from "react-icons/fi";
 
 export default function StudentScheduledExamsPanel({
@@ -50,6 +53,13 @@ export default function StudentScheduledExamsPanel({
     setErrMsg("");
     if (ex.myAttempt?.status === "ACTIVE") {
       router.push(`/portal/cbt/quiz?attemptId=${encodeURIComponent(ex.myAttempt.id)}`);
+      return;
+    }
+
+    if (!ex.feeEligible && ex.requireFeeClearance) {
+      setErrMsg(
+        `Fee Clearance Pending for "${ex.title}". Clear this term's fees with the Bursar before entering the Examination Room.`
+      );
       return;
     }
 
@@ -107,6 +117,20 @@ export default function StudentScheduledExamsPanel({
             Scheduled tests and term examinations assigned to your class by your teachers &amp; administration.
           </p>
         </div>
+        <Link
+          href="/portal/exam-room"
+          className="btn btn-primary"
+          style={{
+            fontSize: "0.82rem",
+            padding: "0.45rem 0.9rem",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            textDecoration: "none",
+          }}
+        >
+          <FiKey /> Open Subject Examination Room <FiArrowRight />
+        </Link>
       </div>
 
       {errMsg && (
@@ -166,6 +190,11 @@ export default function StudentScheduledExamsPanel({
                         {ex.maxStrikes}-Strike Strict Lock
                       </span>
                     )}
+                    {!ex.feeEligible && ex.requireFeeClearance && (
+                      <span style={{ fontSize: "0.72rem", fontWeight: 800, color: "var(--badge-danger-text)", background: "var(--badge-danger-bg)", padding: "0.15rem 0.5rem", borderRadius: "999px" }}>
+                        Fee Clearance Required
+                      </span>
+                    )}
                   </div>
                   <h3 style={{ margin: 0, color: "var(--color-gray-900)", fontSize: "1.05rem" }}>{ex.title}</h3>
                 </div>
@@ -191,20 +220,36 @@ export default function StudentScheduledExamsPanel({
                 </div>
               ) : canResumeActive || isLive ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
-                  {!canResumeActive && ex.requireAccessCode && (
+                  {!canResumeActive && !ex.feeEligible && ex.requireFeeClearance && (
+                    <div
+                      style={{
+                        padding: "0.65rem 0.85rem",
+                        borderRadius: "8px",
+                        background: "var(--badge-danger-bg)",
+                        color: "var(--badge-danger-text)",
+                        fontSize: "0.82rem",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Term Fee Clearance Pending: Clear this term&apos;s tuition/fees with the Bursar or Administration to unlock this Examination Room.
+                    </div>
+                  )}
+
+                  {!canResumeActive && ex.requireAccessCode && ex.feeEligible && (
                     <div>
                       <input
                         type="text"
-                        placeholder="Enter Invigilator Exam Passcode / PIN..."
+                        placeholder="Enter Subject Examination Room Code / Invigilator PIN..."
                         value={pins[ex.id] || ""}
                         onChange={(e) => setPins((prev) => ({ ...prev, [ex.id]: e.target.value }))}
                         style={{
                           width: "100%",
-                          maxWidth: "320px",
+                          maxWidth: "360px",
                           padding: "0.55rem 0.75rem",
                           borderRadius: "8px",
                           border: "1px solid var(--color-gray-300)",
                           fontWeight: 700,
+                          textTransform: "uppercase",
                         }}
                       />
                     </div>
@@ -229,19 +274,21 @@ export default function StudentScheduledExamsPanel({
                   <div>
                     <button
                       type="button"
-                      disabled={isDayLocked || launchingId === ex.id || (Boolean(activeAttemptId) && !canResumeActive && false)}
+                      disabled={isDayLocked || launchingId === ex.id || (!canResumeActive && ex.requireFeeClearance && !ex.feeEligible)}
                       onClick={() => handleLaunchExam(ex)}
                       className="btn btn-primary"
                       style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
                     >
-                      {isDayLocked ? <FiLock /> : <FiPlay />}
+                      {isDayLocked || (!canResumeActive && ex.requireFeeClearance && !ex.feeEligible) ? <FiLock /> : <FiPlay />}
                       {isDayLocked
                         ? "CBT Locked Today"
+                        : !canResumeActive && ex.requireFeeClearance && !ex.feeEligible
+                        ? "Fee Clearance Required"
                         : launchingId === ex.id
                         ? "Launching Protected Exam Hall..."
                         : canResumeActive
                         ? "Resume Active Official Exam"
-                        : "Start Official Exam (Strict Mode)"}
+                        : "Enter Examination Room (Strict Mode)"}
                     </button>
                   </div>
                 </div>

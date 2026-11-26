@@ -7,7 +7,15 @@ import {
   requireActiveUser,
   requireRole,
   writeAuditLog,
+  can,
 } from "@/lib/authz";
+import {
+  encryptExamVaultString,
+  decryptExamVaultString,
+  encryptExamOptionsJson,
+  decryptExamOptionsJson,
+  decryptAnswerKeyValue,
+} from "@/lib/exam-vault";
 
 // ============================================================================
 // TRACK A: TEACHER-CREATED CUSTOM CBT QUESTIONS & CLASS QUIZZES
@@ -70,6 +78,15 @@ export async function createCustomCbtQuestion(data: {
       .digest("hex");
 
     const bankScope = data.bankScope === "EXAM_ONLY" ? "EXAM_ONLY" : "OPEN_BANK";
+    const shouldEncrypt = bankScope === "EXAM_ONLY";
+    const storedStem = shouldEncrypt ? encryptExamVaultString(stem) : stem;
+    const storedOptions = encryptExamOptionsJson(optionsArr, shouldEncrypt);
+    const storedCorrectKey = shouldEncrypt ? encryptExamVaultString(correctKey) : correctKey;
+    const storedExp = data.explanation?.trim()
+      ? shouldEncrypt
+        ? encryptExamVaultString(data.explanation.trim())
+        : data.explanation.trim()
+      : null;
     const idPrefix = bankScope === "EXAM_ONLY" ? "wof-exam" : "wof-custom";
     const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
 
@@ -85,11 +102,12 @@ export async function createCustomCbtQuestion(data: {
           examBody,
           subjectCode,
           bankScope,
+          isEncrypted: shouldEncrypt,
           targetClassLevel: data.targetClassLevel?.trim() || null,
           authoredById: actor.UserID,
           topic: data.topic?.trim() || "School Class Quiz",
-          stem,
-          optionsJson: optionsArr,
+          stem: storedStem,
+          optionsJson: storedOptions,
           isActive: true,
           licenseRef: `TEACHER:${actor.UserID}:${actor.Email}`,
         },
@@ -99,12 +117,13 @@ export async function createCustomCbtQuestion(data: {
           examBody,
           subjectCode,
           bankScope,
+          isEncrypted: shouldEncrypt,
           targetClassLevel: data.targetClassLevel?.trim() || null,
           authoredById: actor.UserID,
           examYear: new Date().getFullYear(),
           topic: data.topic?.trim() || "School Class Quiz",
-          stem,
-          optionsJson: optionsArr,
+          stem: storedStem,
+          optionsJson: storedOptions,
           contentHash,
           licenseRef: `TEACHER:${actor.UserID}:${actor.Email}`,
           isActive: true,
@@ -114,13 +133,13 @@ export async function createCustomCbtQuestion(data: {
       await tx.cbtAnswerKey.upsert({
         where: { questionId: q.id },
         update: {
-          correctKey,
-          explanation: data.explanation?.trim() || null,
+          correctKey: storedCorrectKey,
+          explanation: storedExp,
         },
         create: {
           questionId: q.id,
-          correctKey,
-          explanation: data.explanation?.trim() || null,
+          correctKey: storedCorrectKey,
+          explanation: storedExp,
         },
       });
 
@@ -151,18 +170,35 @@ export async function createCustomCbtQuestion(data: {
 
 export async function getTeacherCustomCbtQuestions(subjectCode?: string) {
   try {
-    await requireRole([
+    const actor = await requireRole([
       "TEACHER",
       "FORM_MASTER",
       "Teacher",
       "SUPER_ADMIN",
       "PRINCIPAL",
+      "ADMIN",
       "Admin",
     ]);
+
+    const isSupervisor =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("ADMIN") ||
+      actor.roles.has("Admin") ||
+      can(actor, "MANAGE_CBT");
 
     const whereClause: any = {
       provider: "SCHOOL_INTERNAL",
       isActive: true,
+      ...(!isSupervisor
+        ? {
+            OR: [
+              { authoredById: actor.UserID },
+              { licenseRef: { startsWith: `TEACHER:${actor.UserID}:` } },
+              { licenseRef: { startsWith: `STAFF:${actor.UserID}:` } },
+            ],
+          }
+        : {}),
     };
     if (subjectCode && subjectCode !== "all") {
       whereClause.subjectCode = subjectCode.toLowerCase().trim();
@@ -186,10 +222,10 @@ export async function getTeacherCustomCbtQuestions(subjectCode?: string) {
         bankScope: q.bankScope,
         targetClassLevel: q.targetClassLevel || null,
         topic: q.topic || "School Class Quiz",
-        stem: q.stem,
-        options: Array.isArray(q.optionsJson) ? q.optionsJson : [],
-        correctKey: q.answerKey?.correctKey || "a",
-        explanation: q.answerKey?.explanation || "",
+        stem: decryptExamVaultString(q.stem),
+        options: decryptExamOptionsJson(q.optionsJson),
+        correctKey: decryptAnswerKeyValue(q.answerKey?.correctKey),
+        explanation: decryptExamVaultString(q.answerKey?.explanation),
         author: q.licenseRef?.startsWith("TEACHER:")
           ? q.licenseRef.split(":").slice(2).join(":")
           : "Academic Staff",
@@ -214,6 +250,7 @@ export async function deleteCustomCbtQuestion(questionId: string) {
 
     const existing = await prisma.cbtQuestion.findUnique({
       where: { id: questionId },
+      include: { submission: { select: { status: true } } },
     });
 
     if (!existing || existing.provider !== "SCHOOL_INTERNAL") {
@@ -226,16 +263,30 @@ export async function deleteCustomCbtQuestion(questionId: string) {
     const isSchoolAdmin =
       actor.roles.has("SUPER_ADMIN") ||
       actor.roles.has("PRINCIPAL") ||
-      actor.roles.has("Admin");
-    const isAuthor = Boolean(
-      existing.licenseRef &&
-        existing.licenseRef.startsWith(`TEACHER:${actor.UserID}:`)
-    );
+      actor.roles.has("ADMIN") ||
+      actor.roles.has("Admin") ||
+      can(actor, "MANAGE_CBT");
+    const isAuthor =
+      existing.authoredById === actor.UserID ||
+      Boolean(existing.licenseRef?.startsWith(`TEACHER:${actor.UserID}:`)) ||
+      Boolean(existing.licenseRef?.startsWith(`STAFF:${actor.UserID}:`));
 
     if (!isSchoolAdmin && !isAuthor) {
       return {
         success: false,
         error: "FORBIDDEN: You can only delete custom CBT questions that you authored.",
+      };
+    }
+
+    if (
+      !isSchoolAdmin &&
+      existing.submission &&
+      existing.submission.status !== "DRAFT" &&
+      existing.submission.status !== "REVISION_REQUESTED"
+    ) {
+      return {
+        success: false,
+        error: `Submission Locked: Cannot delete a question while its submission packet is ${existing.submission.status}.`,
       };
     }
 

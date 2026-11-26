@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getStudentProfile } from "@/app/actions/studentProfile";
 import Link from "next/link";
-import { FiCreditCard, FiUser, FiFileText, FiUploadCloud, FiAward } from "react-icons/fi";
+import { FiCreditCard, FiUser, FiFileText, FiUploadCloud, FiAward, FiShield } from "react-icons/fi";
 import InspirationSlideshow from "./InspirationSlideshow";
 import NoticeBoard from "./NoticeBoard";
 import QuickLinkCard from "./QuickLinkCard";
@@ -297,12 +297,20 @@ export default function StudentDashboard({ session }: { session: any }) {
         
         {/* Quick Link Cards */}
         <QuickLinkCard 
+          href="/portal/exam-room" 
+          icon={<FiShield />} 
+          iconBgColor="var(--status-success-bg)" 
+          iconColor="var(--color-primary-green)" 
+          title="Examination Room" 
+          subtitle="Official Subject Exams" 
+        />
+        <QuickLinkCard 
           href="/portal/cbt" 
           icon={<FiAward />} 
           iconBgColor="var(--status-purple-bg)" 
           iconColor="var(--accent-purple)" 
-          title="CBT Exams" 
-          subtitle="Mocks & Timed Tests" 
+          title="CBT Practice" 
+          subtitle="Mocks & Self-Study" 
         />
         <QuickLinkCard 
           href="/portal/results" 
@@ -328,6 +336,40 @@ export default function StudentDashboard({ session }: { session: any }) {
           title="Profile" 
           subtitle="Update Details" 
         />
+      </div>
+
+      {/* Dedicated Examination Room Entry Banner */}
+      <div
+        style={{
+          background: "linear-gradient(135deg, #0A2540, #1E3A8A)",
+          padding: "1.4rem 1.5rem",
+          borderRadius: "var(--radius-md)",
+          boxShadow: "var(--shadow-sm)",
+          marginBottom: "1.25rem",
+          color: "#FFFFFF",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "1rem",
+        }}
+      >
+        <div>
+          <h3 style={{ color: "#FFFFFF", margin: "0 0 0.25rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <FiShield color="#4ade80" /> Official Subject Examination Room
+          </h3>
+          <p style={{ margin: 0, color: "rgba(255,255,255,0.86)", fontSize: "0.9rem" }}>
+            Writing a scheduled CA test, midterm, or terminal CBT exam today? Enter your Subject Examination Room with your morning room code.
+          </p>
+        </div>
+        <Link
+          href="/portal/exam-room"
+          className="btn btn-primary"
+          style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", textDecoration: "none", fontWeight: 800 }}
+        >
+          <FiShield size={18} />
+          <span>Enter Examination Room</span>
+        </Link>
       </div>
 
       {/* Pay Fees & Upload Teller Receipt Action */}

@@ -17,6 +17,11 @@ import {
   previewStrictExamScoresForResultSync,
 } from "@/app/actions/cbtExams";
 import {
+  getOrCreateTeacherSubmissionPacket,
+  getTeacherQuestionSubmissions,
+  submitQuestionPacketForReview,
+} from "@/app/actions/cbtSubmissions";
+import {
   SUBJECTS,
   SCHOOL_INTERNAL_SUBJECT_PRESETS,
   formatCbtSubjectLabel,
@@ -40,6 +45,8 @@ import {
   FiArchive,
   FiUnlock,
   FiSliders,
+  FiSend,
+  FiKey,
 } from "react-icons/fi";
 
 const ALL_CBT_SUBJECTS = Array.from(new Set([...SUBJECTS, ...SCHOOL_INTERNAL_SUBJECT_PRESETS]));
@@ -97,7 +104,7 @@ export default function ExamBankAndSchedulerStudio({
   mode?: "teacher" | "admin";
   onApplyScoresToResultGrid?: (payload: AppliedExamScoreSyncPayload) => void;
 }) {
-  const [studioSection, setStudioSection] = useState<"scanner" | "scheduler" | "bank">(
+  const [studioSection, setStudioSection] = useState<"submissions" | "scanner" | "scheduler" | "bank">(
     mode === "admin" ? "scheduler" : "scanner"
   );
   const [loading, setLoading] = useState(true);
@@ -108,6 +115,14 @@ export default function ExamBankAndSchedulerStudio({
   const [activeTermLabel, setActiveTermLabel] = useState("");
   const [allocations, setAllocations] = useState<any[]>([]);
   const [scheduledExams, setScheduledExams] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [activeSubmissionId, setActiveSubmissionId] = useState<string>("");
+  const [subAllocKey, setSubAllocKey] = useState<string>("");
+  const [subExamType, setSubExamType] = useState<"CA_TEST" | "MIDTERM" | "TERMINAL_EXAM">("TERMINAL_EXAM");
+  const [subTargetGoal, setSubTargetGoal] = useState<number>(20);
+  const [submittingPacketId, setSubmittingPacketId] = useState<string | null>(null);
+  const [creatingPacket, setCreatingPacket] = useState(false);
+  const [subNotesMap, setSubNotesMap] = useState<Record<string, string>>({});
   const [bankSummaryMap, setBankSummaryMap] = useState<
     Record<string, { examOnlyCount: number; openBankCount: number }>
   >({});
@@ -141,6 +156,7 @@ export default function ExamBankAndSchedulerStudio({
   const [exMaxStrikes, setExMaxStrikes] = useState<1 | 2>(2);
   const [exAccessCode, setExAccessCode] = useState("");
   const [exClearPin, setExClearPin] = useState(false);
+  const [exRequireFeeClearance, setExRequireFeeClearance] = useState(true);
   const [exRevealScore, setExRevealScore] = useState(false);
   const [exStatus, setExStatus] = useState<"DRAFT" | "SCHEDULED" | "LIVE" | "CLOSED">("SCHEDULED");
   const [exStartsAt, setExStartsAt] = useState("");
@@ -159,18 +175,19 @@ export default function ExamBankAndSchedulerStudio({
   } | null>(null);
 
   const fetchStudioSnapshot = useCallback(async () => {
-    const [studioRes, bankRes] = await Promise.all([
+    const [studioRes, bankRes, subRes] = await Promise.all([
       getTeacherExamStudioData(),
       getTeacherScopedBankQuestions({
         subjectCode: bankSubjectFilter !== "all" ? bankSubjectFilter : undefined,
         bankScope: bankScopeFilter,
       }),
+      getTeacherQuestionSubmissions(),
     ]);
-    return { studioRes, bankRes };
+    return { studioRes, bankRes, subRes };
   }, [bankScopeFilter, bankSubjectFilter]);
 
   const applyStudioSnapshot = useCallback(
-    ({ studioRes, bankRes }: Awaited<ReturnType<typeof fetchStudioSnapshot>>) => {
+    ({ studioRes, bankRes, subRes }: Awaited<ReturnType<typeof fetchStudioSnapshot>>) => {
       if (studioRes.success) {
         setActiveTermLabel(
           studioRes.activeTerm
@@ -182,16 +199,31 @@ export default function ExamBankAndSchedulerStudio({
         setScheduledExams(studioRes.scheduledExams || []);
         setBankSummaryMap(studioRes.bankSummaryMap || {});
 
-        if (allocs.length > 0 && !exAllocKey) {
+        if (allocs.length > 0) {
           const first = allocs[0];
-          setExAllocKey(`${first.classId}:${first.subjectId}`);
-          if (first.cbtCodes?.[0]) {
-            setExSubjectCode(first.cbtCodes[0]);
-            setScanSubjectCode(first.cbtCodes[0]);
-          }
+          const firstKey = `${first.classId}:${first.subjectId}`;
+          setExAllocKey((prev) => {
+            if (!prev && first.cbtCodes?.[0]) {
+              setExSubjectCode(first.cbtCodes[0]);
+              setScanSubjectCode(first.cbtCodes[0]);
+            }
+            return prev || firstKey;
+          });
+          setSubAllocKey((prev) => prev || firstKey);
         }
       } else if (studioRes.error) {
         setError(studioRes.error);
+      }
+
+      if (subRes.success) {
+        const list = subRes.submissions || [];
+        setSubmissions(list);
+        const editable = list.find(
+          (s: any) => s.status === "DRAFT" || s.status === "REVISION_REQUESTED"
+        );
+        if (editable) {
+          setActiveSubmissionId((prev) => prev || editable.id);
+        }
       }
 
       if (bankRes.success) {
@@ -199,7 +231,7 @@ export default function ExamBankAndSchedulerStudio({
       }
       setLoading(false);
     },
-    [exAllocKey]
+    []
   );
 
   const loadStudio = useCallback(async () => {
@@ -283,6 +315,7 @@ export default function ExamBankAndSchedulerStudio({
       bankScope: scanBankScope,
       targetClassLevel: scanClassLevel || null,
       attachToExamId: attachToExamId || undefined,
+      submissionId: scanBankScope === "EXAM_ONLY" && activeSubmissionId ? activeSubmissionId : undefined,
       questions: chosen.map((d) => ({
         stem: d.stem,
         optionA: d.optionA,
@@ -330,11 +363,59 @@ export default function ExamBankAndSchedulerStudio({
     setExMaxStrikes(2);
     setExAccessCode("");
     setExClearPin(false);
+    setExRequireFeeClearance(true);
     setExRevealScore(false);
     setExStatus("SCHEDULED");
     setExStartsAt("");
     setExEndsAt("");
     setPinnedQuestionIds([]);
+  };
+
+  const handleCreateOrSyncPacket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const found = allocations.find((a) => `${a.classId}:${a.subjectId}` === subAllocKey);
+    if (!found) {
+      setError("Select an assigned Class & Subject allocation first.");
+      return;
+    }
+    setCreatingPacket(true);
+    setError("");
+    setSuccess("");
+    const res = await getOrCreateTeacherSubmissionPacket({
+      classId: found.classId,
+      subjectId: found.subjectId,
+      examType: subExamType,
+      targetQuestionGoal: subTargetGoal,
+    });
+    if (res.success && res.packet) {
+      setActiveSubmissionId(res.packet.id);
+      setSuccess(
+        `Question Packet "${res.packet.title}" initialized & synced with your ${formatCbtSubjectLabel(res.packet.subjectCode)} EXAM_ONLY bank.`
+      );
+      await loadStudio();
+    } else {
+      setError(res.error || "Unable to create question submission packet.");
+    }
+    setCreatingPacket(false);
+  };
+
+  const handleSubmitPacketForReview = async (submissionId: string) => {
+    setSubmittingPacketId(submissionId);
+    setError("");
+    setSuccess("");
+    const res = await submitQuestionPacketForReview({
+      submissionId,
+      notes: subNotesMap[submissionId] || undefined,
+    });
+    if (res.success) {
+      setSuccess(
+        "Question packet submitted to Examination Officer / Vice Principal for review! Initial submission timestamp & revision snapshot locked."
+      );
+      await loadStudio();
+    } else {
+      setError(res.error || "Failed to submit question packet.");
+    }
+    setSubmittingPacketId(null);
   };
 
   const handleSaveScheduledExam = async (e: React.FormEvent) => {
@@ -364,9 +445,10 @@ export default function ExamBankAndSchedulerStudio({
       endsAt: exEndsAt ? new Date(exEndsAt).toISOString() : null,
       accessCode: exAccessCode.trim() || null,
       clearAccessCode: exClearPin,
+      requireFeeClearance: exRequireFeeClearance,
       revealScoreAfterSubmit: exRevealScore,
       answersReleased: false,
-      status: exStatus,
+      status: mode === "teacher" && exStatus === "LIVE" ? "SCHEDULED" : exStatus,
       pinnedQuestionIds: pinnedQuestionIds.length > 0 ? pinnedQuestionIds : undefined,
     });
 
@@ -502,6 +584,14 @@ export default function ExamBankAndSchedulerStudio({
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
           <button
             type="button"
+            onClick={() => setStudioSection("submissions")}
+            className={studioSection === "submissions" ? "btn btn-primary" : "btn btn-outline"}
+            style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+          >
+            <FiSend /> 0. Exam Submissions &amp; Approval ({submissions.length})
+          </button>
+          <button
+            type="button"
             onClick={() => setStudioSection("scanner")}
             className={studioSection === "scanner" ? "btn btn-primary" : "btn btn-outline"}
             style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
@@ -556,6 +646,268 @@ export default function ExamBankAndSchedulerStudio({
           }}
         >
           {success}
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* PANEL 0: TEACHER QUESTION SUBMISSION PACKETS & APPROVAL TRACKING      */}
+      {/* ===================================================================== */}
+      {studioSection === "submissions" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.15rem" }}>
+          <div
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-primary)",
+              borderRadius: "var(--radius-lg)",
+              padding: "1.35rem",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
+            <h3 style={{ margin: "0 0 0.35rem 0", color: "var(--color-navy-blue)", fontSize: "1.05rem" }}>
+              Initialize &amp; Submit Confidential Exam Packets
+            </h3>
+            <p style={{ margin: "0 0 1rem 0", fontSize: "0.84rem", color: "var(--text-muted)" }}>
+              Prepare your encrypted <strong>EXAM_ONLY</strong> questions per assigned Class &amp; Subject, then submit your packet to the{" "}
+              <strong>Examination Officer / Vice Principal</strong>. Once submitted, your <strong>Initial Submission Timestamp</strong> is locked immutably and every subsequent revision is archived.
+            </p>
+
+            <form
+              onSubmit={handleCreateOrSyncPacket}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                gap: "0.75rem",
+                alignItems: "end",
+              }}
+            >
+              <div>
+                <label className="form-label" style={{ fontSize: "0.78rem" }}>
+                  Assigned Class &amp; Subject *
+                </label>
+                <select
+                  className="form-input"
+                  value={subAllocKey}
+                  onChange={(e) => setSubAllocKey(e.target.value)}
+                  required
+                >
+                  {allocations.length === 0 ? (
+                    <option value="">No assigned subjects found</option>
+                  ) : (
+                    allocations.map((a) => (
+                      <option key={`${a.classId}:${a.subjectId}`} value={`${a.classId}:${a.subjectId}`}>
+                        {a.className} · {a.subjectName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: "0.78rem" }}>
+                  Examination Type *
+                </label>
+                <select
+                  className="form-input"
+                  value={subExamType}
+                  onChange={(e) => setSubExamType(e.target.value as "CA_TEST" | "MIDTERM" | "TERMINAL_EXAM")}
+                >
+                  <option value="TERMINAL_EXAM">Terminal Exam</option>
+                  <option value="MIDTERM">Mid-Term Test</option>
+                  <option value="CA_TEST">CA CBT Quiz</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: "0.78rem" }}>
+                  Target Questions
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="form-input"
+                  value={subTargetGoal}
+                  onChange={(e) => setSubTargetGoal(Number(e.target.value) || 20)}
+                />
+              </div>
+
+              <button type="submit" disabled={creatingPacket || allocations.length === 0} className="btn btn-primary">
+                <FiPlus style={{ marginRight: "0.3rem" }} />
+                {creatingPacket ? "Initializing..." : "Create / Sync Question Packet"}
+              </button>
+            </form>
+          </div>
+
+          {submissions.length === 0 ? (
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px dashed var(--border-primary)",
+                borderRadius: "var(--radius-lg)",
+                padding: "2rem",
+                textAlign: "center",
+                color: "var(--text-muted)",
+              }}
+            >
+              No submission packets created yet for this term. Initialize your first subject packet above!
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
+              {submissions.map((sub) => {
+                const canSubmit = sub.status === "DRAFT" || sub.status === "REVISION_REQUESTED";
+                return (
+                  <div
+                    key={sub.id}
+                    style={{
+                      background: "var(--bg-card)",
+                      border: `1px solid ${
+                        sub.status === "APPROVED"
+                          ? "var(--status-success-border)"
+                          : sub.status === "REVISION_REQUESTED" || sub.status === "REJECTED"
+                          ? "var(--status-error-border)"
+                          : "var(--border-primary)"
+                      }`,
+                      borderRadius: "var(--radius-lg)",
+                      padding: "1.15rem 1.25rem",
+                      boxShadow: "var(--shadow-sm)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.65rem", marginBottom: "0.55rem" }}>
+                      <div>
+                        <div style={{ display: "flex", gap: "0.45rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.25rem" }}>
+                          <span
+                            style={{
+                              padding: "0.18rem 0.6rem",
+                              borderRadius: "999px",
+                              fontSize: "0.72rem",
+                              fontWeight: 800,
+                              background:
+                                sub.status === "APPROVED"
+                                  ? "var(--status-success-bg)"
+                                  : sub.status === "REVISION_REQUESTED" || sub.status === "REJECTED"
+                                  ? "var(--status-error-bg)"
+                                  : sub.status === "SUBMITTED" || sub.status === "UNDER_REVIEW"
+                                  ? "var(--status-info-bg)"
+                                  : "var(--bg-secondary)",
+                              color:
+                                sub.status === "APPROVED"
+                                  ? "var(--status-success-text)"
+                                  : sub.status === "REVISION_REQUESTED" || sub.status === "REJECTED"
+                                  ? "var(--status-error-text)"
+                                  : sub.status === "SUBMITTED" || sub.status === "UNDER_REVIEW"
+                                  ? "var(--status-info-text)"
+                                  : "var(--text-secondary)",
+                            }}
+                          >
+                            {sub.status.replace(/_/g, " ")}
+                          </span>
+                          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--color-navy-blue)" }}>
+                            {sub.className} · {sub.subjectName} · Rev #{sub.revisionNumber}
+                          </span>
+                        </div>
+                        <h4 style={{ margin: 0, color: "var(--text-heading)", fontSize: "1rem" }}>{sub.title}</h4>
+                      </div>
+
+                      <div style={{ fontSize: "0.77rem", color: "var(--text-muted)", textAlign: "right" }}>
+                        <div>
+                          Questions: <strong>{sub.questionCount} / {sub.targetQuestionGoal}</strong>
+                        </div>
+                        <div>
+                          Initial Submit:{" "}
+                          <strong>
+                            {sub.initialSubmittedAt
+                              ? new Date(sub.initialSubmittedAt).toLocaleString()
+                              : "Not submitted yet"}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {sub.reviewerNotes && (
+                      <div
+                        style={{
+                          padding: "0.65rem 0.85rem",
+                          borderRadius: "8px",
+                          background: "var(--bg-secondary)",
+                          border: "1px solid var(--border-primary)",
+                          fontSize: "0.82rem",
+                          marginBottom: "0.75rem",
+                        }}
+                      >
+                        <strong>Exam Officer Feedback{sub.reviewerEmail ? ` (${sub.reviewerEmail})` : ""}:</strong>{" "}
+                        {sub.reviewerNotes}
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: "0.55rem", flexWrap: "wrap", alignItems: "center" }}>
+                      {canSubmit && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveSubmissionId(sub.id);
+                              setScanSubjectCode(sub.subjectCode || scanSubjectCode);
+                              setScanBankScope("EXAM_ONLY");
+                              setStudioSection("scanner");
+                            }}
+                            className="btn btn-outline"
+                            style={{ fontSize: "0.78rem", padding: "0.35rem 0.75rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
+                          >
+                            <FiCamera /> Scan / Add Questions to Packet
+                          </button>
+
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Optional note for Exam Officer..."
+                            value={subNotesMap[sub.id] || ""}
+                            onChange={(e) =>
+                              setSubNotesMap((prev) => ({ ...prev, [sub.id]: e.target.value }))
+                            }
+                            style={{ maxWidth: "240px", padding: "0.38rem 0.65rem", fontSize: "0.8rem" }}
+                          />
+
+                          <button
+                            type="button"
+                            disabled={submittingPacketId === sub.id || sub.questionCount === 0}
+                            onClick={() => handleSubmitPacketForReview(sub.id)}
+                            className="btn btn-primary"
+                            style={{ fontSize: "0.78rem", padding: "0.38rem 0.85rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
+                          >
+                            <FiSend />
+                            {submittingPacketId === sub.id
+                              ? "Submitting..."
+                              : sub.status === "REVISION_REQUESTED"
+                              ? "Resubmit Revised Packet"
+                              : "Submit Packet for Exam Officer Review"}
+                          </button>
+                        </>
+                      )}
+
+                      {sub.status === "APPROVED" && (
+                        <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--status-success-text)", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                          <FiCheckCircle /> Approved &amp; Sealed — Examination Officer can issue Morning Room Code.
+                        </span>
+                      )}
+                    </div>
+
+                    {sub.revisions && sub.revisions.length > 0 && (
+                      <div style={{ marginTop: "0.75rem", paddingTop: "0.65rem", borderTop: "1px dashed var(--border-subtle)", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                        <strong>Recent History:</strong>{" "}
+                        {sub.revisions
+                          .slice(0, 3)
+                          .map(
+                            (r: any) =>
+                              `Rev #${r.revisionNo} (${r.action} · ${r.questionCount} Qs · ${new Date(r.createdAt).toLocaleString()})`
+                          )
+                          .join(" | ")}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -717,6 +1069,21 @@ export default function ExamBankAndSchedulerStudio({
                     placeholder="Class Level (e.g. JSS 2)"
                     style={{ width: "160px", padding: "0.45rem 0.6rem", fontSize: "0.8rem" }}
                   />
+                  <select
+                    className="form-input"
+                    value={activeSubmissionId}
+                    onChange={(e) => setActiveSubmissionId(e.target.value)}
+                    style={{ maxWidth: "250px", padding: "0.45rem 0.6rem", fontSize: "0.8rem" }}
+                  >
+                    <option value="">Attach to Active Packet (Optional)</option>
+                    {submissions
+                      .filter((s) => s.status === "DRAFT" || s.status === "REVISION_REQUESTED")
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          Packet: {s.title}
+                        </option>
+                      ))}
+                  </select>
                   <select
                     className="form-input"
                     value={attachToExamId}
@@ -1080,8 +1447,12 @@ export default function ExamBankAndSchedulerStudio({
                   onChange={(e) => setExStatus(e.target.value as "DRAFT" | "SCHEDULED" | "LIVE" | "CLOSED")}
                 >
                   <option value="DRAFT">Draft (Hidden)</option>
-                  <option value="SCHEDULED">Scheduled (Upcoming Badge)</option>
-                  <option value="LIVE">LIVE NOW (Students Can Take)</option>
+                  <option value="SCHEDULED">Scheduled (Awaiting Room Activation)</option>
+                  <option value="LIVE" disabled={mode === "teacher"}>
+                    {mode === "teacher"
+                      ? "LIVE NOW (Exam Officer / VP Room Code Activation Required)"
+                      : "LIVE NOW (Students Can Take)"}
+                  </option>
                   <option value="CLOSED">Closed</option>
                 </select>
               </div>
@@ -1116,6 +1487,14 @@ export default function ExamBankAndSchedulerStudio({
               <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 600 }}>
                 <input type="checkbox" checked={exStrictMode} onChange={(e) => setExStrictMode(e.target.checked)} />
                 Enforce Exam Strict Mode (Fullscreen Gate, Tab-Lock, Copy/Paste &amp; PrintScreen Block)
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={exRequireFeeClearance}
+                  onChange={(e) => setExRequireFeeClearance(e.target.checked)}
+                />
+                Enforce Term Fee Clearance Gate (Registered Students Must Have Cleared Term Fees)
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontWeight: 600 }}>
                 <input type="checkbox" checked={exRevealScore} onChange={(e) => setExRevealScore(e.target.checked)} />
@@ -1183,9 +1562,17 @@ export default function ExamBankAndSchedulerStudio({
                           <span style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--color-navy-blue)" }}>
                             {ex.className} · {ex.subjectName}
                           </span>
-                          {ex.requireAccessCode && (
-                            <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "0.15rem 0.45rem", borderRadius: "999px", background: "var(--status-warning-bg)", color: "var(--status-warning-text)" }}>
-                              PIN Protected
+                          {(ex.requireAccessCode || ex.activeRoomCodePreview) && (
+                            <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "0.15rem 0.45rem", borderRadius: "999px", background: "var(--status-warning-bg)", color: "var(--status-warning-text)", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+                              <FiKey /> {ex.activeRoomCodePreview ? `Room Code: ${ex.activeRoomCodePreview}` : "PIN Protected"}
+                            </span>
+                          )}
+                          <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "0.15rem 0.45rem", borderRadius: "999px", background: ex.requireFeeClearance ? "var(--status-info-bg)" : "var(--bg-secondary)", color: ex.requireFeeClearance ? "var(--status-info-text)" : "var(--text-secondary)" }}>
+                            {ex.requireFeeClearance ? "Fee Cleared Only" : "Fee Check Waived"}
+                          </span>
+                          {ex.submissionStatus && (
+                            <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "0.15rem 0.45rem", borderRadius: "999px", background: ex.submissionStatus === "APPROVED" ? "var(--status-success-bg)" : "var(--bg-secondary)", color: ex.submissionStatus === "APPROVED" ? "var(--status-success-text)" : "var(--text-secondary)" }}>
+                              Packet: {ex.submissionStatus}
                             </span>
                           )}
                         </div>
@@ -1211,14 +1598,33 @@ export default function ExamBankAndSchedulerStudio({
 
                     <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
                       {ex.status !== "LIVE" ? (
-                        <button
-                          type="button"
-                          onClick={() => handleExamLifecycle(ex.id, { status: "LIVE" })}
-                          className="btn btn-primary"
-                          style={{ padding: "0.35rem 0.7rem", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
-                        >
-                          <FiPlay /> Go Live Now
-                        </button>
+                        mode === "admin" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleExamLifecycle(ex.id, { status: "LIVE" })}
+                            className="btn btn-primary"
+                            style={{ padding: "0.35rem 0.7rem", fontSize: "0.78rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
+                          >
+                            <FiPlay /> Go Live Now
+                          </button>
+                        ) : (
+                          <span
+                            style={{
+                              padding: "0.35rem 0.7rem",
+                              fontSize: "0.76rem",
+                              fontWeight: 700,
+                              borderRadius: "8px",
+                              background: "var(--bg-secondary)",
+                              color: "var(--text-muted)",
+                              border: "1px solid var(--border-primary)",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.3rem",
+                            }}
+                          >
+                            <FiLock /> Requires Exam Officer Activation
+                          </span>
+                        )
                       ) : (
                         <button
                           type="button"

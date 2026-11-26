@@ -33,6 +33,7 @@ import {
   FiLock,
 } from "react-icons/fi";
 import ExamBankAndSchedulerStudio from "@/components/cbt/ExamBankAndSchedulerStudio";
+import ExaminationControlCentre from "@/components/cbt/ExaminationControlCentre";
 
 export interface CbtAttemptAnalyticsRow {
   id: string;
@@ -103,8 +104,8 @@ export default function AdminCbtClient({
   const [recentEvents] = useState(initialRecentEvents);
   const [providerDiag, setProviderDiag] = useState<any>(initialProviderDiagnostics);
   const [activeTab, setActiveTab] = useState<
-    "locks" | "attempts" | "events" | "providers" | "bank" | "exams" | "analytics"
-  >("exams");
+    "control-centre" | "locks" | "attempts" | "events" | "providers" | "bank" | "exams" | "analytics"
+  >("control-centre");
   const [loading, setLoading] = useState(false);
   const [syncingSubject, setSyncingSubject] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
@@ -585,6 +586,24 @@ export default function AdminCbtClient({
           flexWrap: "wrap",
         }}
       >
+        <button
+          onClick={() => setActiveTab("control-centre")}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0.75rem 1rem",
+            fontWeight: "bold",
+            color: activeTab === "control-centre" ? "var(--color-navy-blue)" : "var(--color-gray-500)",
+            borderBottom: activeTab === "control-centre" ? "3px solid var(--color-primary-green)" : "3px solid transparent",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.4rem",
+          }}
+        >
+          <FiShield /> Exam Control Centre
+        </button>
+
         <button
           onClick={() => setActiveTab("exams")}
           style={{
@@ -1687,6 +1706,9 @@ export default function AdminCbtClient({
           </div>
         </div>
       )}
+
+      {/* TAB: CENTRAL EXAMINATION CONTROL CENTRE */}
+      {activeTab === "control-centre" && <ExaminationControlCentre />}
 
       {/* TAB: STRICT EXAMS & PAPER OCR STUDIO */}
       {activeTab === "exams" && <ExamBankAndSchedulerStudio mode="admin" />}

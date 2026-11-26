@@ -75,6 +75,15 @@ enum CbtExamStatus {
   CLOSED
 }
 
+enum CbtSubmissionStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  REVISION_REQUESTED
+  APPROVED
+  REJECTED
+}
+
 enum AttemptStatus {
   ACTIVE
   SUBMITTED
@@ -211,8 +220,10 @@ model User {
   FormMasterClasses  Class[]               @relation("ClassFormMaster")
   SentMessages       Message[]             @relation("SentMessages")
   ReceivedMessages   Message[]             @relation("ReceivedMessages")
-  SubjectSubmissions Subject_Submission[]
-  AuditLogs          AuditLog[]
+  SubjectSubmissions          Subject_Submission[]
+  AuditLogs                   AuditLog[]
+  CbtQuestionSubmissions      CbtQuestionSubmission[] @relation("TeacherQuestionSubmissions")
+  ReviewedQuestionSubmissions CbtQuestionSubmission[] @relation("ReviewerQuestionSubmissions")
 }
 
 model UserRoleAssignment {
@@ -239,8 +250,9 @@ model Class {
   Enrollments        Enrollment[]
   TeacherMaps        Teacher_Subject_Map[]
   SubjectSubmissions Subject_Submission[]
-  Broadsheets        ClassBroadsheet[]
-  CbtScheduledExams  CbtScheduledExam[]
+  Broadsheets            ClassBroadsheet[]
+  CbtScheduledExams      CbtScheduledExam[]
+  CbtQuestionSubmissions CbtQuestionSubmission[]
 }
 
 model Student {
@@ -346,8 +358,9 @@ model Subject {
   ClassLevel         String // e.g., "Primary", "JSS", "SSS"
   TeacherMaps        Teacher_Subject_Map[]
   Results            Result[]
-  SubjectSubmissions Subject_Submission[]
-  CbtScheduledExams  CbtScheduledExam[]
+  SubjectSubmissions     Subject_Submission[]
+  CbtScheduledExams      CbtScheduledExam[]
+  CbtQuestionSubmissions CbtQuestionSubmission[]
 }
 
 model Teacher_Subject_Map {
@@ -390,9 +403,10 @@ model Academic_Term {
   ScratchCards       Scratch_Card[]
   SubjectSubmissions Subject_Submission[]
   FormMasterReports  Form_Master_Report[]
-  Broadsheets        ClassBroadsheet[]
-  ReportCards        ReportCard[]
-  CbtScheduledExams  CbtScheduledExam[]
+  Broadsheets            ClassBroadsheet[]
+  ReportCards            ReportCard[]
+  CbtScheduledExams      CbtScheduledExam[]
+  CbtQuestionSubmissions CbtQuestionSubmission[]
 }
 
 model Result {
@@ -881,6 +895,9 @@ model CbtQuestion {
   bankScope          CbtBankScope               @default(OPEN_BANK)
   authoredById       Int?
   targetClassLevel   String?
+  submissionId       String?
+  submission         CbtQuestionSubmission?     @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  isEncrypted        Boolean                    @default(false)
   isActive           Boolean                    @default(true) // Kill switch if licence changes
   fetchedAt          DateTime                   @default(now())
   answerKey          CbtAnswerKey?
@@ -890,6 +907,7 @@ model CbtQuestion {
   @@unique([provider, externalId])
   @@index([subjectCode, examYear])
   @@index([provider, bankScope, subjectCode, isActive])
+  @@index([submissionId])
 }
 
 model CbtAnswerKey {
@@ -976,8 +994,11 @@ model CbtScheduledExam {
   endsAt                 DateTime?
   accessCodeHash         String?
   requireAccessCode      Boolean                    @default(false)
+  requireFeeClearance    Boolean                    @default(true)
   revealScoreAfterSubmit Boolean                    @default(false)
   answersReleased        Boolean                    @default(false)
+  submissionId           String?
+  submission             CbtQuestionSubmission?     @relation(fields: [submissionId], references: [id], onDelete: SetNull)
   createdById            Int
   approvedById           Int?
   approvedAt             DateTime?
@@ -985,9 +1006,81 @@ model CbtScheduledExam {
   updatedAt              DateTime                   @default(now()) @updatedAt
   questions              CbtScheduledExamQuestion[]
   attempts               CbtAttempt[]
+  roomCodes              CbtExamRoomCode[]
 
   @@index([classId, termId, status])
   @@index([subjectCode, status])
+  @@index([submissionId])
+}
+
+model CbtQuestionSubmission {
+  id                 String                  @id @default(cuid())
+  teacherId          Int
+  teacher            User                    @relation("TeacherQuestionSubmissions", fields: [teacherId], references: [UserID])
+  classId            Int
+  classArm           Class                   @relation(fields: [classId], references: [ClassID])
+  subjectId          Int
+  subject            Subject                 @relation(fields: [subjectId], references: [SubjectID])
+  subjectCode        String
+  termId             Int
+  term               Academic_Term           @relation(fields: [termId], references: [TermID])
+  examType           String                  @default("TERMINAL_EXAM") // "CA_TEST" | "MIDTERM" | "TERMINAL_EXAM"
+  title              String
+  status             CbtSubmissionStatus     @default(DRAFT)
+  targetQuestionGoal Int                     @default(20)
+  revisionNumber     Int                     @default(1)
+  initialSubmittedAt DateTime?
+  lastModifiedAt     DateTime                @default(now()) @updatedAt
+  deadlineAt         DateTime?
+  reviewerId         Int?
+  reviewer           User?                   @relation("ReviewerQuestionSubmissions", fields: [reviewerId], references: [UserID])
+  reviewedAt         DateTime?
+  reviewerNotes      String?
+  createdAt          DateTime                @default(now())
+  questions          CbtQuestion[]
+  revisions          CbtSubmissionRevision[]
+  scheduledExams     CbtScheduledExam[]
+
+  @@unique([teacherId, classId, subjectId, termId, examType])
+  @@index([termId, status, initialSubmittedAt])
+  @@index([classId, subjectId, termId])
+}
+
+model CbtSubmissionRevision {
+  id            String                @id @default(cuid())
+  submissionId  String
+  submission    CbtQuestionSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  revisionNo    Int
+  action        String // "SUBMITTED" | "RESUBMITTED" | "UNDER_REVIEW" | "APPROVED" | "REVISION_REQUESTED" | "REJECTED"
+  actorId       Int
+  actorEmail    String?
+  notes         String?
+  questionCount Int                   @default(0)
+  snapshotJson  Json
+  createdAt     DateTime              @default(now())
+
+  @@index([submissionId, revisionNo])
+}
+
+model CbtExamRoomCode {
+  id               String           @id @default(cuid())
+  scheduledExamId  String
+  scheduledExam    CbtScheduledExam @relation(fields: [scheduledExamId], references: [id], onDelete: Cascade)
+  subjectCode      String
+  codeHash         String
+  codePreview      String // e.g., "MTH-****-WOF"
+  isActive         Boolean          @default(true)
+  activatesAt      DateTime         @default(now())
+  expiresAt        DateTime
+  generatedById    Int
+  generatedByEmail String?
+  revokedById      Int?
+  revokedAt        DateTime?
+  revokeReason     String?
+  createdAt        DateTime         @default(now())
+
+  @@index([scheduledExamId, isActive])
+  @@index([codeHash])
 }
 
 model CbtScheduledExamQuestion {

@@ -21,6 +21,11 @@ import {
   getExamPostSubmitVisibility,
   getPracticePoolBankScope,
 } from "@/lib/cbt-exam-policy";
+import {
+  decryptExamVaultString,
+  decryptExamOptionsJson,
+  decryptAnswerKeyValue,
+} from "@/lib/exam-vault";
 
 // Decision 10.3: 2 Hard Strikes before terminating attempt & locking for the current Lagos day.
 // Commercial Policy: CBT Practice & Mock exams remain free for all registered students;
@@ -656,9 +661,8 @@ export async function getQuestion(
       return { success: false, error: "Question slot not found." };
     }
 
-    const rawOptions = Array.isArray(item.question.optionsJson)
-      ? (item.question.optionsJson as { key: string; text: string }[])
-      : [];
+    const rawOptions = decryptExamOptionsJson(item.question.optionsJson);
+    const decryptedStem = decryptExamVaultString(item.question.stem);
     const order = Array.isArray(item.optionOrder) ? (item.optionOrder as string[]) : ["a", "b", "c", "d"];
 
     const orderedOptions = order
@@ -708,7 +712,7 @@ export async function getQuestion(
       },
       question: {
         position: item.position,
-        stem: item.question.stem,
+        stem: decryptedStem,
         imageUrl: item.question.imageUrl,
         examBody: item.question.examBody,
         examYear: item.question.examYear,
@@ -810,6 +814,84 @@ export async function saveAnswer(params: {
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message || "Failed to save answer" };
+  }
+}
+
+/**
+ * Flushes a batch of client-queued answers accumulated during a brief network drop.
+ */
+export async function saveAnswerBatch(params: {
+  attemptId: string;
+  sessionToken?: string;
+  answers: Array<{
+    position: number;
+    selectedKey: string;
+    timeSpentMs?: number;
+  }>;
+}) {
+  try {
+    const { student } = await resolveCurrentStudent();
+    const { isLocked } = await assertNotDayLocked(student.StudentID);
+    if (isLocked) {
+      return { success: false, dayLocked: true, error: "CBT access is locked for today." };
+    }
+
+    const attempt = await prisma.cbtAttempt.findUnique({
+      where: { id: params.attemptId },
+    });
+    if (!attempt || attempt.studentId !== student.StudentID || attempt.status !== "ACTIVE") {
+      return { success: false, error: "Attempt is no longer active." };
+    }
+
+    if (
+      (attempt.mode === "MOCK" || attempt.mode === "EXAM") &&
+      attempt.sessionId?.startsWith("tab:") &&
+      params.sessionToken &&
+      params.sessionToken !== attempt.sessionId
+    ) {
+      return {
+        success: false,
+        error: "Concurrent exam session detected in another tab or browser.",
+      };
+    }
+
+    const validAnswers = (params.answers || [])
+      .filter(
+        (a) =>
+          Number.isInteger(Number(a.position)) &&
+          Number(a.position) >= 1 &&
+          Number(a.position) <= attempt.questionCount &&
+          ["a", "b", "c", "d", "e"].includes(String(a.selectedKey || "").toLowerCase().trim())
+      )
+      .slice(0, 100);
+
+    if (validAnswers.length === 0) {
+      return { success: true, syncedCount: 0 };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const ans of validAnswers) {
+        await tx.cbtAttemptQuestion.update({
+          where: {
+            attemptId_position: {
+              attemptId: attempt.id,
+              position: Number(ans.position),
+            },
+          },
+          data: {
+            selectedKey: ans.selectedKey.toLowerCase().trim(),
+            answeredAt: new Date(),
+            ...(typeof ans.timeSpentMs === "number"
+              ? { timeSpentMs: Math.max(0, Math.round(ans.timeSpentMs)) }
+              : {}),
+          },
+        });
+      }
+    });
+
+    return { success: true, syncedCount: validAnswers.length };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to sync queued answers." };
   }
 }
 
@@ -1086,7 +1168,7 @@ export async function submitAttempt(attemptId: string) {
 
     await prisma.$transaction(async (tx) => {
       for (const item of attempt.items) {
-        const correctKey = (item.question.answerKey?.correctKey || "").toLowerCase().trim();
+        const correctKey = decryptAnswerKeyValue(item.question.answerKey?.correctKey);
         const isCorrect = Boolean(
           correctKey && item.selectedKey && item.selectedKey.toLowerCase().trim() === correctKey
         );
@@ -1099,19 +1181,18 @@ export async function submitAttempt(attemptId: string) {
           });
         }
 
-        const rawOptions = Array.isArray(item.question.optionsJson)
-          ? (item.question.optionsJson as { key: string; text: string }[])
-          : [];
+        const rawOptions = decryptExamOptionsJson(item.question.optionsJson);
+        const decExplanation = decryptExamVaultString(item.question.answerKey?.explanation);
 
         reviewItems.push({
           position: item.position,
-          stem: item.question.stem,
+          stem: decryptExamVaultString(item.question.stem),
           imageUrl: item.question.imageUrl,
           options: rawOptions,
           selectedKey: item.selectedKey,
           correctKey,
           isCorrect,
-          explanation: item.question.answerKey?.explanation || null,
+          explanation: decExplanation || null,
         });
       }
 
@@ -1220,23 +1301,22 @@ export async function getCompletedAttemptReview(attemptId: string) {
 
     let correctCount = 0;
     const reviewItems = attempt.items.map((item) => {
-      const correctKey = (item.question.answerKey?.correctKey || "a").toLowerCase().trim();
+      const correctKey = decryptAnswerKeyValue(item.question.answerKey?.correctKey);
       const isCorrect = Boolean(item.selectedKey && item.selectedKey.toLowerCase() === correctKey);
       if (isCorrect) correctCount++;
 
-      const rawOptions = Array.isArray(item.question.optionsJson)
-        ? (item.question.optionsJson as { key: string; text: string }[])
-        : [];
+      const rawOptions = decryptExamOptionsJson(item.question.optionsJson);
+      const decExp = decryptExamVaultString(item.question.answerKey?.explanation);
 
       return {
         position: item.position,
-        stem: item.question.stem,
+        stem: decryptExamVaultString(item.question.stem),
         imageUrl: item.question.imageUrl,
         options: rawOptions,
         selectedKey: item.selectedKey,
         correctKey,
         isCorrect,
-        explanation: item.question.answerKey?.explanation || null,
+        explanation: decExp || null,
       };
     });
 
@@ -1319,14 +1399,13 @@ export async function getAttemptAiAnalysis(attemptId: string) {
 
     const wrongItems = attempt.items.filter((it) => !it.isCorrect);
     const wrongQuestions = wrongItems.map((it) => {
-      const opts = Array.isArray(it.question.optionsJson)
-        ? (it.question.optionsJson as { key: string; text: string }[])
-        : [];
+      const opts = decryptExamOptionsJson(it.question.optionsJson);
+      const corrKey = decryptAnswerKeyValue(it.question.answerKey?.correctKey);
       const selOpt = opts.find((o) => o.key === it.selectedKey);
-      const corrOpt = opts.find((o) => o.key === it.question.answerKey?.correctKey);
+      const corrOpt = opts.find((o) => o.key === corrKey);
       return {
         position: it.position,
-        stem: it.question.stem,
+        stem: decryptExamVaultString(it.question.stem),
         selectedAnswerText: selOpt?.text,
         correctAnswerText: corrOpt?.text,
       };

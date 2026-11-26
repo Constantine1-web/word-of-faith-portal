@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   getQuestion,
   saveAnswer,
+  saveAnswerBatch,
   reportIntegrityEvent,
   sendAttemptHeartbeat,
   submitAttempt,
@@ -76,6 +77,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     answeredMap: Record<number, boolean>;
   } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [queuedAnswerCount, setQueuedAnswerCount] = useState<number>(0);
   const hasEnteredFullscreenRef = useRef<boolean>(false);
   const [watermark, setWatermark] = useState<{
     studentName: string;
@@ -168,8 +170,46 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
     return tok;
   }, [attemptId]);
 
+  const flushOfflineAnswerQueue = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const qKey = `wofs_cbt_pending_${attemptId}`;
+    const raw = window.sessionStorage.getItem(qKey);
+    if (!raw) return;
+
+    try {
+      const parsedMap = JSON.parse(raw) as Record<
+        string,
+        { position: number; selectedKey: string; timeSpentMs?: number }
+      >;
+      const list = Object.values(parsedMap);
+      if (list.length === 0) return;
+
+      const res = await saveAnswerBatch({
+        attemptId,
+        sessionToken: getTabSessionToken(),
+        answers: list,
+      });
+      if (res.success) {
+        window.sessionStorage.removeItem(qKey);
+        setQueuedAnswerCount(0);
+      }
+    } catch {
+      // Keep queued in sessionStorage until next reconnect
+    }
+  }, [attemptId, getTabSessionToken]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOnline = () => {
+      flushOfflineAnswerQueue();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [flushOfflineAnswerQueue]);
+
   const handleFinalSubmit = useCallback(async () => {
     setLoadingQuestion(true);
+    await flushOfflineAnswerQueue();
     const res = await submitAttempt(attemptId);
     if (res.success && res.summary) {
       setSubmittedResult({
@@ -182,7 +222,7 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
       setErrorMsg(res.error || "Failed to submit exam.");
     }
     setLoadingQuestion(false);
-  }, [attemptId]);
+  }, [attemptId, flushOfflineAnswerQueue]);
 
   // Fetch ONLY the single active question slot from the server
   const loadQuestionSlot = useCallback(
@@ -458,18 +498,41 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
         : prev
     );
 
-    const res = await saveAnswer({
-      attemptId,
-      position: currentQuestion.position,
-      selectedKey: optionKey,
-      timeSpentMs: spentMs,
-      sessionToken: getTabSessionToken(),
-    });
+    const queueOfflineAnswer = () => {
+      if (typeof window === "undefined") return;
+      const qKey = `wofs_cbt_pending_${attemptId}`;
+      try {
+        const current = JSON.parse(window.sessionStorage.getItem(qKey) || "{}");
+        current[String(currentQuestion.position)] = {
+          position: currentQuestion.position,
+          selectedKey: optionKey,
+          timeSpentMs: spentMs,
+        };
+        window.sessionStorage.setItem(qKey, JSON.stringify(current));
+        setQueuedAnswerCount(Object.keys(current).length);
+      } catch {}
+    };
 
-    if (res.dayLocked) {
-      setTerminatedReason(res.error || "CBT access locked for today.");
-    } else if (res.expired) {
-      handleFinalSubmit();
+    try {
+      const res = await saveAnswer({
+        attemptId,
+        position: currentQuestion.position,
+        selectedKey: optionKey,
+        timeSpentMs: spentMs,
+        sessionToken: getTabSessionToken(),
+      });
+
+      if (res.dayLocked) {
+        setTerminatedReason(res.error || "CBT access locked for today.");
+      } else if (res.expired) {
+        handleFinalSubmit();
+      } else if (!res.success) {
+        queueOfflineAnswer();
+      } else if (queuedAnswerCount > 0) {
+        flushOfflineAnswerQueue();
+      }
+    } catch {
+      queueOfflineAnswer();
     }
   };
 
@@ -947,6 +1010,21 @@ export default function QuizClient({ attemptId }: QuizClientProps) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            {queuedAnswerCount > 0 && (
+              <span
+                style={{
+                  padding: "0.28rem 0.65rem",
+                  borderRadius: "999px",
+                  fontSize: "0.74rem",
+                  fontWeight: 700,
+                  background: "var(--status-warning-bg)",
+                  color: "var(--status-warning-text)",
+                  border: "1px solid var(--status-warning-border)",
+                }}
+              >
+                Offline Queue: {queuedAnswerCount} Saved Locally
+              </span>
+            )}
             {isStrictProctoring && (
               <button
                 type="button"

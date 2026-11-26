@@ -89,9 +89,10 @@ export default function Sidebar() {
           name: "Examinations & CBT", 
           icon: <FiAward />, 
           children: [
+            { name: "Examination Control Centre", href: "/portal/admin/cbt" },
             { name: "Result Broadsheets", href: "/portal/admin/results" },
-            { name: "CBT & Day Locks", href: "/portal/admin/cbt" },
-            { name: "CBT Portal", href: "/portal/cbt" },
+            { name: "Student Exam Room", href: "/portal/exam-room" },
+            { name: "CBT Practice Studio", href: "/portal/cbt" },
           ]
         },
         { 
@@ -150,10 +151,12 @@ export default function Sidebar() {
     // Default: Student
     return [
       { name: "Student Dashboard", href: "/portal/dashboard", icon: <FiHome /> },
+      { name: "Examination Room", href: "/portal/exam-room", icon: <FiAward /> },
       { 
         name: "Academics", 
         icon: <FiBookOpen />, 
         children: [
+          { name: "Examination Room", href: "/portal/exam-room" },
           { name: "Check Results", href: "/portal/results" },
           { name: "CBT Practice", href: "/portal/cbt" },
         ]

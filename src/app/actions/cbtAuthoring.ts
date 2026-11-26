@@ -9,6 +9,13 @@ import { validateInput, rateLimit } from "@/lib/security";
 import { mapSubjectNameToCbtCodes } from "@/lib/cbt-constants";
 import { extractQuestionsFromDocument, type ScannedCbtQuestionDraft } from "@/lib/cbt-ocr";
 import {
+  encryptExamVaultString,
+  decryptExamVaultString,
+  encryptExamOptionsJson,
+  decryptExamOptionsJson,
+  decryptAnswerKeyValue,
+} from "@/lib/exam-vault";
+import {
   normalizeCbtSubjectCode,
   parseSchoolCbtQuestionsCsv,
 } from "@/lib/cbt-csv";
@@ -84,6 +91,8 @@ export interface SchoolInternalQuestionRow {
   bankScope: "OPEN_BANK" | "EXAM_ONLY";
   targetClassLevel: string | null;
   authoredById: number | null;
+  submissionId?: string | null;
+  isEncrypted?: boolean;
   topic: string;
   stem: string;
   imageUrl: string | null;
@@ -182,10 +191,6 @@ export async function getAdminCbtBankAndAnalytics(filters?: {
     ]);
 
     const questionRows: SchoolInternalQuestionRow[] = questions.map((row) => {
-      const optsRaw = Array.isArray(row.optionsJson)
-        ? (row.optionsJson as Array<{ key?: string; text?: string }>)
-        : [];
-      const correct = (row.answerKey?.correctKey || "a").toLowerCase();
       return {
         id: row.id,
         subjectCode: row.subjectCode,
@@ -193,19 +198,14 @@ export async function getAdminCbtBankAndAnalytics(filters?: {
         bankScope: row.bankScope === "EXAM_ONLY" ? "EXAM_ONLY" : "OPEN_BANK",
         targetClassLevel: row.targetClassLevel || null,
         authoredById: row.authoredById ?? null,
+        submissionId: row.submissionId ?? null,
+        isEncrypted: row.isEncrypted,
         topic: row.topic || "School Assessment",
-        stem: row.stem,
+        stem: decryptExamVaultString(row.stem),
         imageUrl: row.imageUrl || null,
-        options: optsRaw.map((o) => ({
-          key: String(o.key || "a"),
-          text: String(o.text || ""),
-        })),
-        correctKey: (["a", "b", "c", "d"].includes(correct) ? correct : "a") as
-          | "a"
-          | "b"
-          | "c"
-          | "d",
-        explanation: row.answerKey?.explanation || "",
+        options: decryptExamOptionsJson(row.optionsJson),
+        correctKey: decryptAnswerKeyValue(row.answerKey?.correctKey),
+        explanation: decryptExamVaultString(row.answerKey?.explanation),
         isActive: row.isActive,
         authorLabel: row.licenseRef?.includes(":")
           ? row.licenseRef.split(":").slice(2).join(":") || "Academic Staff"
@@ -319,6 +319,7 @@ const UpsertCbtQuestionSchema = z.object({
   examBody: z.string().trim().min(2).max(32).default("SCHOOL_INTERNAL"),
   bankScope: z.enum(["OPEN_BANK", "EXAM_ONLY"]).optional().default("OPEN_BANK"),
   targetClassLevel: z.string().trim().max(40).optional().nullable(),
+  submissionId: z.string().trim().optional().nullable(),
   topic: z.string().trim().max(120).optional().default("School Assessment"),
   stem: z.string().trim().min(5, "Question stem must be at least 5 characters.").max(3000),
   imageUrl: z.string().trim().max(500).optional().nullable(),
@@ -374,13 +375,29 @@ export async function upsertSchoolCbtQuestion(
       .update(`${subjectCode}:${normalizedStem}:${JSON.stringify(optionsArr)}`)
       .digest("hex");
 
+    const shouldEncrypt = bankScope === "EXAM_ONLY";
+    const storedStem = shouldEncrypt ? encryptExamVaultString(data.stem) : data.stem;
+    const storedOptions = encryptExamOptionsJson(optionsArr, shouldEncrypt);
+    const storedCorrectKey = shouldEncrypt ? encryptExamVaultString(correctKey) : correctKey;
+    const storedExplanation = data.explanation
+      ? shouldEncrypt
+        ? encryptExamVaultString(data.explanation)
+        : data.explanation
+      : null;
+
     const isAdmin = isCbtAdminActor(actor);
 
     const saved = await prisma.$transaction(async (tx) => {
       if (data.id) {
         const existing = await tx.cbtQuestion.findUnique({
           where: { id: data.id },
-          select: { id: true, provider: true, authoredById: true, licenseRef: true },
+          select: {
+            id: true,
+            provider: true,
+            authoredById: true,
+            licenseRef: true,
+            submission: { select: { status: true } },
+          },
         });
         if (!existing || existing.provider !== "SCHOOL_INTERNAL") {
           throw new Error("Only SCHOOL_INTERNAL questions can be edited here.");
@@ -392,6 +409,16 @@ export async function upsertSchoolCbtQuestion(
         if (!isAdmin && !ownsRow) {
           throw new Error("Forbidden: You can only edit questions you authored.");
         }
+        if (
+          !isAdmin &&
+          existing.submission &&
+          existing.submission.status !== "DRAFT" &&
+          existing.submission.status !== "REVISION_REQUESTED"
+        ) {
+          throw new Error(
+            `Submission Locked: Questions cannot be edited while the packet status is ${existing.submission.status}. Wait for Exam Officer review or revision request.`
+          );
+        }
 
         const updatedQ = await tx.cbtQuestion.update({
           where: { id: existing.id },
@@ -400,10 +427,12 @@ export async function upsertSchoolCbtQuestion(
             examBody,
             bankScope,
             targetClassLevel,
+            ...(data.submissionId !== undefined ? { submissionId: data.submissionId } : {}),
+            isEncrypted: shouldEncrypt,
             topic: data.topic || "School Assessment",
-            stem: data.stem,
+            stem: storedStem,
             imageUrl,
-            optionsJson: optionsArr,
+            optionsJson: storedOptions,
             contentHash,
             isActive: true,
           },
@@ -412,13 +441,13 @@ export async function upsertSchoolCbtQuestion(
         await tx.cbtAnswerKey.upsert({
           where: { questionId: updatedQ.id },
           update: {
-            correctKey,
-            explanation: data.explanation || null,
+            correctKey: storedCorrectKey,
+            explanation: storedExplanation,
           },
           create: {
             questionId: updatedQ.id,
-            correctKey,
-            explanation: data.explanation || null,
+            correctKey: storedCorrectKey,
+            explanation: storedExplanation,
           },
         });
 
@@ -439,11 +468,13 @@ export async function upsertSchoolCbtQuestion(
           examBody,
           bankScope,
           targetClassLevel,
+          ...(data.submissionId ? { submissionId: data.submissionId } : {}),
+          isEncrypted: shouldEncrypt,
           authoredById: actor.UserID,
           topic: data.topic || "School Assessment",
-          stem: data.stem,
+          stem: storedStem,
           imageUrl,
-          optionsJson: optionsArr,
+          optionsJson: storedOptions,
           contentHash,
           isActive: true,
           licenseRef: `STAFF:${actor.UserID}:${actor.Email}`,
@@ -455,12 +486,14 @@ export async function upsertSchoolCbtQuestion(
           subjectCode,
           bankScope,
           targetClassLevel,
+          submissionId: data.submissionId || null,
+          isEncrypted: shouldEncrypt,
           authoredById: actor.UserID,
           examYear: new Date().getFullYear(),
           topic: data.topic || "School Assessment",
-          stem: data.stem,
+          stem: storedStem,
           imageUrl,
-          optionsJson: optionsArr,
+          optionsJson: storedOptions,
           contentHash,
           licenseRef: `STAFF:${actor.UserID}:${actor.Email}`,
           isActive: true,
@@ -470,13 +503,13 @@ export async function upsertSchoolCbtQuestion(
       await tx.cbtAnswerKey.upsert({
         where: { questionId: createdQ.id },
         update: {
-          correctKey,
-          explanation: data.explanation || null,
+          correctKey: storedCorrectKey,
+          explanation: storedExplanation,
         },
         create: {
           questionId: createdQ.id,
-          correctKey,
-          explanation: data.explanation || null,
+          correctKey: storedCorrectKey,
+          explanation: storedExplanation,
         },
       });
 
@@ -536,6 +569,7 @@ export async function bulkImportSchoolCbtQuestionsCsv(params: {
     }
 
     const bankScope = params.bankScope === "EXAM_ONLY" ? "EXAM_ONLY" : "OPEN_BANK";
+    const shouldEncrypt = bankScope === "EXAM_ONLY";
     const targetClassLevel = params.targetClassLevel?.trim() || null;
     const idPrefix = bankScope === "EXAM_ONLY" ? "wof-exam" : "wof-custom";
     let importedCount = 0;
@@ -554,6 +588,14 @@ export async function bulkImportSchoolCbtQuestionsCsv(params: {
           .update(`${row.subjectCode}:${normalizedStem}:${JSON.stringify(optionsArr)}`)
           .digest("hex");
         const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
+        const storedStem = shouldEncrypt ? encryptExamVaultString(row.stem) : row.stem;
+        const storedOptions = encryptExamOptionsJson(optionsArr, shouldEncrypt);
+        const storedCorrect = shouldEncrypt ? encryptExamVaultString(row.correctKey) : row.correctKey;
+        const storedExp = row.explanation
+          ? shouldEncrypt
+            ? encryptExamVaultString(row.explanation)
+            : row.explanation
+          : null;
 
         const q = await tx.cbtQuestion.upsert({
           where: {
@@ -566,11 +608,12 @@ export async function bulkImportSchoolCbtQuestionsCsv(params: {
             examBody: row.examBody,
             subjectCode: row.subjectCode,
             bankScope,
+            isEncrypted: shouldEncrypt,
             targetClassLevel,
             authoredById: actor.UserID,
             topic: row.topic,
-            stem: row.stem,
-            optionsJson: optionsArr,
+            stem: storedStem,
+            optionsJson: storedOptions,
             contentHash,
             isActive: true,
             licenseRef: `STAFF:${actor.UserID}:${actor.Email}`,
@@ -581,12 +624,13 @@ export async function bulkImportSchoolCbtQuestionsCsv(params: {
             examBody: row.examBody,
             subjectCode: row.subjectCode,
             bankScope,
+            isEncrypted: shouldEncrypt,
             targetClassLevel,
             authoredById: actor.UserID,
             examYear: new Date().getFullYear(),
             topic: row.topic,
-            stem: row.stem,
-            optionsJson: optionsArr,
+            stem: storedStem,
+            optionsJson: storedOptions,
             contentHash,
             licenseRef: `STAFF:${actor.UserID}:${actor.Email}`,
             isActive: true,
@@ -596,13 +640,13 @@ export async function bulkImportSchoolCbtQuestionsCsv(params: {
         await tx.cbtAnswerKey.upsert({
           where: { questionId: q.id },
           update: {
-            correctKey: row.correctKey,
-            explanation: row.explanation || null,
+            correctKey: storedCorrect,
+            explanation: storedExp,
           },
           create: {
             questionId: q.id,
-            correctKey: row.correctKey,
-            explanation: row.explanation || null,
+            correctKey: storedCorrect,
+            explanation: storedExp,
           },
         });
 
@@ -657,18 +701,31 @@ export async function toggleSchoolCbtQuestionActive(questionId: string, isActive
         subjectCode: true,
         authoredById: true,
         licenseRef: true,
+        submission: { select: { status: true } },
       },
     });
     if (!existing || existing.provider !== "SCHOOL_INTERNAL") {
       return { success: false, error: "Only SCHOOL_INTERNAL questions can be modified." };
     }
 
+    const isAdmin = isCbtAdminActor(actor);
     const ownsRow =
       existing.authoredById === actor.UserID ||
       Boolean(existing.licenseRef?.startsWith(`STAFF:${actor.UserID}:`)) ||
       Boolean(existing.licenseRef?.startsWith(`TEACHER:${actor.UserID}:`));
-    if (!isCbtAdminActor(actor) && !ownsRow) {
+    if (!isAdmin && !ownsRow) {
       return { success: false, error: "Forbidden: You can only archive or restore questions you authored." };
+    }
+    if (
+      !isAdmin &&
+      existing.submission &&
+      existing.submission.status !== "DRAFT" &&
+      existing.submission.status !== "REVISION_REQUESTED"
+    ) {
+      return {
+        success: false,
+        error: `Submission Locked: Questions cannot be removed while the packet is ${existing.submission.status}.`,
+      };
     }
 
     await prisma.cbtQuestion.update({
@@ -810,7 +867,10 @@ const BulkReviewedQuestionSchema = z.object({
  * or Open Practice Bank (`OPEN_BANK`). Optionally pins saved question IDs directly into a Scheduled Exam if `attachToExamId` is provided.
  */
 export async function bulkSaveReviewedExamQuestions(
-  rawInput: z.infer<typeof BulkReviewedQuestionSchema> & { attachToExamId?: string }
+  rawInput: z.infer<typeof BulkReviewedQuestionSchema> & {
+    attachToExamId?: string;
+    submissionId?: string;
+  }
 ) {
   try {
     const actor = await requireRole(CBT_AUTHOR_ROLES);
@@ -820,6 +880,7 @@ export async function bulkSaveReviewedExamQuestions(
 
     const examBody = data.examBody.toUpperCase().replace(/-/g, "_").trim() || "SCHOOL_INTERNAL";
     const bankScope = data.bankScope === "OPEN_BANK" ? "OPEN_BANK" : "EXAM_ONLY";
+    const shouldEncrypt = bankScope === "EXAM_ONLY";
     const targetClassLevel = data.targetClassLevel?.trim() || null;
     const idPrefix = bankScope === "EXAM_ONLY" ? "wof-exam" : "wof-custom";
 
@@ -840,6 +901,14 @@ export async function bulkSaveReviewedExamQuestions(
           .digest("hex");
         const externalId = `${idPrefix}-${contentHash.slice(0, 16)}`;
         const correctKey = item.correctKey.toLowerCase() as "a" | "b" | "c" | "d";
+        const storedStem = shouldEncrypt ? encryptExamVaultString(item.stem) : item.stem;
+        const storedOptions = encryptExamOptionsJson(optionsArr, shouldEncrypt);
+        const storedCorrect = shouldEncrypt ? encryptExamVaultString(correctKey) : correctKey;
+        const storedExp = item.explanation
+          ? shouldEncrypt
+            ? encryptExamVaultString(item.explanation)
+            : item.explanation
+          : null;
 
         const q = await tx.cbtQuestion.upsert({
           where: {
@@ -852,11 +921,13 @@ export async function bulkSaveReviewedExamQuestions(
             examBody,
             subjectCode,
             bankScope,
+            isEncrypted: shouldEncrypt,
+            ...(rawInput.submissionId ? { submissionId: rawInput.submissionId } : {}),
             targetClassLevel,
             authoredById: actor.UserID,
             topic: item.topic || "Exam Question",
-            stem: item.stem,
-            optionsJson: optionsArr,
+            stem: storedStem,
+            optionsJson: storedOptions,
             contentHash,
             isActive: true,
             licenseRef: `STAFF:${actor.UserID}:${actor.Email}`,
@@ -867,12 +938,14 @@ export async function bulkSaveReviewedExamQuestions(
             examBody,
             subjectCode,
             bankScope,
+            isEncrypted: shouldEncrypt,
+            submissionId: rawInput.submissionId || null,
             targetClassLevel,
             authoredById: actor.UserID,
             examYear: new Date().getFullYear(),
             topic: item.topic || "Exam Question",
-            stem: item.stem,
-            optionsJson: optionsArr,
+            stem: storedStem,
+            optionsJson: storedOptions,
             contentHash,
             licenseRef: `STAFF:${actor.UserID}:${actor.Email}`,
             isActive: true,
@@ -882,13 +955,13 @@ export async function bulkSaveReviewedExamQuestions(
         await tx.cbtAnswerKey.upsert({
           where: { questionId: q.id },
           update: {
-            correctKey,
-            explanation: item.explanation || null,
+            correctKey: storedCorrect,
+            explanation: storedExp,
           },
           create: {
             questionId: q.id,
-            correctKey,
-            explanation: item.explanation || null,
+            correctKey: storedCorrect,
+            explanation: storedExp,
           },
         });
 
@@ -981,16 +1054,18 @@ export async function getTeacherScopedBankQuestions(filters?: {
         provider: "SCHOOL_INTERNAL",
         isActive: true,
         ...(scopeFilter ? { bankScope: scopeFilter } : {}),
-        ...(subjectFilter && subjectFilter !== "all"
-          ? { subjectCode: subjectFilter }
-          : !isAdmin && allowedSubjects && allowedSubjects.size > 0
-          ? { subjectCode: { in: Array.from(allowedSubjects) } }
-          : !isAdmin
+        ...(subjectFilter && subjectFilter !== "all" ? { subjectCode: subjectFilter } : {}),
+        ...(!isAdmin
           ? {
+              // Teachers can ONLY view EXAM_ONLY questions that they authored themselves,
+              // or OPEN_BANK questions in their assigned subjects.
               OR: [
                 { authoredById: actor.UserID },
                 { licenseRef: { startsWith: `STAFF:${actor.UserID}:` } },
                 { licenseRef: { startsWith: `TEACHER:${actor.UserID}:` } },
+                ...(allowedSubjects && allowedSubjects.size > 0
+                  ? [{ bankScope: "OPEN_BANK" as const, subjectCode: { in: Array.from(allowedSubjects) } }]
+                  : []),
               ],
             }
           : {}),
@@ -1004,10 +1079,6 @@ export async function getTeacherScopedBankQuestions(filters?: {
     });
 
     const questions: SchoolInternalQuestionRow[] = rows.map((row) => {
-      const optsRaw = Array.isArray(row.optionsJson)
-        ? (row.optionsJson as Array<{ key?: string; text?: string }>)
-        : [];
-      const correct = (row.answerKey?.correctKey || "a").toLowerCase();
       return {
         id: row.id,
         subjectCode: row.subjectCode,
@@ -1015,19 +1086,14 @@ export async function getTeacherScopedBankQuestions(filters?: {
         bankScope: row.bankScope === "EXAM_ONLY" ? "EXAM_ONLY" : "OPEN_BANK",
         targetClassLevel: row.targetClassLevel || null,
         authoredById: row.authoredById ?? null,
+        submissionId: row.submissionId ?? null,
+        isEncrypted: row.isEncrypted,
         topic: row.topic || "School Assessment",
-        stem: row.stem,
+        stem: decryptExamVaultString(row.stem),
         imageUrl: row.imageUrl || null,
-        options: optsRaw.map((o) => ({
-          key: String(o.key || "a"),
-          text: String(o.text || ""),
-        })),
-        correctKey: (["a", "b", "c", "d"].includes(correct) ? correct : "a") as
-          | "a"
-          | "b"
-          | "c"
-          | "d",
-        explanation: row.answerKey?.explanation || "",
+        options: decryptExamOptionsJson(row.optionsJson),
+        correctKey: decryptAnswerKeyValue(row.answerKey?.correctKey),
+        explanation: decryptExamVaultString(row.answerKey?.explanation),
         isActive: row.isActive,
         authorLabel: row.licenseRef?.includes(":")
           ? row.licenseRef.split(":").slice(2).join(":") || "Academic Staff"

@@ -74,6 +74,17 @@ import {
   normalizeExtractedQuestions,
   MAX_EXAM_UPLOAD_BYTES,
 } from "../../cbt-ocr";
+import {
+  encryptExamVaultString,
+  decryptExamVaultString,
+  encryptExamOptionsJson,
+  decryptExamOptionsJson,
+  decryptAnswerKeyValue,
+  generateSubjectExamRoomCode,
+  hashSubjectExamRoomCode,
+  verifySubjectExamRoomCode,
+  computeSubmissionTransition,
+} from "../../exam-vault";
 
 async function runSecurityRegressionSuite() {
   let passed = 0;
@@ -1033,7 +1044,203 @@ D) 14`,
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/20 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // =========================================================================
+  // SUITE 21: Exam Question Vault AES-256-GCM Encryption & Plaintext Fallback
+  // =========================================================================
+  {
+    const secretStem = "Calculate the derivative of f(x) = 3x^2 - 5x + 2 at x = 4.";
+    const enc1 = encryptExamVaultString(secretStem);
+    const enc2 = encryptExamVaultString(secretStem);
+    assert.equal(enc1.startsWith("ev:v1:"), true);
+    assert.notEqual(enc1, enc2); // unique random 12-byte IV per encryption
+    assert.equal(enc1.includes("derivative"), false);
+    assert.equal(encryptExamVaultString(enc1), enc1); // idempotent if already encrypted
+    assert.equal(decryptExamVaultString(enc1), secretStem);
+
+    // Tampered ciphertext / auth tag returns safe sentinel instead of throwing or leaking
+    const tampered = enc1.slice(0, -4) + "0000";
+    assert.equal(decryptExamVaultString(tampered), "[Encrypted Exam Content]");
+
+    // Legacy unencrypted OPEN_BANK string passes through unchanged
+    assert.equal(decryptExamVaultString("Legacy open question"), "Legacy open question");
+
+    const encryptedOpts = encryptExamOptionsJson(
+      [
+        { key: "a", text: "19" },
+        { key: "b", text: "24" },
+        { key: "c", text: "14" },
+        { key: "d", text: "29" },
+      ],
+      true
+    );
+    assert.equal(encryptedOpts[0].text.startsWith("ev:v1:"), true);
+    const decryptedOpts = decryptExamOptionsJson(encryptedOpts);
+    assert.deepEqual(
+      decryptedOpts.map((o) => o.text),
+      ["19", "24", "14", "29"]
+    );
+
+    const encAnswer = encryptExamVaultString("b");
+    assert.equal(encAnswer.startsWith("ev:v1:"), true);
+    assert.equal(decryptAnswerKeyValue(encAnswer), "b");
+    assert.equal(decryptAnswerKeyValue("d"), "d");
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 22: Subject-Bound Examination Room Codes & Window Enforcement
+  // =========================================================================
+  {
+    const generated = generateSubjectExamRoomCode("biology");
+    assert.equal(generated.plainCode.endsWith("-WOF"), true);
+    assert.equal(generated.codePreview.includes("****"), true);
+    assert.notEqual(generated.codePreview, generated.plainCode);
+
+    const examId = "exam-ss2-bio-term1";
+    const expectedHash = hashSubjectExamRoomCode(examId, "biology", generated.plainCode);
+    const now = new Date("2026-11-26T09:00:00Z");
+
+    // Valid code (even lowercase + whitespace) passes for bound exam & subject
+    const ok = verifySubjectExamRoomCode({
+      scheduledExamId: examId,
+      subjectCode: "biology",
+      candidateCode: `  ${generated.plainCode.toLowerCase()} `,
+      expectedHash,
+      isActive: true,
+      activatesAt: new Date("2026-11-26T08:00:00Z"),
+      expiresAt: new Date("2026-11-26T12:00:00Z"),
+      now,
+    });
+    assert.equal(ok.valid, true);
+
+    // Same code REJECTED for another exam ID or another subject
+    const wrongExam = verifySubjectExamRoomCode({
+      scheduledExamId: "exam-ss2-bio-term2",
+      subjectCode: "biology",
+      candidateCode: generated.plainCode,
+      expectedHash,
+      isActive: true,
+      now,
+    });
+    assert.equal(wrongExam.valid, false);
+
+    const wrongSubj = verifySubjectExamRoomCode({
+      scheduledExamId: examId,
+      subjectCode: "chemistry",
+      candidateCode: generated.plainCode,
+      expectedHash,
+      isActive: true,
+      now,
+    });
+    assert.equal(wrongSubj.valid, false);
+
+    // Revoked or expired codes rejected even if code string matches
+    assert.equal(
+      verifySubjectExamRoomCode({
+        scheduledExamId: examId,
+        subjectCode: "biology",
+        candidateCode: generated.plainCode,
+        expectedHash,
+        isActive: false,
+        now,
+      }).valid,
+      false
+    );
+    assert.equal(
+      verifySubjectExamRoomCode({
+        scheduledExamId: examId,
+        subjectCode: "biology",
+        candidateCode: generated.plainCode,
+        expectedHash,
+        isActive: true,
+        expiresAt: new Date("2026-11-26T08:30:00Z"),
+        now,
+      }).valid,
+      false
+    );
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 23: Teacher Submission Timeline Immutability & Separation of Duties
+  // =========================================================================
+  {
+    const tInitial = new Date("2026-11-25T07:42:00Z");
+    const tResubmit = new Date("2026-11-25T11:15:00Z");
+
+    const step1 = computeSubmissionTransition({
+      currentStatus: "DRAFT",
+      currentInitialSubmittedAt: null,
+      currentRevisionNumber: 1,
+      action: "SUBMIT",
+      actorId: 101,
+      teacherId: 101,
+      questionCount: 25,
+      now: tInitial,
+    });
+    assert.equal(step1.nextStatus, "SUBMITTED");
+    assert.equal(step1.initialSubmittedAt?.toISOString(), tInitial.toISOString());
+    assert.equal(step1.nextRevisionNumber, 1);
+    assert.equal(step1.revisionActionLabel, "SUBMITTED");
+
+    // Separation of Duties: Teacher 101 CANNOT review/approve own submission
+    assert.throws(
+      () =>
+        computeSubmissionTransition({
+          currentStatus: "SUBMITTED",
+          currentInitialSubmittedAt: step1.initialSubmittedAt,
+          currentRevisionNumber: step1.nextRevisionNumber,
+          action: "APPROVE",
+          actorId: 101,
+          teacherId: 101,
+          questionCount: 25,
+        }),
+      /SEPARATION_OF_DUTIES_VIOLATION/
+    );
+
+    // Exam Officer 205 requests revision, then Teacher 101 resubmits
+    const step2 = computeSubmissionTransition({
+      currentStatus: "SUBMITTED",
+      currentInitialSubmittedAt: step1.initialSubmittedAt,
+      currentRevisionNumber: step1.nextRevisionNumber,
+      action: "REQUEST_REVISION",
+      actorId: 205,
+      teacherId: 101,
+      questionCount: 25,
+    });
+    assert.equal(step2.nextStatus, "REVISION_REQUESTED");
+
+    const step3 = computeSubmissionTransition({
+      currentStatus: step2.nextStatus,
+      currentInitialSubmittedAt: step2.initialSubmittedAt,
+      currentRevisionNumber: step2.nextRevisionNumber,
+      action: "SUBMIT",
+      actorId: 101,
+      teacherId: 101,
+      questionCount: 30,
+      now: tResubmit,
+    });
+    assert.equal(step3.nextStatus, "SUBMITTED");
+    // Critical invariant: initialSubmittedAt MUST NEVER be overwritten on resubmission
+    assert.equal(step3.initialSubmittedAt?.toISOString(), tInitial.toISOString());
+    assert.equal(step3.nextRevisionNumber, 2);
+    assert.equal(step3.revisionActionLabel, "RESUBMITTED");
+
+    const step4 = computeSubmissionTransition({
+      currentStatus: step3.nextStatus,
+      currentInitialSubmittedAt: step3.initialSubmittedAt,
+      currentRevisionNumber: step3.nextRevisionNumber,
+      action: "APPROVE",
+      actorId: 205,
+      teacherId: 101,
+      questionCount: 30,
+    });
+    assert.equal(step4.nextStatus, "APPROVED");
+    assert.equal(step4.initialSubmittedAt?.toISOString(), tInitial.toISOString());
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/23 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {
