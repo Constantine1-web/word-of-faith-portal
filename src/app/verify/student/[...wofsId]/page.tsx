@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import prisma from "@/lib/db";
-import { rateLimit } from "@/lib/rateLimit";
+import { extractClientIp, rateLimit } from "@/lib/security";
 import { verifyStudentVerificationToken } from "@/lib/qr-verify";
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiArrowLeft, FiAward } from "react-icons/fi";
 
@@ -29,7 +29,7 @@ export default async function PublicStudentVerificationPage({
     : "";
 
   const rawSig = Array.isArray(resolvedSearch?.sig) ? resolvedSearch.sig[0] : resolvedSearch?.sig;
-  const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+  const ip = extractClientIp(headersList);
   const rl = await rateLimit(`qr_verify:${ip}`, 30, 300);
 
   const isSignatureValid = Boolean(wofsId && rl.success && verifyStudentVerificationToken(wofsId, rawSig));

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { reapExpiredCbtAttempts } from "@/app/actions/cbt";
+import { closeEndedScheduledExams, reapExpiredCbtAttempts } from "@/app/actions/cbt";
 import { requireRole } from "@/lib/authz";
 import { timingSafeCompare } from "@/lib/security";
 
@@ -28,10 +28,16 @@ export async function GET(req: Request) {
       }
     }
 
-    const result = await reapExpiredCbtAttempts(50);
+    const [closeResult, reapResult] = await Promise.all([
+      closeEndedScheduledExams(50),
+      reapExpiredCbtAttempts(50),
+    ]);
+
     return NextResponse.json({
       timestamp: new Date().toISOString(),
-      ...result,
+      ...reapResult,
+      autoClosedExamsCount: closeResult.autoClosedExamsCount,
+      closedExamIds: closeResult.closedExamIds,
     });
   } catch (error: any) {
     return NextResponse.json(

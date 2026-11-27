@@ -275,5 +275,43 @@ export function safeErrorMessage(error: unknown, fallbackMessage: string = "An u
   return msg || fallbackMessage;
 }
 
+type HeaderBag =
+  | Headers
+  | Record<string, string | string[] | undefined>
+  | null
+  | undefined;
+
+function readHeaderValue(headersObj: HeaderBag, key: string): string | null {
+  if (!headersObj) return null;
+  if (typeof (headersObj as Headers).get === "function") {
+    return (headersObj as Headers).get(key);
+  }
+  const map = headersObj as Record<string, string | string[] | undefined>;
+  const raw = map[key] ?? map[key.toLowerCase()];
+  if (Array.isArray(raw)) return raw[0] ?? null;
+  return typeof raw === "string" ? raw : null;
+}
+
+/**
+ * Resolves the real visitor IP across Vercel Edge, Cloudflare Proxy (`cf-connecting-ip`),
+ * and standard reverse proxies (`x-real-ip` / `x-forwarded-for`).
+ */
+export function extractClientIp(headersObj: HeaderBag, fallback: string = "127.0.0.1"): string {
+  const candidates = [
+    readHeaderValue(headersObj, "x-vercel-forwarded-for"),
+    readHeaderValue(headersObj, "cf-connecting-ip"),
+    readHeaderValue(headersObj, "x-real-ip"),
+    readHeaderValue(headersObj, "x-forwarded-for"),
+  ];
+
+  for (const val of candidates) {
+    if (!val) continue;
+    const firstHop = val.split(",")[0]?.trim();
+    if (firstHop) return firstHop;
+  }
+
+  return fallback;
+}
+
 export { rateLimit };
 export { z };

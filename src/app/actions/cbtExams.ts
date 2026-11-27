@@ -18,6 +18,7 @@ import {
   evaluateExamWindow,
   getExamPostSubmitVisibility,
   hashExamPin,
+  normalizeTargetColumnWeight,
   scaleCbtTenthsToComponent,
   seededShuffle,
   verifyExamPin,
@@ -740,6 +741,7 @@ export async function grantExamAttemptRetake(params: { attemptId: string; reason
 
 export async function previewStrictExamScoresForResultSync(params: {
   examId: string;
+  targetColumn?: "ca" | "exam";
   maxWeight?: number;
 }) {
   try {
@@ -749,56 +751,206 @@ export async function previewStrictExamScoresForResultSync(params: {
       include: {
         classArm: { select: { ClassID: true, ClassName: true } },
         subject: { select: { SubjectID: true, SubjectName: true } },
+        term: { select: { TermID: true, SessionName: true, TermName: true, IsLocked: true } },
       },
     });
     if (!exam) return { success: false, error: "Scheduled exam not found." };
 
     await assertCanManageClassExam(actor, exam.classId, exam.subjectId);
 
-    const defaultWeight = exam.examType === "TERMINAL_EXAM" ? 60 : 20;
-    const weight = Math.min(60, Math.max(5, Math.round(Number(params.maxWeight) || defaultWeight)));
+    const targetColumn: "ca" | "exam" =
+      params.targetColumn ?? (exam.examType === "TERMINAL_EXAM" ? "exam" : "ca");
 
-    const [students, attempts] = await Promise.all([
-      prisma.student.findMany({
-        where: { ClassID: exam.classId },
-        include: exam.subjectId
-          ? { Results: { where: { SubjectID: exam.subjectId, TermID: exam.termId } } }
-          : undefined,
-        orderBy: { AdmissionNo: "asc" },
-      }),
-      prisma.cbtAttempt.findMany({
-        where: {
-          scheduledExamId: exam.id,
-          isRetakeCleared: false,
-          status: { in: ["SUBMITTED", "EXPIRED"] },
-          scoreTenths: { not: null },
-        },
-        orderBy: { submittedAt: "desc" },
-      }),
-    ]);
+    const [students, attempts, submission, latestSyncLog, teacherMapping, examConfigRow] =
+      await Promise.all([
+        prisma.student.findMany({
+          where: { ClassID: exam.classId },
+          include: exam.subjectId
+            ? { Results: { where: { SubjectID: exam.subjectId, TermID: exam.termId } } }
+            : undefined,
+          orderBy: { AdmissionNo: "asc" },
+        }),
+        prisma.cbtAttempt.findMany({
+          where: {
+            scheduledExamId: exam.id,
+            isRetakeCleared: false,
+          },
+          orderBy: [{ scoreTenths: "desc" }, { submittedAt: "desc" }, { startedAt: "desc" }],
+        }),
+        exam.subjectId
+          ? prisma.subject_Submission.findUnique({
+              where: {
+                SubjectID_ClassID_TermID: {
+                  SubjectID: exam.subjectId,
+                  ClassID: exam.classId,
+                  TermID: exam.termId,
+                },
+              },
+              select: {
+                Status: true,
+                WindowEndsAt: true,
+                SubmittedAt: true,
+                ApprovedAt: true,
+              },
+            })
+          : Promise.resolve(null),
+        prisma.auditLog.findFirst({
+          where: {
+            Action: "CBT_EXAM_GRADEBOOK_SYNC",
+            Entity: "CbtScheduledExam",
+            EntityID: exam.id,
+          },
+          orderBy: { CreatedAt: "desc" },
+          select: {
+            CreatedAt: true,
+            NewValue: true,
+            Actor: { select: { Email: true } },
+          },
+        }),
+        exam.subjectId
+          ? prisma.teacher_Subject_Map.findFirst({
+              where: {
+                TeacherID: actor.UserID,
+                ClassID: exam.classId,
+                SubjectID: exam.subjectId,
+                OR: [{ TermID: exam.termId }, { TermID: null }],
+              },
+              select: { id: true },
+            })
+          : Promise.resolve(null),
+        exam.subjectId
+          ? prisma.subjectExamConfig.findUnique({
+              where: {
+                ClassID_SubjectID_TermID: {
+                  ClassID: exam.classId,
+                  SubjectID: exam.subjectId,
+                  TermID: exam.termId,
+                },
+              },
+            })
+          : Promise.resolve(null),
+      ]);
 
-    const bestByStudent = new Map<number, number>();
+    const configuredExamMode = (examConfigRow?.ExamMode || "COMBINED") as "COMBINED" | "HYBRID";
+    const examCbtMaxMarks = (examConfigRow?.ExamCbtMaxTenths ?? 400) / 10;
+    const examTheoryMaxMarks = (examConfigRow?.ExamTheoryMaxTenths ?? 200) / 10;
+    const isHybridExamSync = targetColumn === "exam" && configuredExamMode === "HYBRID";
+    const defaultWeight = isHybridExamSync
+      ? examCbtMaxMarks
+      : targetColumn === "exam"
+      ? 60
+      : 20;
+    const weight = isHybridExamSync
+      ? examCbtMaxMarks
+      : normalizeTargetColumnWeight(targetColumn, params.maxWeight ?? defaultWeight);
+
+    const gradableByStudent = new Map<number, { id: string; scoreTenths: number; status: string }>();
+    const fallbackStatusByStudent = new Map<number, string>();
+    let terminatedCount = 0;
+
     for (const att of attempts) {
-      if (!bestByStudent.has(att.studentId)) {
-        bestByStudent.set(att.studentId, att.scoreTenths ?? 0);
+      if (att.status === "TERMINATED") {
+        terminatedCount++;
+      }
+      if (
+        (att.status === "SUBMITTED" || att.status === "EXPIRED") &&
+        typeof att.scoreTenths === "number"
+      ) {
+        if (!gradableByStudent.has(att.studentId)) {
+          gradableByStudent.set(att.studentId, {
+            id: att.id,
+            scoreTenths: att.scoreTenths,
+            status: att.status,
+          });
+        }
+      } else if (!fallbackStatusByStudent.has(att.studentId)) {
+        fallbackStatusByStudent.set(att.studentId, att.status);
       }
     }
 
+    const sheetStatus = submission?.Status || "Draft";
+    const unlockWindowOpen = Boolean(
+      submission?.WindowEndsAt && new Date(submission.WindowEndsAt) > new Date()
+    );
+    const isSheetLocked = Boolean(
+      exam.term?.IsLocked ||
+        ((sheetStatus === "Submitted" || sheetStatus === "Approved") && !unlockWindowOpen)
+    );
+
+    const canCommitDirectly = Boolean(
+      exam.subjectId &&
+        (teacherMapping ||
+          actor.roles.has("PRINCIPAL") ||
+          actor.roles.has("SUPER_ADMIN") ||
+          actor.roles.has("ADMIN") ||
+          actor.roles.has("Admin"))
+    );
+
     const items = students.map((st) => {
-      const scoreTenths = bestByStudent.get(st.StudentID);
-      const hasAttempt = typeof scoreTenths === "number";
-      const pct = hasAttempt ? Number((scoreTenths / 10).toFixed(1)) : null;
-      const scaled = hasAttempt ? scaleCbtTenthsToComponent(scoreTenths, weight) : null;
+      const match = gradableByStudent.get(st.StudentID);
+      const hasAttempt = Boolean(match);
+      const pct = match ? Number((match.scoreTenths / 10).toFixed(1)) : null;
+      const scaled = match ? scaleCbtTenthsToComponent(match.scoreTenths, weight) : null;
+      const existingResult = (st as any).Results?.[0];
+      const currentCbtScore =
+        existingResult?.ExamCbtTenths !== null && existingResult?.ExamCbtTenths !== undefined
+          ? existingResult.ExamCbtTenths / 10
+          : null;
+      const currentTheoryScore =
+        existingResult?.ExamTheoryTenths !== null && existingResult?.ExamTheoryTenths !== undefined
+          ? existingResult.ExamTheoryTenths / 10
+          : null;
+
+      let projectedExamTotal: number | null = null;
+      let previewStatus: "Safe" | "Pending" | "Unchanged" | "Blocked" | "No attempt" = "No attempt";
+
+      if (hasAttempt && scaled !== null) {
+        if (isHybridExamSync) {
+          const scaledTenths = Math.round(scaled * 10);
+          const cbtCapTenths = Math.round(examCbtMaxMarks * 10);
+          const theoryTenths =
+            existingResult?.ExamTheoryTenths !== null && existingResult?.ExamTheoryTenths !== undefined
+              ? existingResult.ExamTheoryTenths
+              : null;
+
+          if (scaledTenths > cbtCapTenths || (theoryTenths !== null && scaledTenths + theoryTenths > 600)) {
+            previewStatus = "Blocked";
+          } else if (
+            existingResult?.ExamCbtTenths === scaledTenths &&
+            existingResult?.LastCbtSyncAttemptId === match?.id
+          ) {
+            projectedExamTotal = theoryTenths !== null ? (scaledTenths + theoryTenths) / 10 : null;
+            previewStatus = "Unchanged";
+          } else if (theoryTenths === null) {
+            projectedExamTotal = null;
+            previewStatus = "Pending";
+          } else {
+            projectedExamTotal = (scaledTenths + theoryTenths) / 10;
+            previewStatus = "Safe";
+          }
+        } else {
+          projectedExamTotal = scaled;
+          previewStatus = "Safe";
+        }
+      }
+
       return {
         studentId: st.StudentID,
         admissionNo: st.AdmissionNo,
         studentName:
           st.PreferredName || `${st.FirstName || ""} ${st.LastName || ""}`.trim() || st.AdmissionNo,
         hasAttempt,
+        attemptId: match?.id || null,
+        attemptStatus: match?.status || fallbackStatusByStudent.get(st.StudentID) || "NONE",
         scorePercent: pct,
         scaledScore: scaled,
-        currentCaScore: (st as any).Results?.[0]?.CAScore ?? null,
-        currentExamScore: (st as any).Results?.[0]?.ExamScore ?? null,
+        currentCaScore: existingResult?.CAScore ?? null,
+        currentExamScore: existingResult?.ExamScore ?? null,
+        currentCbtScore,
+        currentTheoryScore,
+        projectedExamTotal,
+        previewStatus,
+        existingStatus: existingResult?.Status ?? null,
       };
     });
 
@@ -807,12 +959,26 @@ export async function previewStrictExamScoresForResultSync(params: {
       examId: exam.id,
       title: exam.title,
       classId: exam.classId,
+      className: exam.classArm?.ClassName || "",
       subjectId: exam.subjectId,
+      subjectName: exam.subject?.SubjectName || exam.subjectCode.toUpperCase(),
       termId: exam.termId,
       examType: exam.examType,
+      examMode: configuredExamMode,
+      commitMode: isHybridExamSync ? ("HYBRID_CBT_COMPONENT" as const) : ("FULL_EXAM" as const),
+      examCbtMaxMarks,
+      examTheoryMaxMarks,
+      targetColumn,
       maxWeight: weight,
       matchedCount: items.filter((i) => i.hasAttempt).length,
+      terminatedCount,
       totalStudents: items.length,
+      sheetStatus,
+      isSheetLocked,
+      isTermLocked: Boolean(exam.term?.IsLocked),
+      canCommitDirectly,
+      lastSyncedAt: latestSyncLog?.CreatedAt ? latestSyncLog.CreatedAt.toISOString() : null,
+      lastSyncedBy: latestSyncLog?.Actor?.Email || null,
       items,
     };
   } catch (error: unknown) {

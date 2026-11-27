@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { invalidateCache } from './lib/cache';
 import cron from "node-cron";
 import { performBackup } from "./scripts/backup";
-import { reapExpiredCbtAttempts } from "./app/actions/cbt";
+import { closeEndedScheduledExams, reapExpiredCbtAttempts } from "./app/actions/cbt";
 
 const prisma = new PrismaClient();
 
@@ -21,7 +21,13 @@ console.log("Scheduled automated daily database backup (00:00).");
 // Schedule CBT Timeout Reaper (Runs every 2 minutes)
 cron.schedule("*/2 * * * *", async () => {
   try {
-    const res = await reapExpiredCbtAttempts();
+    const [closeRes, res] = await Promise.all([
+      closeEndedScheduledExams(),
+      reapExpiredCbtAttempts(),
+    ]);
+    if (closeRes.autoClosedExamsCount > 0) {
+      console.log(`[CbtReaper] Auto-closed ${closeRes.autoClosedExamsCount} ended scheduled exam(s).`);
+    }
     if (res.reapedCount > 0) {
       console.log(`[CbtReaper] Successfully reaped ${res.reapedCount} expired CBT attempts.`);
     }

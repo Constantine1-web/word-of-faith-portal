@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { requireRole, writeAuditLog } from "@/lib/authz";
-import { rateLimit } from "@/lib/rateLimit";
+import { extractClientIp, rateLimit } from "@/lib/security";
 import { z } from "zod";
 import {
   sendAdmissionReceivedNotification,
@@ -30,8 +30,7 @@ const AdmissionPatchSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const forwardedFor = req.headers.get("x-forwarded-for");
-    const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : "local-applicant";
+    const ip = extractClientIp(req.headers, "local-applicant");
     const rl = await rateLimit(`admissions:${ip}`, 10, 900);
     if (!rl.success) {
       return NextResponse.json(

@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import prisma from "./db";
 import bcrypt from "bcryptjs";
 import { rateLimit } from "./rateLimit";
+import { extractClientIp } from "./security";
 import { resolveActorCapabilities } from "@/server/security/capabilities";
 
 declare module "next-auth" {
@@ -84,11 +85,11 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials, req) {
-        const rawIp = req?.headers?.["x-forwarded-for"] || "127.0.0.1";
-        const ip = (Array.isArray(rawIp) ? rawIp[0] : String(rawIp)).split(",")[0].trim();
+        const ip = extractClientIp(req?.headers);
 
-        // 1. Per-IP Throttling for Login
-        const ipRateLimit = await rateLimit(`login:ip:${ip}`, 10, 60);
+        // 1. High-ceiling Per-IP flood shield (allows 100+ students in a shared school ICT lab NAT
+        //    to sign in simultaneously while login:acct strictly enforces 5 attempts/5min per account).
+        const ipRateLimit = await rateLimit(`login:ip:${ip}`, 120, 60);
         if (!ipRateLimit.success) {
           throw new Error("Too many login attempts from this network. Please try again shortly.");
         }

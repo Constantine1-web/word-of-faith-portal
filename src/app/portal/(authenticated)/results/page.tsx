@@ -5,6 +5,7 @@ import { verifyScratchCard } from "@/app/actions/scratchCards";
 import { getTerms } from "@/app/actions/terms";
 import { getActorWardsListAction } from "@/app/actions/payments";
 import { escapeHtml } from "@/lib/html-escape";
+import { formatExamScoreForReport } from "@/lib/hybrid-scoring";
 import { useSearchParams } from "next/navigation";
 import {
   FiPrinter,
@@ -64,6 +65,7 @@ function ResultsPageInner() {
   const [pin, setPin] = useState("");
   const [termId, setTermId] = useState(1);
   const [resultData, setResultData] = useState<any>(null);
+  const [showHybridBreakdown, setShowHybridBreakdown] = useState(true);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -117,10 +119,18 @@ function ResultsPageInner() {
   };
 
   const resultsList: any[] = resultData?.results || [];
-  const totalObtained = resultsList.reduce((acc, r) => acc + Number(r.TotalScore || 0), 0);
-  const maxPossible = resultsList.length * 100;
+  const completedResults = resultsList.filter(
+    (r) =>
+      r.ExamResultStatus !== "PENDING" &&
+      r.ExamResultStatus !== "PARTIALLY_MARKED" &&
+      r.Grade !== "INC"
+  );
+  const totalObtained = completedResults.reduce((acc, r) => acc + Number(r.TotalScore || 0), 0);
+  const maxPossible = completedResults.length * 100;
   const averagePct =
-    resultsList.length > 0 ? Number((totalObtained / resultsList.length).toFixed(1)) : 0;
+    completedResults.length > 0
+      ? Number((totalObtained / completedResults.length).toFixed(1))
+      : 0;
 
   const studentFullName =
     resultData?.student?.PreferredName ||
@@ -173,20 +183,26 @@ function ResultsPageInner() {
     }
 
     const rowsHtml = resultsList
-      .map(
-        (res: any, idx: number) => `
+      .map((res: any, idx: number) => {
+        const examFmt = formatExamScoreForReport(res, showHybridBreakdown);
+        const examCell = examFmt.breakdownText
+          ? `${escapeHtml(examFmt.primaryText)}<div style="font-size:10px;color:#475569;margin-top:2px;">${escapeHtml(examFmt.breakdownText)}</div>`
+          : escapeHtml(examFmt.primaryText);
+        const totalCell = examFmt.isIncomplete ? "Pending" : escapeHtml(res.TotalScore);
+        const gradeCell = examFmt.isIncomplete ? "INC" : escapeHtml(res.Grade);
+        return `
         <tr>
           <td style="text-align: center;">${idx + 1}</td>
           <td><strong>${escapeHtml(res.Subject?.SubjectName || `Subject ${res.SubjectID}`)}</strong></td>
           <td style="text-align: center;">${escapeHtml(res.CAScore)}</td>
-          <td style="text-align: center;">${escapeHtml(res.ExamScore)}</td>
-          <td style="text-align: center; font-weight: 800;">${escapeHtml(res.TotalScore)}</td>
+          <td style="text-align: center;">${examCell}</td>
+          <td style="text-align: center; font-weight: 800;">${totalCell}</td>
           <td style="text-align: center; font-weight: 800; color: ${
-            res.Grade === "F" || res.Grade === "F9" ? "#dc2626" : "#15803d"
-          };">${escapeHtml(res.Grade)}</td>
-          <td>${escapeHtml(deriveRemark(res.Grade, res.Remark))}</td>
-        </tr>`
-      )
+            examFmt.isIncomplete ? "#b45309" : res.Grade === "F" || res.Grade === "F9" ? "#dc2626" : "#15803d"
+          };">${gradeCell}</td>
+          <td>${escapeHtml(examFmt.isIncomplete ? "Pending Exam Component" : deriveRemark(res.Grade, res.Remark))}</td>
+        </tr>`;
+      })
       .join("");
 
     const affectiveHtml = Object.entries(parsedAffective)
@@ -533,6 +549,20 @@ function ResultsPageInner() {
 
             {/* Subject Breakdown Table */}
             <div className="table-scroll">
+              {resultsList.some(
+                (r: any) => r.ExamCbtTenths !== null && r.ExamCbtTenths !== undefined
+              ) && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
+                  <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", display: "inline-flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={showHybridBreakdown}
+                      onChange={(e) => setShowHybridBreakdown(e.target.checked)}
+                    />
+                    Show CBT + Theory breakdown on screen &amp; print
+                  </label>
+                </div>
+              )}
               <table style={{ width: "100%", borderCollapse: "collapse", color: "var(--color-gray-900)", minWidth: "580px" }}>
                 <thead>
                   <tr style={{ background: "var(--surface-table-head)", color: "var(--text-table-head)" }}>
@@ -546,29 +576,49 @@ function ResultsPageInner() {
                 </thead>
                 <tbody>
                   {resultsList.length > 0 ? (
-                    resultsList.map((res: any, idx: number) => (
-                      <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-200)", background: idx % 2 === 0 ? "var(--color-white)" : "var(--surface-subtle)" }}>
-                        <td style={{ padding: "0.85rem", fontWeight: 700, color: "var(--color-gray-900)" }}>
-                          {res.Subject?.SubjectName || `Subject ${res.SubjectID}`}
-                        </td>
-                        <td style={{ padding: "0.85rem", textAlign: "center" }}>{res.CAScore}</td>
-                        <td style={{ padding: "0.85rem", textAlign: "center" }}>{res.ExamScore}</td>
-                        <td style={{ padding: "0.85rem", textAlign: "center", fontWeight: 800, color: "var(--color-gray-900)" }}>{res.TotalScore}</td>
-                        <td
-                          style={{
-                            padding: "0.85rem",
-                            textAlign: "center",
-                            color: res.Grade === "F" || res.Grade === "F9" ? "var(--badge-danger-text)" : "var(--badge-success-text)",
-                            fontWeight: 800,
-                          }}
-                        >
-                          {res.Grade}
-                        </td>
-                        <td style={{ padding: "0.85rem", fontSize: "0.85rem", color: "var(--color-gray-600)" }}>
-                          {deriveRemark(res.Grade, res.Remark)}
-                        </td>
-                      </tr>
-                    ))
+                    resultsList.map((res: any, idx: number) => {
+                      const examFmt = formatExamScoreForReport(res, showHybridBreakdown);
+                      return (
+                        <tr key={idx} style={{ borderBottom: "1px solid var(--color-gray-200)", background: idx % 2 === 0 ? "var(--color-white)" : "var(--surface-subtle)" }}>
+                          <td style={{ padding: "0.85rem", fontWeight: 700, color: "var(--color-gray-900)" }}>
+                            {res.Subject?.SubjectName || `Subject ${res.SubjectID}`}
+                          </td>
+                          <td style={{ padding: "0.85rem", textAlign: "center" }}>{res.CAScore}</td>
+                          <td style={{ padding: "0.85rem", textAlign: "center" }}>
+                            <div style={{ fontWeight: examFmt.isIncomplete ? 700 : 600, color: examFmt.isIncomplete ? "var(--status-warning-text)" : undefined }}>
+                              {examFmt.primaryText}
+                            </div>
+                            {examFmt.breakdownText && (
+                              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
+                                {examFmt.breakdownText}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: "0.85rem", textAlign: "center", fontWeight: 800, color: examFmt.isIncomplete ? "var(--status-warning-text)" : "var(--color-gray-900)" }}>
+                            {examFmt.isIncomplete ? "Pending" : res.TotalScore}
+                          </td>
+                          <td
+                            style={{
+                              padding: "0.85rem",
+                              textAlign: "center",
+                              color: examFmt.isIncomplete
+                                ? "var(--status-warning-text)"
+                                : res.Grade === "F" || res.Grade === "F9"
+                                ? "var(--badge-danger-text)"
+                                : "var(--badge-success-text)",
+                              fontWeight: 800,
+                            }}
+                          >
+                            {examFmt.isIncomplete ? "INC" : res.Grade}
+                          </td>
+                          <td style={{ padding: "0.85rem", fontSize: "0.85rem", color: "var(--color-gray-600)" }}>
+                            {examFmt.isIncomplete
+                              ? "Pending Exam Component"
+                              : deriveRemark(res.Grade, res.Remark)}
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan={6} style={{ padding: "1.5rem", textAlign: "center", color: "var(--color-gray-500)" }}>

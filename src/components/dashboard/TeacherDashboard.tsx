@@ -14,7 +14,16 @@ import {
   stageScoreSheetImportCsv,
   commitScoreSheetImportBatch,
   previewCbtScoresForSubjectCa,
+  listClassSubjectScheduledExamsForGradebook,
+  commitStrictExamScoresToGradebook,
+  configureSubjectExamMode,
 } from "@/app/actions/results";
+import { previewStrictExamScoresForResultSync } from "@/app/actions/cbtExams";
+import {
+  computeHybridExamOutcome,
+  toScoreTenths,
+  type ExamModeValue,
+} from "@/lib/hybrid-scoring";
 import { getAttendanceForClass, markClassAttendanceBatch } from "@/app/actions/attendance";
 import {
   createCustomCbtQuestion,
@@ -46,6 +55,7 @@ import {
   FiCpu,
   FiPlus,
   FiTrash2,
+  FiAward,
 } from "react-icons/fi";
 
 type TeacherTab = "subject-scores" | "class-teacher-hub" | "attendance-hub" | "elearning-studio";
@@ -105,7 +115,24 @@ export default function TeacherDashboard({
   // Subject Score Entry State
   const [selectedAllocationId, setSelectedAllocationId] = useState<string>("");
   const [subjectStudents, setSubjectStudents] = useState<any[]>([]);
-  const [scoreInputs, setScoreInputs] = useState<Record<number, { ca: string; exam: string }>>({});
+  const [scoreInputs, setScoreInputs] = useState<
+    Record<number, { ca: string; exam: string; theory?: string }>
+  >({});
+  const [examConfig, setExamConfig] = useState<{
+    examMode: ExamModeValue;
+    examCbtMaxTenths: number;
+    examTheoryMaxTenths: number;
+  }>({
+    examMode: "COMBINED",
+    examCbtMaxTenths: 400,
+    examTheoryMaxTenths: 200,
+  });
+  const [canConfigureExamMode, setCanConfigureExamMode] = useState(false);
+  const [showExamModeModal, setShowExamModeModal] = useState(false);
+  const [modeDraftType, setModeDraftType] = useState<ExamModeValue>("COMBINED");
+  const [modeDraftCbtMax, setModeDraftCbtMax] = useState<number>(40);
+  const [modeImpactWarning, setModeImpactWarning] = useState<any | null>(null);
+  const [savingExamMode, setSavingExamMode] = useState(false);
   const [isSubjectSubmitted, setIsSubjectSubmitted] = useState(false);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [savingScores, setSavingScores] = useState(false);
@@ -119,6 +146,19 @@ export default function TeacherDashboard({
   const [cbtSyncWeight, setCbtSyncWeight] = useState<number>(20);
   const [cbtSyncPreview, setCbtSyncPreview] = useState<any | null>(null);
   const [loadingCbtSync, setLoadingCbtSync] = useState(false);
+
+  // Official Scheduled CBT Exam -> Terminal Gradebook Sync State
+  const [showOfficialExamSyncModal, setShowOfficialExamSyncModal] = useState(false);
+  const [officialExamList, setOfficialExamList] = useState<any[]>([]);
+  const [selectedOfficialExamId, setSelectedOfficialExamId] = useState<string>("");
+  const [officialSyncColumn, setOfficialSyncColumn] = useState<"ca" | "exam">("exam");
+  const [officialSyncWeight, setOfficialSyncWeight] = useState<number>(60);
+  const [officialOverwriteMode, setOfficialOverwriteMode] = useState<
+    "OVERWRITE_MATCHED" | "FILL_BLANKS_ONLY"
+  >("OVERWRITE_MATCHED");
+  const [officialExamPreview, setOfficialExamPreview] = useState<any | null>(null);
+  const [loadingOfficialExamSync, setLoadingOfficialExamSync] = useState(false);
+  const [committingOfficialExamSync, setCommittingOfficialExamSync] = useState(false);
 
   // Form Master Remark State
   const [selectedStudentForRemark, setSelectedStudentForRemark] = useState<any>(null);
@@ -267,22 +307,43 @@ export default function TeacherDashboard({
       if (res.success) {
         setSubjectStudents(res.students || []);
         setIsSubjectSubmitted(res.isSubmitted || false);
+        setCanConfigureExamMode(Boolean((res as any).canConfigureExamMode));
+        if ((res as any).examConfig) {
+          setExamConfig((res as any).examConfig);
+        }
 
         const storageKey = `wof_draft_${allocation.ClassID}_${allocation.SubjectID}_${dashboardData.activeTerm?.TermID}`;
-        let cachedDraft: Record<number, { ca: string; exam: string }> | null = null;
+        let cachedDraft: Record<number, { ca: string; exam: string; theory?: string }> | null = null;
         try {
           const raw = localStorage.getItem(storageKey);
           if (raw) cachedDraft = JSON.parse(raw);
         } catch {}
 
         // Populate score input dictionary (merge localStorage draft if not yet submitted)
-        const initialMap: Record<number, { ca: string; exam: string }> = {};
+        const initialMap: Record<number, { ca: string; exam: string; theory?: string }> = {};
         res.students?.forEach((st: any) => {
           const r = st.Results?.[0];
           const draft = !res.isSubmitted ? cachedDraft?.[st.StudentID] : undefined;
+          const dbCa =
+            r?.CAScoreTenths !== null && r?.CAScoreTenths !== undefined
+              ? String(r.CAScoreTenths / 10)
+              : r?.CAScore !== undefined
+              ? r.CAScore.toString()
+              : "";
+          const dbExam =
+            r?.ExamScoreTenths !== null && r?.ExamScoreTenths !== undefined
+              ? String(r.ExamScoreTenths / 10)
+              : r?.ExamScore !== undefined && r?.ExamResultStatus !== "PENDING" && r?.ExamResultStatus !== "PARTIALLY_MARKED"
+              ? r.ExamScore.toString()
+              : "";
+          const dbTheory =
+            r?.ExamTheoryTenths !== null && r?.ExamTheoryTenths !== undefined
+              ? String(r.ExamTheoryTenths / 10)
+              : "";
           initialMap[st.StudentID] = {
-            ca: draft?.ca !== undefined ? draft.ca : r?.CAScore !== undefined ? r.CAScore.toString() : "",
-            exam: draft?.exam !== undefined ? draft.exam : r?.ExamScore !== undefined ? r.ExamScore.toString() : ""
+            ca: draft?.ca !== undefined ? draft.ca : dbCa,
+            exam: draft?.exam !== undefined ? draft.exam : dbExam,
+            theory: draft?.theory !== undefined ? draft.theory : dbTheory,
           };
         });
 
@@ -320,7 +381,7 @@ export default function TeacherDashboard({
     (a: any) => a.id.toString() === selectedAllocationId
   );
 
-  const handleScoreChange = (studentId: number, field: "ca" | "exam", val: string) => {
+  const handleScoreChange = (studentId: number, field: "ca" | "exam" | "theory", val: string) => {
     setScoreInputs(prev => {
       const next = {
         ...prev,
@@ -361,6 +422,105 @@ export default function TeacherDashboard({
     setSavingScores(false);
   };
 
+  const buildGradebookSavePayload = () =>
+    subjectStudents.map((st) => {
+      const rawCa = (scoreInputs[st.StudentID]?.ca ?? "").trim();
+      const caScore = rawCa === "" ? null : parseFloat(rawCa);
+
+      if (examConfig.examMode === "HYBRID") {
+        const rawTheory = (scoreInputs[st.StudentID]?.theory ?? "").trim();
+        const examTheoryScore = rawTheory === "" ? null : parseFloat(rawTheory);
+        return {
+          studentId: st.StudentID,
+          caScore,
+          // Never send examCbtScore from ordinary teacher grid save:
+          // server preserves locked DB ExamCbtTenths and recalculates ExamScoreTenths authoritatively.
+          examTheoryScore,
+        };
+      }
+
+      const rawExam = (scoreInputs[st.StudentID]?.exam ?? "").trim();
+      const examScore = rawExam === "" ? null : parseFloat(rawExam);
+      return {
+        studentId: st.StudentID,
+        caScore,
+        examScore,
+      };
+    });
+
+  const refreshActiveSubjectSheet = async () => {
+    if (!selectedAllocation || !dashboardData?.activeTerm) return;
+    const storageKey = `wof_draft_${selectedAllocation.ClassID}_${selectedAllocation.SubjectID}_${dashboardData.activeTerm.TermID}`;
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {}
+
+    const refreshed = await getStudentsAndScoresForSubject(
+      selectedAllocation.ClassID,
+      selectedAllocation.SubjectID,
+      dashboardData.activeTerm.TermID
+    );
+    if (refreshed.success) {
+      setSubjectStudents(refreshed.students || []);
+      setIsSubjectSubmitted(refreshed.isSubmitted || false);
+      if ((refreshed as any).examConfig) {
+        setExamConfig((refreshed as any).examConfig);
+      }
+      const nextMap: Record<number, { ca: string; exam: string; theory?: string }> = {};
+      refreshed.students?.forEach((st: any) => {
+        const r = st.Results?.[0];
+        nextMap[st.StudentID] = {
+          ca:
+            r?.CAScoreTenths !== null && r?.CAScoreTenths !== undefined
+              ? String(r.CAScoreTenths / 10)
+              : r?.CAScore !== undefined
+              ? r.CAScore.toString()
+              : "",
+          exam:
+            r?.ExamScoreTenths !== null && r?.ExamScoreTenths !== undefined
+              ? String(r.ExamScoreTenths / 10)
+              : r?.ExamScore !== undefined && r?.ExamResultStatus !== "PENDING" && r?.ExamResultStatus !== "PARTIALLY_MARKED"
+              ? r.ExamScore.toString()
+              : "",
+          theory:
+            r?.ExamTheoryTenths !== null && r?.ExamTheoryTenths !== undefined
+              ? String(r.ExamTheoryTenths / 10)
+              : "",
+        };
+      });
+      setScoreInputs(nextMap);
+    }
+  };
+
+  const handleSaveExamModeConfig = async (confirmImpact = false) => {
+    if (!selectedAllocation || !dashboardData?.activeTerm) return;
+    setSavingExamMode(true);
+    setError("");
+    setSuccess("");
+    const res = await configureSubjectExamMode({
+      classId: selectedAllocation.ClassID,
+      subjectId: selectedAllocation.SubjectID,
+      termId: dashboardData.activeTerm.TermID,
+      examMode: modeDraftType,
+      examCbtMaxMarks: modeDraftCbtMax,
+      examTheoryMaxMarks: 60 - modeDraftCbtMax,
+      confirmImpact,
+    });
+    setSavingExamMode(false);
+    if ((res as any).requiresConfirmation) {
+      setModeImpactWarning((res as any).impact);
+      return;
+    }
+    if (res.success) {
+      setShowExamModeModal(false);
+      setModeImpactWarning(null);
+      setSuccess(res.message || "Examination mode updated.");
+      await refreshActiveSubjectSheet();
+    } else {
+      setError(res.error || "Failed to update examination mode.");
+    }
+  };
+
   const handleSaveDraft = async () => {
     if (!selectedAllocation || !dashboardData?.activeTerm) return;
 
@@ -368,11 +528,7 @@ export default function TeacherDashboard({
     setError("");
     setSuccess("");
 
-    const payload = subjectStudents.map((st) => ({
-      studentId: st.StudentID,
-      caScore: parseFloat(scoreInputs[st.StudentID]?.ca || "0"),
-      examScore: parseFloat(scoreInputs[st.StudentID]?.exam || "0"),
-    }));
+    const payload = buildGradebookSavePayload();
 
     const res = await saveSubjectScoresBatch({
       subjectId: selectedAllocation.SubjectID,
@@ -382,6 +538,7 @@ export default function TeacherDashboard({
     });
 
     if (res.success) {
+      await refreshActiveSubjectSheet();
       setSuccess(res.message || "Scores saved as draft successfully!");
     } else {
       setError(res.error || "Failed to save scores");
@@ -563,6 +720,123 @@ export default function TeacherDashboard({
     );
   };
 
+  const loadOfficialExamPreview = async (
+    examId: string,
+    targetColumn: "ca" | "exam",
+    maxWeight: number
+  ) => {
+    if (!examId) {
+      setOfficialExamPreview(null);
+      return;
+    }
+    setLoadingOfficialExamSync(true);
+    setError("");
+    const previewRes = await previewStrictExamScoresForResultSync({
+      examId,
+      targetColumn,
+      maxWeight,
+    });
+    setLoadingOfficialExamSync(false);
+    if (previewRes.success) {
+      setOfficialExamPreview(previewRes);
+    } else {
+      setOfficialExamPreview(null);
+      setError(previewRes.error || "Failed to preview official CBT exam scores.");
+    }
+  };
+
+  const handleOpenOfficialExamSyncModal = async () => {
+    if (!selectedAllocation || !dashboardData?.activeTerm) return;
+    setShowOfficialExamSyncModal(true);
+    setLoadingOfficialExamSync(true);
+    setOfficialExamPreview(null);
+    setError("");
+
+    const listRes = await listClassSubjectScheduledExamsForGradebook({
+      classId: selectedAllocation.ClassID,
+      subjectId: selectedAllocation.SubjectID,
+      termId: dashboardData.activeTerm.TermID,
+    });
+
+    if (!listRes.success) {
+      setLoadingOfficialExamSync(false);
+      setError(listRes.error || "Failed to load official CBT exams for this subject.");
+      return;
+    }
+
+    const exams = listRes.exams || [];
+    setOfficialExamList(exams);
+    if (exams.length === 0) {
+      setSelectedOfficialExamId("");
+      setLoadingOfficialExamSync(false);
+      return;
+    }
+
+    const preferred = exams.find((ex: any) => ex.gradableStudentCount > 0) || exams[0];
+    const defaultCol: "ca" | "exam" = preferred.examType === "TERMINAL_EXAM" ? "exam" : "ca";
+    const defaultW = defaultCol === "exam" ? 60 : 20;
+
+    setSelectedOfficialExamId(preferred.id);
+    setOfficialSyncColumn(defaultCol);
+    setOfficialSyncWeight(defaultW);
+    await loadOfficialExamPreview(preferred.id, defaultCol, defaultW);
+  };
+
+  const handleApplyOfficialExamToGrid = () => {
+    if (!officialExamPreview?.items) return;
+    let updatedCount = 0;
+    setScoreInputs((prev) => {
+      const next = { ...prev };
+      for (const item of officialExamPreview.items) {
+        if (!item.hasAttempt || item.scaledScore === null) continue;
+        if (item.existingStatus === "ABSENT" || item.existingStatus === "EXEMPT") continue;
+        const currentVal = Number(next[item.studentId]?.[officialSyncColumn] || 0);
+        if (officialOverwriteMode === "FILL_BLANKS_ONLY" && currentVal > 0) continue;
+        next[item.studentId] = {
+          ca: next[item.studentId]?.ca ?? "",
+          exam: next[item.studentId]?.exam ?? "",
+          [officialSyncColumn]: String(item.scaledScore),
+        };
+        updatedCount++;
+      }
+      return next;
+    });
+    setShowOfficialExamSyncModal(false);
+    setSuccess(
+      `✅ Populated ${officialSyncColumn.toUpperCase()} scores for ${updatedCount} student(s) from "${officialExamPreview.title}" (/${officialExamPreview.maxWeight}). Review and click "Save Draft" or "Submit to Class Teacher".`
+    );
+  };
+
+  const handleCommitOfficialExamToGradebook = async () => {
+    if (!selectedOfficialExamId || !selectedAllocation || !dashboardData?.activeTerm) return;
+    setCommittingOfficialExamSync(true);
+    setError("");
+    setSuccess("");
+
+    const res = await commitStrictExamScoresToGradebook({
+      examId: selectedOfficialExamId,
+      targetColumn: officialSyncColumn,
+      maxWeight:
+        examConfig.examMode === "HYBRID" && officialSyncColumn === "exam"
+          ? examConfig.examCbtMaxTenths / 10
+          : officialSyncWeight,
+      commitMode:
+        examConfig.examMode === "HYBRID" && officialSyncColumn === "exam"
+          ? "HYBRID_CBT_COMPONENT"
+          : "FULL_EXAM",
+      overwriteMode: officialOverwriteMode,
+    });
+
+    if (res.success) {
+      await refreshActiveSubjectSheet();
+      setShowOfficialExamSyncModal(false);
+      setSuccess(res.message || "Official CBT exam scores committed directly to gradebook.");
+    } else {
+      setError(res.error || "Failed to commit official CBT exam scores.");
+    }
+    setCommittingOfficialExamSync(false);
+  };
+
   const handleSubmitToFormMaster = async () => {
     if (!selectedAllocation || !dashboardData?.activeTerm) return;
 
@@ -576,19 +850,20 @@ export default function TeacherDashboard({
     setError("");
     setSuccess("");
 
-    // 1. Save scores first
-    const payload = subjectStudents.map(st => ({
-      studentId: st.StudentID,
-      caScore: parseFloat(scoreInputs[st.StudentID]?.ca || "0"),
-      examScore: parseFloat(scoreInputs[st.StudentID]?.exam || "0")
-    }));
+    // 1. Save scores first (preserves Hybrid CBT components and validates server-side)
+    const payload = buildGradebookSavePayload();
 
-    await saveSubjectScoresBatch({
+    const saveRes = await saveSubjectScoresBatch({
       subjectId: selectedAllocation.SubjectID,
       classId: selectedAllocation.ClassID,
       termId: dashboardData.activeTerm.TermID,
       scores: payload
     });
+    if (!saveRes.success) {
+      setError(saveRes.error || "Failed to save scores before submission.");
+      setSavingScores(false);
+      return;
+    }
 
     // 2. Submit to Class Teacher
     const res = await submitSubjectToFormMaster(
@@ -945,22 +1220,43 @@ export default function TeacherDashboard({
                   )}
 
                   {!isSubjectSubmitted && !isTermLocked && subjectStudents.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenCbtSyncModal()}
-                      disabled={savingScores}
-                      className="btn btn-outline"
-                      style={{
-                        padding: "0.4rem 0.75rem",
-                        fontSize: "0.82rem",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.3rem",
-                      }}
-                      title="Import students' completed CBT quiz scores into Continuous Assessment (CA)"
-                    >
-                      <FiCpu /> Import CBT Scores &rarr; CA
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCbtSyncModal()}
+                        disabled={savingScores}
+                        className="btn btn-outline"
+                        style={{
+                          padding: "0.4rem 0.75rem",
+                          fontSize: "0.82rem",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.3rem",
+                        }}
+                        title="Import students' completed practice/mock CBT quiz scores into Continuous Assessment (CA)"
+                      >
+                        <FiCpu /> Import Mock Quiz &rarr; CA
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenOfficialExamSyncModal()}
+                        disabled={savingScores}
+                        className="btn btn-outline"
+                        style={{
+                          padding: "0.4rem 0.75rem",
+                          fontSize: "0.82rem",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.3rem",
+                          color: "var(--status-success-text)",
+                          borderColor: "var(--status-success-border)",
+                        }}
+                        title="Import official scheduled CBT Examination scores directly into Exam Score or CA"
+                      >
+                        <FiAward /> Import Official CBT Exam
+                      </button>
+                    </>
                   )}
 
                   {isSubjectSubmitted ? (
@@ -1055,6 +1351,65 @@ export default function TeacherDashboard({
                 </div>
               )}
 
+              {/* Examination Mode Banner (Read-only for teachers; Admin/Exam Officer configurable) */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "0.75rem",
+                  background:
+                    examConfig.examMode === "HYBRID"
+                      ? "var(--status-info-bg)"
+                      : "var(--bg-secondary)",
+                  border:
+                    examConfig.examMode === "HYBRID"
+                      ? "1px solid var(--status-info-border)"
+                      : "1px solid var(--border-subtle)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "0.75rem 1rem",
+                  marginBottom: "1rem",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                  <span
+                    style={{
+                      fontWeight: 800,
+                      fontSize: "0.85rem",
+                      color:
+                        examConfig.examMode === "HYBRID"
+                          ? "var(--status-info-text)"
+                          : "var(--text-heading)",
+                    }}
+                  >
+                    {examConfig.examMode === "HYBRID"
+                      ? `Hybrid Examination: CBT Objective (/${examConfig.examCbtMaxTenths / 10}) + Paper 2 Theory (/${examConfig.examTheoryMaxTenths / 10})`
+                      : "Combined Examination /60"}
+                  </span>
+                  <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                    {examConfig.examMode === "HYBRID"
+                      ? "CBT scores are synced read-only from official CBT attempts; enter handwritten Paper 2 Theory marks below. Retakes never overwrite Theory."
+                      : "Single combined examination mark out of 60."}
+                  </span>
+                </div>
+                {canConfigureExamMode && !isTermLocked && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModeDraftType(examConfig.examMode);
+                      setModeDraftCbtMax(examConfig.examCbtMaxTenths / 10);
+                      setModeImpactWarning(null);
+                      setShowExamModeModal(true);
+                    }}
+                    className="btn btn-outline"
+                    style={{ padding: "0.3rem 0.7rem", fontSize: "0.78rem" }}
+                  >
+                    Configure Exam Mode
+                  </button>
+                )}
+              </div>
+
               {/* Scores Entry Table */}
               {subjectStudents.length === 0 ? (
                 <div style={{ padding: "3rem", textAlign: "center", color: "var(--color-gray-500)" }}>
@@ -1067,16 +1422,198 @@ export default function TeacherDashboard({
                       <tr style={{ background: "var(--color-gray-50)", borderBottom: "2px solid var(--color-gray-200)" }}>
                         <th style={{ padding: "1rem", textAlign: "left" }}>WOFS Student ID</th>
                         <th style={{ padding: "1rem", textAlign: "left" }}>Student Name</th>
-                        <th style={{ padding: "1rem", textAlign: "center", width: "140px" }}>CA Score (Max 40)</th>
-                        <th style={{ padding: "1rem", textAlign: "center", width: "140px" }}>Exam Score (Max 60)</th>
-                        <th style={{ padding: "1rem", textAlign: "center", width: "100px" }}>Total (100)</th>
-                        <th style={{ padding: "1rem", textAlign: "center", width: "100px" }}>Grade</th>
-                        <th style={{ padding: "1rem", textAlign: "left", width: "160px" }}>Auto Remark</th>
+                        <th style={{ padding: "1rem", textAlign: "center", width: "120px" }}>CA (Max 40)</th>
+                        {examConfig.examMode === "HYBRID" ? (
+                          <>
+                            <th style={{ padding: "1rem", textAlign: "center", width: "130px" }}>
+                              CBT Obj (/{examConfig.examCbtMaxTenths / 10})
+                            </th>
+                            <th style={{ padding: "1rem", textAlign: "center", width: "140px" }}>
+                              Paper 2 Theory (/{examConfig.examTheoryMaxTenths / 10})
+                            </th>
+                            <th style={{ padding: "1rem", textAlign: "center", width: "135px" }}>
+                              Exam Total (/60)
+                            </th>
+                          </>
+                        ) : (
+                          <th style={{ padding: "1rem", textAlign: "center", width: "140px" }}>Exam Score (Max 60)</th>
+                        )}
+                        <th style={{ padding: "1rem", textAlign: "center", width: "95px" }}>Total (100)</th>
+                        <th style={{ padding: "1rem", textAlign: "center", width: "95px" }}>Grade</th>
+                        <th style={{ padding: "1rem", textAlign: "left", width: "160px" }}>Status / Remark</th>
                       </tr>
                     </thead>
                     <tbody>
                       {subjectStudents.map((student) => {
-                        const caVal = parseFloat(scoreInputs[student.StudentID]?.ca || "0") || 0;
+                        const resRow = student.Results?.[0];
+                        const isHybrid = examConfig.examMode === "HYBRID";
+                        const caTenths = toScoreTenths(scoreInputs[student.StudentID]?.ca ?? "");
+                        const caVal = caTenths !== null ? caTenths / 10 : 0;
+
+                        if (isHybrid) {
+                          const cbtTenths =
+                            resRow?.ExamCbtTenths !== null && resRow?.ExamCbtTenths !== undefined
+                              ? resRow.ExamCbtTenths
+                              : null;
+                          const theoryTenths = toScoreTenths(
+                            scoreInputs[student.StudentID]?.theory ?? ""
+                          );
+                          const outcome = computeHybridExamOutcome({
+                            examMode: "HYBRID",
+                            cbtTenths,
+                            theoryTenths,
+                            cbtMaxTenths: examConfig.examCbtMaxTenths,
+                            theoryMaxTenths: examConfig.examTheoryMaxTenths,
+                            scoreStatus: resRow?.Status || "ENTERED",
+                          });
+                          const theoryMaxMarks = examConfig.examTheoryMaxTenths / 10;
+                          const cbtMaxMarks = examConfig.examCbtMaxTenths / 10;
+                          const isComplete = outcome.valid && outcome.isComplete && outcome.examScoreTenths !== null;
+                          const finalExamVal = isComplete ? (outcome.examScoreTenths as number) / 10 : null;
+                          const totalVal = isComplete
+                            ? Math.min(100, Number((caVal + (finalExamVal ?? 0)).toFixed(1)))
+                            : null;
+                          const gradeInfo = isComplete && totalVal !== null
+                            ? calculateGrade(totalVal)
+                            : {
+                                grade: !outcome.valid ? "ERR" : "INC",
+                                remark: !outcome.valid
+                                  ? outcome.error || "Invalid score"
+                                  : cbtTenths !== null && theoryTenths === null
+                                  ? "Pending Paper 2 Theory"
+                                  : cbtTenths === null && theoryTenths !== null
+                                  ? "Pending CBT Objective"
+                                  : "Pending Exam",
+                              };
+
+                          return (
+                            <tr key={student.StudentID} style={{ borderBottom: "1px solid var(--color-gray-200)" }}>
+                              <td data-label="WOFS Student ID" style={{ padding: "0.9rem", fontFamily: "monospace", fontWeight: "bold", color: "var(--color-navy-blue)" }}>
+                                {student.AdmissionNo}
+                              </td>
+                              <td data-label="Student Name" style={{ padding: "0.9rem", fontWeight: "600" }}>
+                                {student.PreferredName || student.User?.Email}
+                              </td>
+                              <td data-label="CA Score" style={{ padding: "0.75rem", textAlign: "center" }}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={40}
+                                  step={0.5}
+                                  disabled={isTermLocked || isSubjectSubmitted}
+                                  className="form-input"
+                                  style={{ width: "84px", textAlign: "center", fontWeight: "bold", margin: "0 auto" }}
+                                  value={scoreInputs[student.StudentID]?.ca ?? ""}
+                                  onChange={(e) => handleScoreChange(student.StudentID, "ca", e.target.value)}
+                                  placeholder="0 - 40"
+                                />
+                              </td>
+                              <td data-label="CBT Objective" style={{ padding: "0.75rem", textAlign: "center" }}>
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    flexDirection: "column",
+                                    alignItems: "center",
+                                    padding: "0.35rem 0.65rem",
+                                    borderRadius: "var(--radius-sm)",
+                                    background: cbtTenths !== null ? "var(--status-info-bg)" : "var(--bg-secondary)",
+                                    border: "1px solid var(--border-subtle)",
+                                    minWidth: "82px",
+                                  }}
+                                  title={
+                                    resRow?.LastCbtSyncAt
+                                      ? `Synced from CBT Exam on ${new Date(resRow.LastCbtSyncAt).toLocaleString()}`
+                                      : "Imported via Official CBT Exam Sync (read-only)"
+                                  }
+                                >
+                                  <strong style={{ color: cbtTenths !== null ? "var(--status-info-text)" : "var(--text-muted)", fontSize: "0.9rem" }}>
+                                    {cbtTenths !== null ? `${cbtTenths / 10} / ${cbtMaxMarks}` : "Pending"}
+                                  </strong>
+                                  <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                                    {resRow?.LastCbtSyncAt ? "Synced" : "Awaiting CBT"}
+                                  </span>
+                                </div>
+                              </td>
+                              <td data-label="Paper 2 Theory" style={{ padding: "0.75rem", textAlign: "center" }}>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={theoryMaxMarks}
+                                  step={0.5}
+                                  disabled={isTermLocked || isSubjectSubmitted}
+                                  className="form-input"
+                                  style={{
+                                    width: "92px",
+                                    textAlign: "center",
+                                    fontWeight: "bold",
+                                    margin: "0 auto",
+                                    borderColor: !outcome.valid ? "var(--status-error-border)" : undefined,
+                                  }}
+                                  value={scoreInputs[student.StudentID]?.theory ?? ""}
+                                  onChange={(e) => handleScoreChange(student.StudentID, "theory", e.target.value)}
+                                  placeholder={`0 - ${theoryMaxMarks}`}
+                                />
+                              </td>
+                              <td data-label="Exam Total" style={{ padding: "0.75rem", textAlign: "center" }}>
+                                {isComplete && finalExamVal !== null ? (
+                                  <div style={{ fontWeight: 800, color: "var(--status-success-text)" }}>
+                                    {finalExamVal} / 60
+                                  </div>
+                                ) : !outcome.valid ? (
+                                  <div style={{ fontSize: "0.76rem", fontWeight: 700, color: "var(--status-error-text)" }}>
+                                    Exceeds max
+                                  </div>
+                                ) : cbtTenths !== null ? (
+                                  <div style={{ fontSize: "0.76rem", color: "var(--status-warning-text)", fontWeight: 700 }}>
+                                    Provisional {cbtTenths / 10}
+                                    <div style={{ fontSize: "0.68rem", fontWeight: 500 }}>Pending Theory</div>
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Pending</span>
+                                )}
+                              </td>
+                              <td data-label="Total" style={{ padding: "0.9rem", textAlign: "center", fontWeight: "bold", fontSize: "1.02rem", color: "var(--color-navy-blue)" }}>
+                                {totalVal !== null ? totalVal : "—"}
+                              </td>
+                              <td data-label="Grade" style={{ padding: "0.9rem", textAlign: "center" }}>
+                                <span
+                                  style={{
+                                    padding: "0.2rem 0.6rem",
+                                    borderRadius: "var(--radius-full)",
+                                    fontSize: "0.8rem",
+                                    fontWeight: "bold",
+                                    background:
+                                      gradeInfo.grade === "INC"
+                                        ? "var(--status-warning-bg)"
+                                        : gradeInfo.grade === "ERR"
+                                        ? "var(--status-error-bg)"
+                                        : gradeInfo.grade.startsWith("A") || gradeInfo.grade.startsWith("B")
+                                        ? "var(--status-success-bg)"
+                                        : gradeInfo.grade.startsWith("C")
+                                        ? "var(--status-info-bg)"
+                                        : "var(--status-error-bg)",
+                                    color:
+                                      gradeInfo.grade === "INC"
+                                        ? "var(--status-warning-text)"
+                                        : gradeInfo.grade === "ERR"
+                                        ? "var(--status-error-text)"
+                                        : gradeInfo.grade.startsWith("A") || gradeInfo.grade.startsWith("B")
+                                        ? "var(--status-success-text)"
+                                        : gradeInfo.grade.startsWith("C")
+                                        ? "var(--status-info-text)"
+                                        : "var(--status-error-text)",
+                                  }}
+                                >
+                                  {gradeInfo.grade}
+                                </span>
+                              </td>
+                              <td data-label="Remark" style={{ padding: "0.9rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+                                {gradeInfo.remark}
+                              </td>
+                            </tr>
+                          );
+                        }
+
                         const examVal = parseFloat(scoreInputs[student.StudentID]?.exam || "0") || 0;
                         const totalVal = Math.min(100, caVal + examVal);
                         const { grade, remark } = calculateGrade(totalVal);
@@ -1974,6 +2511,370 @@ export default function TeacherDashboard({
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Official Scheduled CBT Exam -> Terminal Gradebook Sync Modal */}
+      {showOfficialExamSyncModal && (
+        <div className="portal-modal-overlay" onClick={() => setShowOfficialExamSyncModal(false)}>
+          <div
+            className="portal-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "780px", width: "95%", padding: "1.75rem", maxHeight: "90vh", overflowY: "auto" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "0.75rem" }}>
+              <div>
+                <h3 style={{ margin: 0, color: "var(--text-heading)" }}>
+                  Import Official CBT Exam &rarr; Terminal Gradebook
+                </h3>
+                <p style={{ margin: "0.2rem 0 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+                  {selectedAllocation?.Subject?.SubjectName} &middot; {selectedAllocation?.Class?.ClassName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOfficialExamSyncModal(false)}
+                className="btn btn-outline"
+                style={{ padding: "0.3rem 0.65rem", minHeight: "34px" }}
+              >
+                Close
+              </button>
+            </div>
+
+            {officialExamList.length === 0 && !loadingOfficialExamSync ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
+                No official scheduled CBT exams found for this class, subject, and active term yet. Create or run one in the <strong>Exam Studio</strong> tab.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", background: "var(--bg-secondary)", padding: "0.85rem 1rem", borderRadius: "var(--radius-sm)", marginBottom: "1rem", border: "1px solid var(--border-subtle)" }}>
+                  <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-label)", display: "flex", flexDirection: "column", gap: "0.25rem", flex: "1 1 220px" }}>
+                    Scheduled Examination
+                    <select
+                      className="form-input"
+                      value={selectedOfficialExamId}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        const picked = officialExamList.find((x: any) => x.id === nextId);
+                        const col: "ca" | "exam" = picked?.examType === "TERMINAL_EXAM" ? "exam" : "ca";
+                        const w = col === "exam" ? 60 : 20;
+                        setSelectedOfficialExamId(nextId);
+                        setOfficialSyncColumn(col);
+                        setOfficialSyncWeight(w);
+                        loadOfficialExamPreview(nextId, col, w);
+                      }}
+                    >
+                      {officialExamList.map((ex: any) => (
+                        <option key={ex.id} value={ex.id}>
+                          {ex.title} ({ex.examType} · {ex.gradableStudentCount} completed)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-label)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                    Target Gradebook Column &amp; Weight
+                    <select
+                      className="form-input"
+                      value={`${officialSyncColumn}:${officialSyncWeight}`}
+                      onChange={(e) => {
+                        const [col, wStr] = e.target.value.split(":");
+                        const nextCol = col as "ca" | "exam";
+                        const nextW = parseInt(wStr, 10);
+                        setOfficialSyncColumn(nextCol);
+                        setOfficialSyncWeight(nextW);
+                        loadOfficialExamPreview(selectedOfficialExamId, nextCol, nextW);
+                      }}
+                    >
+                      <option value="exam:60">Exam Score (Full 60 Marks)</option>
+                      <option value="exam:40">Exam Score (40 Obj + Manual Theory)</option>
+                      <option value="exam:30">Exam Score (30 Obj + Manual Theory)</option>
+                      <option value="ca:40">CA Score (Full 40 Marks)</option>
+                      <option value="ca:30">CA Score (30 Marks)</option>
+                      <option value="ca:20">CA Score (20 Marks)</option>
+                      <option value="ca:10">CA Score (10 Marks)</option>
+                    </select>
+                  </label>
+
+                  <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text-label)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                    Existing Score Handling
+                    <select
+                      className="form-input"
+                      value={officialOverwriteMode}
+                      onChange={(e) =>
+                        setOfficialOverwriteMode(
+                          e.target.value as "OVERWRITE_MATCHED" | "FILL_BLANKS_ONLY"
+                        )
+                      }
+                    >
+                      <option value="OVERWRITE_MATCHED">Overwrite matched students</option>
+                      <option value="FILL_BLANKS_ONLY">Only fill blank / zero scores</option>
+                    </select>
+                  </label>
+                </div>
+
+                {loadingOfficialExamSync ? (
+                  <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
+                    Loading graded CBT exam attempts...
+                  </div>
+                ) : !officialExamPreview ? null : (
+                  <>
+                    {officialExamPreview.lastSyncedAt && (
+                      <div style={{ fontSize: "0.78rem", color: "var(--status-success-text)", marginBottom: "0.6rem", fontWeight: 600 }}>
+                        Previously synced to gradebook on {new Date(officialExamPreview.lastSyncedAt).toLocaleString()} ({officialExamPreview.lastSyncedBy || "Staff"})
+                      </div>
+                    )}
+
+                    <div style={{ overflowX: "auto", maxHeight: "320px", marginBottom: "1rem" }}>
+                      {officialExamPreview.examMode === "HYBRID" && officialSyncColumn === "exam" && (
+                        <div
+                          style={{
+                            background: "var(--status-info-bg)",
+                            color: "var(--status-info-text)",
+                            border: "1px solid var(--status-info-border)",
+                            borderRadius: "var(--radius-sm)",
+                            padding: "0.55rem 0.8rem",
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            marginBottom: "0.65rem",
+                          }}
+                        >
+                          Hybrid Component Sync Active (CBT Objective /{officialExamPreview.examCbtMaxMarks} + Paper 2 Theory /{officialExamPreview.examTheoryMaxMarks}). Saved Theory marks are strictly preserved.
+                        </div>
+                      )}
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.84rem" }}>
+                        <thead>
+                          <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-primary)" }}>
+                            <th style={{ padding: "0.55rem", textAlign: "left" }}>Student</th>
+                            <th style={{ padding: "0.55rem", textAlign: "center" }}>
+                              CBT Score (/{officialExamPreview.maxWeight})
+                            </th>
+                            {officialExamPreview.examMode === "HYBRID" && officialSyncColumn === "exam" ? (
+                              <>
+                                <th style={{ padding: "0.55rem", textAlign: "center" }}>
+                                  Saved Theory (/{officialExamPreview.examTheoryMaxMarks})
+                                </th>
+                                <th style={{ padding: "0.55rem", textAlign: "center" }}>
+                                  Resulting Total (/60)
+                                </th>
+                                <th style={{ padding: "0.55rem", textAlign: "center" }}>Status</th>
+                              </>
+                            ) : (
+                              <>
+                                <th style={{ padding: "0.55rem", textAlign: "center" }}>Current CA / Exam</th>
+                                <th style={{ padding: "0.55rem", textAlign: "center" }}>
+                                  Scaled {officialSyncColumn.toUpperCase()} (/{officialExamPreview.maxWeight})
+                                </th>
+                              </>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(officialExamPreview.items || []).map((item: any) => (
+                            <tr key={item.studentId} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                              <td style={{ padding: "0.55rem" }}>
+                                <div style={{ fontWeight: 700, color: "var(--text-heading)" }}>{item.studentName}</div>
+                                <div style={{ fontSize: "0.75rem", fontFamily: "monospace", color: "var(--text-muted)" }}>{item.admissionNo}</div>
+                              </td>
+                              <td style={{ padding: "0.55rem", textAlign: "center", fontWeight: 700 }}>
+                                {item.hasAttempt
+                                  ? `${item.scaledScore}/${officialExamPreview.maxWeight} (${item.scorePercent}%)`
+                                  : item.attemptStatus === "TERMINATED"
+                                  ? "Terminated"
+                                  : item.attemptStatus === "ACTIVE"
+                                  ? "In progress"
+                                  : "No attempt"}
+                              </td>
+                              {officialExamPreview.examMode === "HYBRID" && officialSyncColumn === "exam" ? (
+                                <>
+                                  <td style={{ padding: "0.55rem", textAlign: "center", color: "var(--text-secondary)" }}>
+                                    {item.currentTheoryScore !== null && item.currentTheoryScore !== undefined
+                                      ? `${item.currentTheoryScore}/${officialExamPreview.examTheoryMaxMarks}`
+                                      : "Not entered"}
+                                  </td>
+                                  <td style={{ padding: "0.55rem", textAlign: "center", fontWeight: 800, color: item.projectedExamTotal !== null ? "var(--status-success-text)" : "var(--text-muted)" }}>
+                                    {item.projectedExamTotal !== null ? `${item.projectedExamTotal}/60` : "Pending"}
+                                  </td>
+                                  <td style={{ padding: "0.55rem", textAlign: "center", fontSize: "0.76rem", fontWeight: 700 }}>
+                                    <span
+                                      style={{
+                                        padding: "0.15rem 0.5rem",
+                                        borderRadius: "999px",
+                                        background:
+                                          item.previewStatus === "Safe"
+                                            ? "var(--status-success-bg)"
+                                            : item.previewStatus === "Blocked"
+                                            ? "var(--status-error-bg)"
+                                            : item.previewStatus === "Pending"
+                                            ? "var(--status-warning-bg)"
+                                            : "var(--bg-secondary)",
+                                        color:
+                                          item.previewStatus === "Safe"
+                                            ? "var(--status-success-text)"
+                                            : item.previewStatus === "Blocked"
+                                            ? "var(--status-error-text)"
+                                            : item.previewStatus === "Pending"
+                                            ? "var(--status-warning-text)"
+                                            : "var(--text-muted)",
+                                      }}
+                                    >
+                                      {item.previewStatus || "Unchanged"}
+                                    </span>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td style={{ padding: "0.55rem", textAlign: "center", color: "var(--text-muted)" }}>
+                                    {item.currentCaScore ?? "—"} / {item.currentExamScore ?? "—"}
+                                  </td>
+                                  <td style={{ padding: "0.55rem", textAlign: "center", fontWeight: 800, color: item.hasAttempt ? "var(--status-success-text)" : "var(--text-muted)" }}>
+                                    {item.scaledScore !== null ? item.scaledScore : "Unchanged"}
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowOfficialExamSyncModal(false)}
+                        className="btn btn-outline"
+                      >
+                        Cancel
+                      </button>
+                      {!(officialExamPreview.examMode === "HYBRID" && officialSyncColumn === "exam") && (
+                        <button
+                          type="button"
+                          disabled={officialExamPreview.matchedCount === 0}
+                          onClick={handleApplyOfficialExamToGrid}
+                          className="btn btn-outline"
+                        >
+                          Populate Draft Grid ({officialExamPreview.matchedCount})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={
+                          committingOfficialExamSync ||
+                          officialExamPreview.matchedCount === 0 ||
+                          officialExamPreview.isSheetLocked
+                        }
+                        onClick={handleCommitOfficialExamToGradebook}
+                        className="btn btn-primary"
+                      >
+                        {committingOfficialExamSync
+                          ? "Saving to Gradebook..."
+                          : officialExamPreview.examMode === "HYBRID" && officialSyncColumn === "exam"
+                          ? `Sync CBT Component (${officialExamPreview.matchedCount}) — Preserve Theory`
+                          : `Save Directly to Gradebook (${officialExamPreview.matchedCount})`}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Configure Subject Examination Mode Modal (Admin / Principal / Exam Officer) */}
+      {showExamModeModal && (
+        <div className="portal-modal-overlay" onClick={() => setShowExamModeModal(false)}>
+          <div
+            className="portal-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "520px", width: "95%", padding: "1.5rem" }}
+          >
+            <h3 style={{ margin: "0 0 0.35rem 0", color: "var(--text-heading)" }}>
+              Configure Subject Examination Mode
+            </h3>
+            <p style={{ margin: "0 0 1rem 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+              {selectedAllocation?.Subject?.SubjectName} &middot; {selectedAllocation?.Class?.ClassName}
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", marginBottom: "1rem" }}>
+              <label style={{ fontSize: "0.84rem", fontWeight: 700 }}>
+                Official Examination Mode
+                <select
+                  className="form-input"
+                  style={{ marginTop: "0.3rem" }}
+                  value={modeDraftType}
+                  onChange={(e) => {
+                    setModeDraftType(e.target.value as ExamModeValue);
+                    setModeImpactWarning(null);
+                  }}
+                >
+                  <option value="COMBINED">Combined Examination (/60)</option>
+                  <option value="HYBRID">Hybrid Examination (CBT Objective + Paper 2 Theory = /60)</option>
+                </select>
+              </label>
+
+              {modeDraftType === "HYBRID" && (
+                <label style={{ fontSize: "0.84rem", fontWeight: 700 }}>
+                  Hybrid Component Allocation (Must Sum to 60)
+                  <select
+                    className="form-input"
+                    style={{ marginTop: "0.3rem" }}
+                    value={modeDraftCbtMax}
+                    onChange={(e) => {
+                      setModeDraftCbtMax(parseInt(e.target.value, 10));
+                      setModeImpactWarning(null);
+                    }}
+                  >
+                    <option value={40}>CBT Objective 40 + Paper 2 Theory 20 = 60</option>
+                    <option value={30}>CBT Objective 30 + Paper 2 Theory 30 = 60</option>
+                    <option value={35}>CBT Objective 35 + Paper 2 Theory 25 = 60</option>
+                    <option value={20}>CBT Objective 20 + Paper 2 Theory 40 = 60</option>
+                  </select>
+                </label>
+              )}
+
+              {modeImpactWarning && (
+                <div
+                  style={{
+                    background: "var(--status-warning-bg)",
+                    color: "var(--status-warning-text)",
+                    border: "1px solid var(--status-warning-border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "0.75rem",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  Impact Preview: {modeImpactWarning.existingWithExamCount} student(s) already have recorded exam scores under <strong>{modeImpactWarning.currentMode}</strong> mode. Existing records will NOT be erased, but future saves will follow <strong>{modeImpactWarning.requestedMode}</strong> rules. Click Confirm to proceed.
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowExamModeModal(false);
+                  setModeImpactWarning(null);
+                }}
+                className="btn btn-outline"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingExamMode}
+                onClick={() => handleSaveExamModeConfig(Boolean(modeImpactWarning))}
+                className="btn btn-primary"
+              >
+                {savingExamMode
+                  ? "Saving..."
+                  : modeImpactWarning
+                  ? "Confirm Mode Change"
+                  : "Save Examination Mode"}
+              </button>
+            </div>
           </div>
         </div>
       )}

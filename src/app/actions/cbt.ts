@@ -20,6 +20,7 @@ import { IntegrityEventType, AttemptMode } from "@prisma/client";
 import {
   getExamPostSubmitVisibility,
   getPracticePoolBankScope,
+  shouldAutoCloseScheduledExam,
 } from "@/lib/cbt-exam-policy";
 import {
   decryptExamVaultString,
@@ -1754,6 +1755,101 @@ export async function reapExpiredCbtAttempts(limit = 50) {
   } catch (error: any) {
     console.error("reapExpiredCbtAttempts error:", error);
     return { success: false, reapedCount: 0, error: error.message || "Failed to reap expired attempts" };
+  }
+}
+
+/**
+ * Automated Cron / Worker Exam Window Closer:
+ * Transitions LIVE or SCHEDULED CbtScheduledExam windows past `endsAt` (with 15s grace)
+ * to CLOSED, deactivates lingering room codes, and logs an AuditLog entry.
+ */
+export async function closeEndedScheduledExams(limit = 50) {
+  try {
+    const now = new Date();
+    const threshold = new Date(now.getTime() - 15_000);
+
+    const candidates = await prisma.cbtScheduledExam.findMany({
+      where: {
+        status: { in: ["LIVE", "SCHEDULED"] },
+        endsAt: { lt: threshold },
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        endsAt: true,
+        classId: true,
+        subjectId: true,
+      },
+      take: limit,
+    });
+
+    const closedExamIds: string[] = [];
+
+    for (const exam of candidates) {
+      if (!shouldAutoCloseScheduledExam(exam, now, 15_000)) continue;
+
+      const didClose = await prisma.$transaction(async (tx) => {
+        const claimed = await tx.cbtScheduledExam.updateMany({
+          where: {
+            id: exam.id,
+            status: { in: ["LIVE", "SCHEDULED"] },
+          },
+          data: {
+            status: "CLOSED",
+            accessCodeHash: null,
+          },
+        });
+
+        if (claimed.count === 0) return false;
+
+        const deactivatedCodes = await tx.cbtExamRoomCode.updateMany({
+          where: { scheduledExamId: exam.id, isActive: true },
+          data: {
+            isActive: false,
+            revokedAt: now,
+            revokeReason: "Examination window ended (auto-closed by CBT Reaper)",
+          },
+        });
+
+        await writeAuditLog({
+          tx,
+          action: "CBT_EXAM_AUTO_CLOSED",
+          entity: "CbtScheduledExam",
+          entityId: exam.id,
+          reason: "Scheduled examination window ended",
+          newValue: {
+            title: exam.title,
+            previousStatus: exam.status,
+            endsAt: exam.endsAt ? exam.endsAt.toISOString() : null,
+            closedAt: now.toISOString(),
+            roomCodesDeactivated: deactivatedCodes.count,
+            classId: exam.classId,
+            subjectId: exam.subjectId,
+          },
+        });
+
+        return true;
+      });
+
+      if (didClose) {
+        closedExamIds.push(exam.id);
+      }
+    }
+
+    return {
+      success: true,
+      autoClosedExamsCount: closedExamIds.length,
+      closedExamIds,
+    };
+  } catch (error: unknown) {
+    console.error("closeEndedScheduledExams error:", error);
+    return {
+      success: false,
+      autoClosedExamsCount: 0,
+      closedExamIds: [],
+      error: error instanceof Error ? error.message : "Failed to auto-close ended scheduled exams.",
+    };
   }
 }
 

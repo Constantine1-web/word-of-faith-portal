@@ -2,8 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { getStudentProfile } from "@/app/actions/studentProfile";
+import { getStudentScheduledExams } from "@/app/actions/cbtExams";
+import {
+  summarizeUpcomingExamsForDashboard,
+  type StudentDashboardExamAlert,
+} from "@/lib/cbt-exam-schedule";
 import Link from "next/link";
-import { FiCreditCard, FiUser, FiFileText, FiUploadCloud, FiAward, FiShield } from "react-icons/fi";
+import { FiCreditCard, FiUser, FiFileText, FiUploadCloud, FiAward, FiShield, FiClock } from "react-icons/fi";
 import InspirationSlideshow from "./InspirationSlideshow";
 import NoticeBoard from "./NoticeBoard";
 import QuickLinkCard from "./QuickLinkCard";
@@ -43,18 +48,25 @@ export default function StudentDashboard({ session }: { session: any }) {
   const [academics, setAcademics] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [overview, setOverview] = useState<StudentDashboardOverview | null>(null);
+  const [upcomingExams, setUpcomingExams] = useState<StudentDashboardExamAlert[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       if (session?.user?.id) {
         const studentId = parseInt(session.user.id);
-        const res = await getStudentProfile(studentId);
+        const [res, examsRes] = await Promise.all([
+          getStudentProfile(studentId),
+          getStudentScheduledExams().catch(() => ({ success: false, exams: [] })),
+        ]);
         if (res.success && res.student) {
           setProfile(res.student);
           setAcademics(res.academics || []);
           setPayments(res.payments || []);
           setOverview("overview" in res ? res.overview ?? null : null);
+        }
+        if (examsRes.success && Array.isArray(examsRes.exams)) {
+          setUpcomingExams(summarizeUpcomingExamsForDashboard(examsRes.exams));
         }
       }
       setLoading(false);
@@ -371,6 +383,95 @@ export default function StudentDashboard({ session }: { session: any }) {
           <span>Enter Examination Room</span>
         </Link>
       </div>
+
+      {/* Upcoming & Live Subject Examinations Timetable Alert (Room codes never exposed here) */}
+      {upcomingExams.length > 0 && (
+        <section
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border-primary)",
+            borderRadius: "var(--radius-md)",
+            padding: "1.15rem 1.35rem",
+            marginBottom: "1.25rem",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.85rem" }}>
+            <h3 style={{ margin: 0, fontSize: "0.98rem", color: "var(--color-navy-blue)", display: "flex", alignItems: "center", gap: "0.45rem" }}>
+              <FiClock /> Upcoming &amp; Live Examinations ({upcomingExams.length})
+            </h3>
+            <Link href="/portal/exam-room" style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--color-primary-green)", textDecoration: "none" }}>
+              Open Exam Room &rarr;
+            </Link>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: "0.75rem" }}>
+            {upcomingExams.map((ex) => {
+              const countdownText =
+                ex.status === "LIVE_NOW"
+                  ? "Live Window Open"
+                  : ex.status === "COMPLETED"
+                  ? "Submitted"
+                  : ex.startsInMinutes !== null
+                  ? ex.startsInMinutes < 60
+                    ? `Starts in ${ex.startsInMinutes}m`
+                    : `Starts in ${Math.floor(ex.startsInMinutes / 60)}h ${ex.startsInMinutes % 60}m`
+                  : "Scheduled";
+              return (
+                <div
+                  key={ex.id}
+                  style={{
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "0.85rem 1rem",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.35rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem" }}>
+                    <span style={{ fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", color: "var(--text-muted)" }}>
+                      {ex.subjectName} &middot; {ex.examType.replace("_", " ")}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "0.7rem",
+                        fontWeight: 800,
+                        padding: "0.15rem 0.45rem",
+                        borderRadius: "999px",
+                        background:
+                          ex.status === "LIVE_NOW"
+                            ? "var(--status-success-bg)"
+                            : ex.status === "COMPLETED"
+                            ? "var(--status-info-bg)"
+                            : "var(--status-warning-bg)",
+                        color:
+                          ex.status === "LIVE_NOW"
+                            ? "var(--status-success-text)"
+                            : ex.status === "COMPLETED"
+                            ? "var(--status-info-text)"
+                            : "var(--status-warning-text)",
+                      }}
+                    >
+                      {countdownText}
+                    </span>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-heading)" }}>{ex.title}</div>
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                    {ex.questionCount} Questions &middot; {ex.durationMinutes} mins
+                    {ex.startsAt ? ` · ${new Date(ex.startsAt).toLocaleString("en-NG", { timeZone: "Africa/Lagos", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}
+                  </div>
+                  {!ex.feeEligible && (
+                    <div style={{ fontSize: "0.74rem", fontWeight: 700, color: "var(--status-danger-text)" }}>
+                      Term fee clearance required before entry
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Pay Fees & Upload Teller Receipt Action */}
       <div style={{ background: "var(--color-white)", padding: "1.5rem", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-sm)", marginBottom: "2rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>

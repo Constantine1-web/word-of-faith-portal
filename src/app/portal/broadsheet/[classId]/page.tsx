@@ -422,14 +422,27 @@ export default async function BroadsheetPage({
   const rankedStudents = classData.Students.map((student) => {
     let totalMarks = 0;
     let subjectCount = 0;
-    const scoreMap: Record<string, number> = {};
+    const scoreMap: Record<string, number | "INC"> = {};
+    const breakdownMap: Record<string, string> = {};
 
     subjects.forEach((sub) => {
       const res = student.Results.find((r) => r.Subject.SubjectName === sub);
       if (res) {
-        totalMarks += res.TotalScore;
-        subjectCount++;
-        scoreMap[sub] = res.TotalScore;
+        const isIncomplete =
+          res.ExamResultStatus === "PENDING" ||
+          res.ExamResultStatus === "PARTIALLY_MARKED" ||
+          res.Grade === "INC";
+        if (isIncomplete) {
+          scoreMap[sub] = "INC";
+          breakdownMap[sub] = "Incomplete Hybrid Exam (Pending component)";
+        } else {
+          totalMarks += res.TotalScore;
+          subjectCount++;
+          scoreMap[sub] = res.TotalScore;
+          if (res.ExamCbtTenths !== null && res.ExamTheoryTenths !== null) {
+            breakdownMap[sub] = `CA: ${res.CAScore} · Exam: ${res.ExamScore} (CBT: ${res.ExamCbtTenths / 10} + Theory: ${res.ExamTheoryTenths / 10})`;
+          }
+        }
       }
     });
 
@@ -438,6 +451,7 @@ export default async function BroadsheetPage({
     return {
       student,
       scoreMap,
+      breakdownMap,
       totalMarks,
       average,
       subjectCount,
@@ -623,10 +637,18 @@ export default async function BroadsheetPage({
                   </td>
                   {subjects.map((sub) => {
                     const score = item.scoreMap[sub];
+                    const detailTitle = item.breakdownMap[sub];
                     return (
                       <td
                         key={sub}
-                        style={{ border: "1px solid var(--border-primary)", padding: "0.4rem", textAlign: "center" }}
+                        style={{
+                          border: "1px solid var(--border-primary)",
+                          padding: "0.4rem",
+                          textAlign: "center",
+                          color: score === "INC" ? "var(--status-warning-text)" : undefined,
+                          fontWeight: score === "INC" ? 700 : undefined,
+                        }}
+                        title={detailTitle}
                       >
                         {score !== undefined ? score : "-"}
                       </td>

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/db";
-import { rateLimit } from "@/lib/rateLimit";
 import { sendEmail } from "@/lib/email";
-import { escapeHtml } from "@/lib/security";
+import { escapeHtml, extractClientIp, rateLimit } from "@/lib/security";
 import { writeAuditLog } from "@/lib/authz";
 
 const ContactPostSchema = z.object({
@@ -15,8 +14,7 @@ const ContactPostSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const forwardedFor = req.headers.get("x-forwarded-for");
-    const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : "local-visitor";
+    const ip = extractClientIp(req.headers, "local-visitor");
     const rl = await rateLimit(`contact:${ip}`, 5, 600);
     if (!rl.success) {
       return NextResponse.json(

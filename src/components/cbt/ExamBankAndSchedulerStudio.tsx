@@ -16,6 +16,7 @@ import {
   grantExamAttemptRetake,
   previewStrictExamScoresForResultSync,
 } from "@/app/actions/cbtExams";
+import { commitStrictExamScoresToGradebook } from "@/app/actions/results";
 import {
   getOrCreateTeacherSubmissionPacket,
   getTeacherQuestionSubmissions,
@@ -173,6 +174,10 @@ export default function ExamBankAndSchedulerStudio({
     maxWeight: number;
     data: any;
   } | null>(null);
+  const [syncOverwriteMode, setSyncOverwriteMode] = useState<
+    "OVERWRITE_MATCHED" | "FILL_BLANKS_ONLY"
+  >("OVERWRITE_MATCHED");
+  const [committingSync, setCommittingSync] = useState(false);
 
   const fetchStudioSnapshot = useCallback(async () => {
     const [studioRes, bankRes, subRes] = await Promise.all([
@@ -519,12 +524,35 @@ export default function ExamBankAndSchedulerStudio({
     setError("");
     const res = await previewStrictExamScoresForResultSync({
       examId: exam.id,
+      targetColumn,
       maxWeight,
     });
     if (res.success) {
-      setSyncPreview({ exam, targetColumn, maxWeight, data: res });
+      setSyncPreview({ exam, targetColumn, maxWeight: res.maxWeight || maxWeight, data: res });
     } else {
       setError(res.error || "Unable to load exam scores for sync.");
+    }
+  };
+
+  const handleCommitSyncToGradebook = async () => {
+    if (!syncPreview) return;
+    setCommittingSync(true);
+    setError("");
+    setSuccess("");
+    const res = await commitStrictExamScoresToGradebook({
+      examId: syncPreview.exam.id,
+      targetColumn: syncPreview.targetColumn,
+      maxWeight: syncPreview.maxWeight,
+      commitMode: syncPreview.data?.commitMode,
+      overwriteMode: syncOverwriteMode,
+    });
+    setCommittingSync(false);
+    if (res.success) {
+      setSuccess(res.message || "Official CBT exam scores committed to gradebook.");
+      setSyncPreview(null);
+      await loadStudio();
+    } else {
+      setError(res.error || "Failed to commit CBT exam scores to gradebook.");
     }
   };
 
@@ -1656,7 +1684,7 @@ export default function ExamBankAndSchedulerStudio({
                         {ex.answersReleased ? "Lock Solutions" : "Release Answers & AI Review"}
                       </button>
 
-                      {onApplyScoresToResultGrid && ex.subjectId && (
+                      {ex.subjectId && (
                         <>
                           <button
                             type="button"
@@ -1670,7 +1698,7 @@ export default function ExamBankAndSchedulerStudio({
                             className="btn btn-outline"
                             style={{ padding: "0.35rem 0.7rem", fontSize: "0.78rem", color: "var(--status-success-text)", borderColor: "var(--status-success-border)", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}
                           >
-                            <FiAward /> Sync Scores -&gt; Result Sheet
+                            <FiAward /> Sync Scores -&gt; Gradebook
                           </button>
                         </>
                       )}
@@ -1879,20 +1907,46 @@ export default function ExamBankAndSchedulerStudio({
       {/* ===================================================================== */}
       {syncPreview && (
         <div className="portal-modal-overlay">
-          <div className="portal-modal-card" style={{ maxWidth: "740px", width: "95%", padding: "1.5rem" }}>
+          <div className="portal-modal-card" style={{ maxWidth: "780px", width: "95%", padding: "1.5rem", maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem" }}>
               <div>
                 <h3 style={{ margin: 0, color: "var(--color-navy-blue)" }}>
-                  Sync Strict Exam Scores -&gt; Result Sheet ({syncPreview.exam.title})
+                  Sync Strict Exam Scores -&gt; Terminal Gradebook ({syncPreview.exam.title})
                 </h3>
                 <p style={{ margin: "0.2rem 0 0 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
-                  {syncPreview.data.matchedCount} of {syncPreview.data.totalStudents} student(s) completed this exam.
+                  {syncPreview.data.matchedCount} of {syncPreview.data.totalStudents} student(s) completed this exam
+                  {syncPreview.data.terminatedCount > 0 ? ` · ${syncPreview.data.terminatedCount} terminated` : ""}
+                  {" · "}Sheet Status: <strong>{syncPreview.data.sheetStatus || "Draft"}</strong>
                 </p>
+                {syncPreview.data.lastSyncedAt && (
+                  <p style={{ margin: "0.15rem 0 0 0", fontSize: "0.75rem", color: "var(--status-success-text)" }}>
+                    Last committed to gradebook: {new Date(syncPreview.data.lastSyncedAt).toLocaleString()} ({syncPreview.data.lastSyncedBy || "Staff"})
+                  </p>
+                )}
               </div>
               <button type="button" onClick={() => setSyncPreview(null)} className="btn btn-outline" style={{ fontSize: "0.78rem" }}>
                 Close
               </button>
             </div>
+
+            {syncPreview.data.isSheetLocked && (
+              <div
+                style={{
+                  background: "var(--status-warning-bg)",
+                  color: "var(--status-warning-text)",
+                  border: "1px solid var(--status-warning-border)",
+                  padding: "0.65rem 0.85rem",
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: "0.8rem",
+                  marginBottom: "0.85rem",
+                  fontWeight: 600,
+                }}
+              >
+                {syncPreview.data.isTermLocked
+                  ? "This academic term is locked. Direct gradebook commits are blocked until Administration unlocks the term."
+                  : `This subject sheet is currently ${syncPreview.data.sheetStatus}. Request an unlock before committing synced scores.`}
+              </div>
+            )}
 
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem", alignItems: "center" }}>
               <select
@@ -1908,49 +1962,121 @@ export default function ExamBankAndSchedulerStudio({
                 <option value="ca:20">Populate CA Score (Out of 20 Marks)</option>
                 <option value="ca:30">Populate CA Score (Out of 30 Marks)</option>
                 <option value="ca:40">Populate CA Score (Out of 40 Full CA)</option>
+                <option value="exam:30">Populate Exam Score (Out of 30 Obj)</option>
                 <option value="exam:40">Populate Exam Score (Out of 40 Obj)</option>
                 <option value="exam:60">Populate Exam Score (Out of 60 Full Exam)</option>
+              </select>
+
+              <select
+                className="form-input"
+                style={{ width: "auto" }}
+                value={syncOverwriteMode}
+                onChange={(e) =>
+                  setSyncOverwriteMode(
+                    e.target.value as "OVERWRITE_MATCHED" | "FILL_BLANKS_ONLY"
+                  )
+                }
+              >
+                <option value="OVERWRITE_MATCHED">Overwrite matched students</option>
+                <option value="FILL_BLANKS_ONLY">Only fill blank / zero scores</option>
               </select>
             </div>
 
             <div style={{ overflowX: "auto", maxHeight: "300px", marginBottom: "1rem" }}>
+              {syncPreview.data.examMode === "HYBRID" && syncPreview.targetColumn === "exam" && (
+                <div
+                  style={{
+                    background: "var(--status-info-bg)",
+                    color: "var(--status-info-text)",
+                    border: "1px solid var(--status-info-border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "0.55rem 0.8rem",
+                    fontSize: "0.78rem",
+                    fontWeight: 700,
+                    marginBottom: "0.65rem",
+                  }}
+                >
+                  Hybrid Component Sync (CBT Objective /{syncPreview.data.examCbtMaxMarks} + Paper 2 Theory /{syncPreview.data.examTheoryMaxMarks}). Saved handwritten Theory marks will be strictly preserved.
+                </div>
+              )}
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.83rem" }}>
                 <thead>
                   <tr style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-primary)" }}>
                     <th style={{ padding: "0.5rem", textAlign: "left" }}>Student</th>
-                    <th style={{ padding: "0.5rem", textAlign: "center" }}>CBT %</th>
-                    <th style={{ padding: "0.5rem", textAlign: "center" }}>
-                      Scaled {syncPreview.targetColumn.toUpperCase()} (/{syncPreview.maxWeight})
-                    </th>
+                    <th style={{ padding: "0.5rem", textAlign: "center" }}>CBT Score</th>
+                    {syncPreview.data.examMode === "HYBRID" && syncPreview.targetColumn === "exam" ? (
+                      <>
+                        <th style={{ padding: "0.5rem", textAlign: "center" }}>
+                          Saved Theory (/{syncPreview.data.examTheoryMaxMarks})
+                        </th>
+                        <th style={{ padding: "0.5rem", textAlign: "center" }}>Resulting Total (/60)</th>
+                        <th style={{ padding: "0.5rem", textAlign: "center" }}>Status</th>
+                      </>
+                    ) : (
+                      <>
+                        <th style={{ padding: "0.5rem", textAlign: "center" }}>Existing CA / Exam</th>
+                        <th style={{ padding: "0.5rem", textAlign: "center" }}>
+                          Scaled {syncPreview.targetColumn.toUpperCase()} (/{syncPreview.maxWeight})
+                        </th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {(syncPreview.data.items || []).map((item: any) => (
                     <tr key={item.studentId} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                       <td style={{ padding: "0.5rem" }}>
-                        <strong>{item.studentName}</strong> ({item.admissionNo})
+                        <strong>{item.studentName}</strong>{" "}
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>({item.admissionNo})</span>
                       </td>
                       <td style={{ padding: "0.5rem", textAlign: "center" }}>
-                        {item.hasAttempt ? `${item.scorePercent}%` : "No attempt"}
+                        {item.hasAttempt
+                          ? `${item.scaledScore}/${syncPreview.maxWeight} (${item.scorePercent}%)`
+                          : item.attemptStatus === "TERMINATED"
+                          ? "Terminated"
+                          : item.attemptStatus === "ACTIVE"
+                          ? "In progress"
+                          : "No attempt"}
                       </td>
-                      <td style={{ padding: "0.5rem", textAlign: "center", fontWeight: 800, color: item.hasAttempt ? "var(--status-success-text)" : "var(--text-muted)" }}>
-                        {item.scaledScore !== null ? item.scaledScore : "Unchanged"}
-                      </td>
+                      {syncPreview.data.examMode === "HYBRID" && syncPreview.targetColumn === "exam" ? (
+                        <>
+                          <td style={{ padding: "0.5rem", textAlign: "center", color: "var(--text-secondary)" }}>
+                            {item.currentTheoryScore !== null && item.currentTheoryScore !== undefined
+                              ? `${item.currentTheoryScore}/${syncPreview.data.examTheoryMaxMarks}`
+                              : "Not entered"}
+                          </td>
+                          <td style={{ padding: "0.5rem", textAlign: "center", fontWeight: 800, color: item.projectedExamTotal !== null ? "var(--status-success-text)" : "var(--text-muted)" }}>
+                            {item.projectedExamTotal !== null ? `${item.projectedExamTotal}/60` : "Pending"}
+                          </td>
+                          <td style={{ padding: "0.5rem", textAlign: "center", fontWeight: 700, fontSize: "0.76rem" }}>
+                            {item.previewStatus || "Unchanged"}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ padding: "0.5rem", textAlign: "center", color: "var(--text-muted)" }}>
+                            {item.currentCaScore ?? "—"} / {item.currentExamScore ?? "—"}
+                          </td>
+                          <td style={{ padding: "0.5rem", textAlign: "center", fontWeight: 800, color: item.hasAttempt ? "var(--status-success-text)" : "var(--text-muted)" }}>
+                            {item.scaledScore !== null ? item.scaledScore : "Unchanged"}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap" }}>
               <button type="button" onClick={() => setSyncPreview(null)} className="btn btn-outline">
                 Cancel
               </button>
-              <button
-                type="button"
-                disabled={!onApplyScoresToResultGrid || syncPreview.data.matchedCount === 0}
-                onClick={() => {
-                  if (onApplyScoresToResultGrid) {
+              {onApplyScoresToResultGrid && (
+                <button
+                  type="button"
+                  disabled={syncPreview.data.matchedCount === 0}
+                  onClick={() => {
                     onApplyScoresToResultGrid({
                       classId: syncPreview.data.classId,
                       subjectId: syncPreview.data.subjectId,
@@ -1960,11 +2086,31 @@ export default function ExamBankAndSchedulerStudio({
                       examTitle: syncPreview.exam.title,
                     });
                     setSyncPreview(null);
-                  }
-                }}
+                  }}
+                  className="btn btn-outline"
+                >
+                  Populate Subject Draft Grid
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={
+                  committingSync ||
+                  syncPreview.data.matchedCount === 0 ||
+                  syncPreview.data.isSheetLocked ||
+                  !syncPreview.data.canCommitDirectly
+                }
+                onClick={handleCommitSyncToGradebook}
                 className="btn btn-primary"
+                title={
+                  !syncPreview.data.canCommitDirectly
+                    ? "Only the assigned Subject Teacher, Principal, or Super Admin can commit into the Gradebook"
+                    : undefined
+                }
               >
-                Apply {syncPreview.data.matchedCount} Score(s) to Subject Score Grid
+                {committingSync
+                  ? "Committing..."
+                  : `Commit ${syncPreview.data.matchedCount} Score(s) to Gradebook`}
               </button>
             </div>
           </div>

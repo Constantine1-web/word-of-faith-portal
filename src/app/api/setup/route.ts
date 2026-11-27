@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { requireRole } from "@/lib/authz";
-import { timingSafeCompare, rateLimit } from "@/lib/security";
+import { timingSafeCompare, rateLimit, extractClientIp } from "@/lib/security";
 
 export async function GET(req: Request) {
   try {
-    const forwardedFor = req.headers.get("x-forwarded-for");
-    const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : "local-setup";
+    const ip = extractClientIp(req.headers, "local-setup");
     const rl = await rateLimit(`api_setup:${ip}`, 5, 900);
     if (!rl.success) {
       return NextResponse.json({ error: "Too many setup requests." }, { status: 429 });

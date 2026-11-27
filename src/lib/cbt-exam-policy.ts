@@ -111,6 +111,288 @@ export function getExamPostSubmitVisibility(
   };
 }
 
+export function normalizeTargetColumnWeight(
+  targetColumn: "ca" | "exam",
+  maxWeight?: number | null
+): number {
+  const cap = targetColumn === "ca" ? 40 : 60;
+  const fallback = targetColumn === "ca" ? 20 : 60;
+  const parsed = Number(maxWeight);
+  const raw = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+  return Math.min(cap, Math.max(5, raw));
+}
+
+export type SyncTarget = "EXAM_TOTAL" | "EXAM_CBT_COMPONENT" | "CA";
+export type CommitMode = "FULL_EXAM" | "HYBRID_CBT_COMPONENT";
+
+export interface GradebookSyncCandidate {
+  studentId: number;
+  attemptId?: string | null;
+  scoreTenths: number | null;
+  existingCaScore: number | null;
+  existingExamScore: number | null;
+  existingExamCbtTenths?: number | null;
+  existingExamTheoryTenths?: number | null;
+  existingLastSyncAttemptId?: string | null;
+  existingStatus?: string | null;
+}
+
+export interface GradebookSyncPlannedRow {
+  studentId: number;
+  attemptId?: string | null;
+  willUpdate: boolean;
+  skipReason?:
+    | "NO_ATTEMPT"
+    | "PRESERVED_EXISTING"
+    | "EXEMPT_OR_ABSENT"
+    | "UNCHANGED"
+    | "INVALID_OVER_MAX";
+  nextCaScore: number | null;
+  nextExamScore: number | null;
+  nextExamCbtTenths?: number | null;
+  preservedTheoryTenths?: number | null;
+  resultingHybridTotalTenths?: number | null;
+  hybridResultStatus?: "PENDING" | "PARTIALLY_MARKED" | "COMPLETED";
+  scaledScore: number | null;
+}
+
+export type GradebookOverwriteMode = "OVERWRITE_MATCHED" | "FILL_BLANKS_ONLY";
+
+/**
+ * Pure deterministic planner for syncing official scheduled CBT exam scores
+ * into the Result gradebook (`CAScore` up to 40, `ExamScore` up to 60, or
+ * Hybrid `ExamCbtTenths` while strictly preserving handwritten `ExamTheoryTenths`).
+ */
+export function planStrictExamGradebookSync(params: {
+  candidates: GradebookSyncCandidate[];
+  targetColumn: "ca" | "exam";
+  syncTarget?: SyncTarget;
+  maxWeight: number;
+  examCbtMaxTenths?: number;
+  examTheoryMaxTenths?: number;
+  overwriteMode?: GradebookOverwriteMode;
+}): {
+  targetColumn: "ca" | "exam";
+  syncTarget: SyncTarget;
+  maxWeight: number;
+  overwriteMode: GradebookOverwriteMode;
+  updatedCount: number;
+  skippedCount: number;
+  unchangedCount: number;
+  preservedCount: number;
+  partiallyMarkedCount: number;
+  blockedCount: number;
+  absentOrExemptCount: number;
+  rows: GradebookSyncPlannedRow[];
+} {
+  const syncTarget: SyncTarget =
+    params.syncTarget ?? (params.targetColumn === "ca" ? "CA" : "EXAM_TOTAL");
+  const targetColumn: "ca" | "exam" = syncTarget === "CA" ? "ca" : "exam";
+  const cbtMaxTenths =
+    syncTarget === "EXAM_CBT_COMPONENT"
+      ? params.examCbtMaxTenths ?? Math.round(params.maxWeight * 10)
+      : undefined;
+  const theoryMaxTenths =
+    syncTarget === "EXAM_CBT_COMPONENT"
+      ? params.examTheoryMaxTenths ?? Math.max(0, 600 - (cbtMaxTenths ?? 400))
+      : undefined;
+
+  const maxWeight =
+    syncTarget === "EXAM_CBT_COMPONENT" && cbtMaxTenths !== undefined
+      ? cbtMaxTenths / 10
+      : normalizeTargetColumnWeight(targetColumn, params.maxWeight);
+
+  const overwriteMode: GradebookOverwriteMode =
+    params.overwriteMode === "FILL_BLANKS_ONLY" ? "FILL_BLANKS_ONLY" : "OVERWRITE_MATCHED";
+
+  let updatedCount = 0;
+  let skippedCount = 0;
+  let unchangedCount = 0;
+  let preservedCount = 0;
+  let partiallyMarkedCount = 0;
+  let blockedCount = 0;
+  let absentOrExemptCount = 0;
+
+  const rows: GradebookSyncPlannedRow[] = params.candidates.map((c) => {
+    const savedTheoryTenths =
+      c.existingExamTheoryTenths === undefined ? null : c.existingExamTheoryTenths;
+
+    if (c.existingStatus === "ABSENT" || c.existingStatus === "EXEMPT") {
+      absentOrExemptCount++;
+      skippedCount++;
+      return {
+        studentId: c.studentId,
+        attemptId: c.attemptId ?? null,
+        willUpdate: false,
+        skipReason: "EXEMPT_OR_ABSENT",
+        nextCaScore: c.existingCaScore,
+        nextExamScore: c.existingExamScore,
+        nextExamCbtTenths: c.existingExamCbtTenths ?? null,
+        preservedTheoryTenths: savedTheoryTenths,
+        scaledScore: null,
+      };
+    }
+
+    if (typeof c.scoreTenths !== "number" || !Number.isFinite(c.scoreTenths)) {
+      skippedCount++;
+      return {
+        studentId: c.studentId,
+        attemptId: c.attemptId ?? null,
+        willUpdate: false,
+        skipReason: "NO_ATTEMPT",
+        nextCaScore: c.existingCaScore,
+        nextExamScore: c.existingExamScore,
+        nextExamCbtTenths: c.existingExamCbtTenths ?? null,
+        preservedTheoryTenths: savedTheoryTenths,
+        scaledScore: null,
+      };
+    }
+
+    const scaled = scaleCbtTenthsToComponent(c.scoreTenths, maxWeight);
+    const scaledTenths = Math.round(scaled * 10);
+
+    // Hybrid Component-Only Sync: update ONLY CBT Objective, strictly preserving Theory!
+    if (syncTarget === "EXAM_CBT_COMPONENT") {
+      const capTenths = cbtMaxTenths ?? Math.round(maxWeight * 10);
+      if (scaledTenths > capTenths || (savedTheoryTenths !== null && scaledTenths + savedTheoryTenths > 600)) {
+        blockedCount++;
+        skippedCount++;
+        return {
+          studentId: c.studentId,
+          attemptId: c.attemptId ?? null,
+          willUpdate: false,
+          skipReason: "INVALID_OVER_MAX",
+          nextCaScore: c.existingCaScore,
+          nextExamScore: c.existingExamScore,
+          nextExamCbtTenths: scaledTenths,
+          preservedTheoryTenths: savedTheoryTenths,
+          scaledScore: scaled,
+        };
+      }
+
+      if (
+        overwriteMode === "FILL_BLANKS_ONLY" &&
+        c.existingExamCbtTenths !== null &&
+        c.existingExamCbtTenths !== undefined
+      ) {
+        preservedCount++;
+        skippedCount++;
+        return {
+          studentId: c.studentId,
+          attemptId: c.attemptId ?? null,
+          willUpdate: false,
+          skipReason: "PRESERVED_EXISTING",
+          nextCaScore: c.existingCaScore,
+          nextExamScore: c.existingExamScore,
+          nextExamCbtTenths: c.existingExamCbtTenths,
+          preservedTheoryTenths: savedTheoryTenths,
+          scaledScore: scaled,
+        };
+      }
+
+      // Idempotency guard: skip if exact CBT tenths and attemptId are already recorded
+      if (
+        c.existingExamCbtTenths === scaledTenths &&
+        (!c.attemptId || c.existingLastSyncAttemptId === c.attemptId)
+      ) {
+        unchangedCount++;
+        skippedCount++;
+        const existingCombined =
+          savedTheoryTenths !== null ? scaledTenths + savedTheoryTenths : null;
+        return {
+          studentId: c.studentId,
+          attemptId: c.attemptId ?? null,
+          willUpdate: false,
+          skipReason: "UNCHANGED",
+          nextCaScore: c.existingCaScore,
+          nextExamScore: existingCombined !== null ? existingCombined / 10 : null,
+          nextExamCbtTenths: scaledTenths,
+          preservedTheoryTenths: savedTheoryTenths,
+          resultingHybridTotalTenths: existingCombined,
+          hybridResultStatus: existingCombined !== null ? "COMPLETED" : "PARTIALLY_MARKED",
+          scaledScore: scaled,
+        };
+      }
+
+      const resultingHybridTotalTenths =
+        savedTheoryTenths !== null ? scaledTenths + savedTheoryTenths : null;
+      const hybridResultStatus =
+        resultingHybridTotalTenths !== null ? "COMPLETED" : "PARTIALLY_MARKED";
+      if (hybridResultStatus === "PARTIALLY_MARKED") {
+        partiallyMarkedCount++;
+      }
+      updatedCount++;
+
+      // Sanity check unused theoryMaxTenths reference
+      void theoryMaxTenths;
+
+      return {
+        studentId: c.studentId,
+        attemptId: c.attemptId ?? null,
+        willUpdate: true,
+        nextCaScore: c.existingCaScore,
+        nextExamScore:
+          resultingHybridTotalTenths !== null ? resultingHybridTotalTenths / 10 : null,
+        nextExamCbtTenths: scaledTenths,
+        preservedTheoryTenths: savedTheoryTenths,
+        resultingHybridTotalTenths,
+        hybridResultStatus,
+        scaledScore: scaled,
+      };
+    }
+
+    // Legacy Combined Exam Total or CA sync
+    const existingTargetVal =
+      targetColumn === "ca" ? c.existingCaScore : c.existingExamScore;
+
+    if (
+      overwriteMode === "FILL_BLANKS_ONLY" &&
+      typeof existingTargetVal === "number" &&
+      existingTargetVal > 0
+    ) {
+      preservedCount++;
+      skippedCount++;
+      return {
+        studentId: c.studentId,
+        attemptId: c.attemptId ?? null,
+        willUpdate: false,
+        skipReason: "PRESERVED_EXISTING",
+        nextCaScore: c.existingCaScore,
+        nextExamScore: c.existingExamScore,
+        scaledScore: scaled,
+      };
+    }
+
+    updatedCount++;
+    const nextCaScore = targetColumn === "ca" ? scaled : c.existingCaScore ?? 0;
+    const nextExamScore = targetColumn === "exam" ? scaled : c.existingExamScore ?? 0;
+
+    return {
+      studentId: c.studentId,
+      attemptId: c.attemptId ?? null,
+      willUpdate: true,
+      nextCaScore,
+      nextExamScore,
+      scaledScore: scaled,
+    };
+  });
+
+  return {
+    targetColumn,
+    syncTarget,
+    maxWeight,
+    overwriteMode,
+    updatedCount,
+    skippedCount,
+    unchangedCount,
+    preservedCount,
+    partiallyMarkedCount,
+    blockedCount,
+    absentOrExemptCount,
+    rows,
+  };
+}
+
 /**
  * Scales a student's server-graded CBT score (stored in integer tenths, e.g., 850 = 85.0%)
  * onto either a CA column (max 40) or Examination column (max 60), rounded to 1 decimal place.
@@ -147,3 +429,10 @@ export function seededShuffle<T>(items: T[], seedStr: string): T[] {
   }
   return arr;
 }
+
+export {
+  shouldAutoCloseScheduledExam,
+  summarizeUpcomingExamsForDashboard,
+  type StudentDashboardExamInput,
+  type StudentDashboardExamAlert,
+} from "./cbt-exam-schedule";

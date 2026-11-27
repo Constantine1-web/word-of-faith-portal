@@ -144,6 +144,18 @@ enum ScoreSource {
   ADMIN_CORRECTION
 }
 
+enum ExamMode {
+  COMBINED
+  HYBRID
+}
+
+enum ExamResultStatus {
+  PENDING
+  PARTIALLY_MARKED
+  COMPLETED
+  APPROVED
+}
+
 enum ImportStatus {
   UPLOADED
   VALIDATED
@@ -253,6 +265,7 @@ model Class {
   Broadsheets            ClassBroadsheet[]
   CbtScheduledExams      CbtScheduledExam[]
   CbtQuestionSubmissions CbtQuestionSubmission[]
+  SubjectExamConfigs     SubjectExamConfig[]
 }
 
 model Student {
@@ -361,6 +374,7 @@ model Subject {
   SubjectSubmissions     Subject_Submission[]
   CbtScheduledExams      CbtScheduledExam[]
   CbtQuestionSubmissions CbtQuestionSubmission[]
+  SubjectExamConfigs     SubjectExamConfig[]
 }
 
 model Teacher_Subject_Map {
@@ -407,6 +421,26 @@ model Academic_Term {
   ReportCards            ReportCard[]
   CbtScheduledExams      CbtScheduledExam[]
   CbtQuestionSubmissions CbtQuestionSubmission[]
+  SubjectExamConfigs     SubjectExamConfig[]
+}
+
+model SubjectExamConfig {
+  id                  String        @id @default(cuid())
+  ClassID             Int
+  Class               Class         @relation(fields: [ClassID], references: [ClassID], onDelete: Cascade)
+  SubjectID           Int
+  Subject             Subject       @relation(fields: [SubjectID], references: [SubjectID], onDelete: Cascade)
+  TermID              Int
+  Term                Academic_Term @relation(fields: [TermID], references: [TermID], onDelete: Cascade)
+  ExamMode            ExamMode      @default(COMBINED)
+  ExamCbtMaxTenths    Int           @default(400) // e.g. 400 = 40.0 marks
+  ExamTheoryMaxTenths Int           @default(200) // e.g. 200 = 20.0 marks (must sum to 600 in HYBRID)
+  ConfiguredById      Int?
+  CreatedAt           DateTime      @default(now())
+  UpdatedAt           DateTime      @default(now()) @updatedAt
+
+  @@unique([ClassID, SubjectID, TermID])
+  @@index([TermID, ExamMode])
 }
 
 model Result {
@@ -421,10 +455,18 @@ model Result {
   CAScore          Float         @default(0)
   ExamScore        Float         @default(0)
   TotalScore       Float         @default(0)
-  CAScoreTenths    Int? // v3 Integer tenths: 0 to 400 (0.0 to 40.0)
-  ExamScoreTenths  Int? // v3 Integer tenths: 0 to 600 (0.0 to 60.0)
-  TotalScoreTenths Int? // v3 Integer tenths: 0 to 1000 (0.0 to 100.0)
-  Grade            String
+  CAScoreTenths        Int? // v3 Integer tenths: 0 to 400 (0.0 to 40.0)
+  ExamScoreTenths      Int? // v3 Integer tenths: 0 to 600 (0.0 to 60.0)
+  TotalScoreTenths     Int? // v3 Integer tenths: 0 to 1000 (0.0 to 100.0)
+  ExamCbtTenths        Int? // Hybrid Paper 1 CBT Objective in tenths
+  ExamTheoryTenths     Int? // Hybrid Paper 2 Handwritten Theory in tenths
+  ExamCbtMaxTenths     Int? // Snapshot of CBT max allocation in tenths
+  ExamTheoryMaxTenths  Int? // Snapshot of Theory max allocation in tenths
+  ExamResultStatus     ExamResultStatus @default(COMPLETED) // Legacy rows remain COMPLETED
+  LastCbtSyncExamId    String? // Source CbtScheduledExam.id
+  LastCbtSyncAttemptId String? // Source CbtAttempt.id
+  LastCbtSyncAt        DateTime?
+  Grade                String
   Remark           String?
   Status           ScoreStatus   @default(ENTERED)
   Source           ScoreSource   @default(GRID)

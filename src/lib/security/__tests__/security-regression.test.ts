@@ -18,6 +18,7 @@ import {
   clearOtpAttempts,
   validateInput,
   rateLimit,
+  extractClientIp,
   z,
 } from "../index";
 import { createUpstashRestClient, resolveUpstashRestConfig } from "../../redis";
@@ -66,9 +67,24 @@ import {
   evaluateExamWindow,
   getExamPostSubmitVisibility,
   scaleCbtTenthsToComponent,
+  normalizeTargetColumnWeight,
+  planStrictExamGradebookSync,
+  shouldAutoCloseScheduledExam,
+  summarizeUpcomingExamsForDashboard,
   getPracticePoolBankScope,
   seededShuffle,
 } from "../../cbt-exam-policy";
+import { htmlToPlainText } from "../../email";
+import {
+  evaluateProductionEnvReadiness,
+  extractDomainFromEmailAddress,
+} from "../../production-readiness";
+import {
+  computeHybridExamOutcome,
+  formatExamScoreForReport,
+  toScoreTenths,
+  validateHybridAllocationTenths,
+} from "../../hybrid-scoring";
 import {
   validateExamDocumentBinary,
   parseNumberedMcqText,
@@ -1392,7 +1408,530 @@ D) 14`,
     passed++;
   }
 
-  console.log(`✅ ALL ${passed}/26 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
+  // =========================================================================
+  // SUITE 27: Official CBT Exam -> Terminal Gradebook Sync Planner
+  // =========================================================================
+  {
+    // Cap enforcement per column (CA max 40, Exam max 60)
+    assert.equal(normalizeTargetColumnWeight("ca", 60), 40);
+    assert.equal(normalizeTargetColumnWeight("exam", 80), 60);
+    assert.equal(normalizeTargetColumnWeight("exam", 40), 40);
+
+    // OVERWRITE_MATCHED preserves sibling CA column & skips ABSENT/EXEMPT and missing attempts
+    const overwritePlan = planStrictExamGradebookSync({
+      targetColumn: "exam",
+      maxWeight: 60,
+      overwriteMode: "OVERWRITE_MATCHED",
+      candidates: [
+        { studentId: 1, scoreTenths: 850, existingCaScore: 32, existingExamScore: 10, existingStatus: "ENTERED" },
+        { studentId: 2, scoreTenths: null, existingCaScore: 28, existingExamScore: null, existingStatus: "PENDING" },
+        { studentId: 3, scoreTenths: 900, existingCaScore: 0, existingExamScore: 0, existingStatus: "ABSENT" },
+        { studentId: 4, scoreTenths: 750, existingCaScore: 25, existingExamScore: null, existingStatus: "ENTERED" },
+      ],
+    });
+    assert.equal(overwritePlan.updatedCount, 2);
+    assert.equal(overwritePlan.absentOrExemptCount, 1);
+    assert.deepEqual(overwritePlan.rows[0], {
+      studentId: 1,
+      attemptId: null,
+      willUpdate: true,
+      nextCaScore: 32, // Preserved sibling CA!
+      nextExamScore: 51, // 85% of 60 = 51
+      scaledScore: 51,
+    });
+    assert.equal(overwritePlan.rows[1].willUpdate, false);
+    assert.equal(overwritePlan.rows[1].skipReason, "NO_ATTEMPT");
+    assert.equal(overwritePlan.rows[2].willUpdate, false);
+    assert.equal(overwritePlan.rows[2].skipReason, "EXEMPT_OR_ABSENT");
+    assert.equal(overwritePlan.rows[3].nextExamScore, 45);
+
+    // FILL_BLANKS_ONLY preserves non-zero existing ExamScore while filling 0/null rows
+    const fillBlanksPlan = planStrictExamGradebookSync({
+      targetColumn: "exam",
+      maxWeight: 40,
+      overwriteMode: "FILL_BLANKS_ONLY",
+      candidates: [
+        { studentId: 1, scoreTenths: 800, existingCaScore: 30, existingExamScore: 35, existingStatus: "ENTERED" },
+        { studentId: 2, scoreTenths: 800, existingCaScore: 29, existingExamScore: null, existingStatus: "ENTERED" },
+        { studentId: 3, scoreTenths: 500, existingCaScore: 24, existingExamScore: 0, existingStatus: "ENTERED" },
+      ],
+    });
+    assert.equal(fillBlanksPlan.preservedCount, 1);
+    assert.equal(fillBlanksPlan.updatedCount, 2);
+    assert.equal(fillBlanksPlan.rows[0].willUpdate, false);
+    assert.equal(fillBlanksPlan.rows[0].skipReason, "PRESERVED_EXISTING");
+    assert.equal(fillBlanksPlan.rows[1].nextExamScore, 32);
+    assert.equal(fillBlanksPlan.rows[2].nextExamScore, 20);
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 28: Client IP Resolution Across Cloudflare Proxy & Vercel Edge
+  // =========================================================================
+  {
+    const cfHeaders = new Headers({
+      "cf-connecting-ip": "197.210.55.12",
+      "x-forwarded-for": "10.0.0.5, 172.16.0.1",
+    });
+    assert.equal(extractClientIp(cfHeaders), "197.210.55.12");
+
+    const vercelHeaders = new Headers({
+      "x-vercel-forwarded-for": "102.89.32.10, 198.51.100.1",
+      "cf-connecting-ip": "197.210.55.12",
+    });
+    assert.equal(extractClientIp(vercelHeaders), "102.89.32.10");
+
+    const nextAuthBag = {
+      "cf-connecting-ip": ["41.190.12.99"],
+      "x-forwarded-for": "10.0.0.1",
+    };
+    assert.equal(extractClientIp(nextAuthBag), "41.190.12.99");
+    assert.equal(extractClientIp(undefined, "127.0.0.1"), "127.0.0.1");
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 29: Scheduled Exam Auto-Close Policy & Student Upcoming Exam Alerts
+  // =========================================================================
+  {
+    const now = new Date("2026-11-27T10:00:00.000Z");
+    assert.equal(
+      shouldAutoCloseScheduledExam(
+        { status: "LIVE", endsAt: new Date("2026-11-27T09:59:30.000Z") },
+        now,
+        15_000
+      ),
+      true
+    );
+    assert.equal(
+      shouldAutoCloseScheduledExam(
+        { status: "LIVE", endsAt: new Date("2026-11-27T09:59:55.000Z") },
+        now,
+        15_000
+      ),
+      false,
+      "Exams inside 15s grace window must not close prematurely"
+    );
+    assert.equal(
+      shouldAutoCloseScheduledExam(
+        { status: "CLOSED", endsAt: new Date("2026-11-27T08:00:00.000Z") },
+        now,
+        15_000
+      ),
+      false
+    );
+
+    const upcomingSummary = summarizeUpcomingExamsForDashboard(
+      [
+        {
+          id: "ex_upcoming",
+          title: "Biology Paper 1",
+          subjectCode: "biology",
+          subjectName: "Biology",
+          examType: "TERMINAL_EXAM",
+          status: "SCHEDULED",
+          questionCount: 40,
+          durationMinutes: 45,
+          startsAt: "2026-11-27T10:30:00.000Z",
+          endsAt: "2026-11-27T12:00:00.000Z",
+          feeEligible: true,
+          myAttempt: null,
+        },
+        {
+          id: "ex_live",
+          title: "Mathematics CBT",
+          subjectCode: "mathematics",
+          subjectName: "Mathematics",
+          examType: "TERMINAL_EXAM",
+          status: "LIVE",
+          questionCount: 40,
+          durationMinutes: 60,
+          startsAt: "2026-11-27T09:45:00.000Z",
+          endsAt: "2026-11-27T11:30:00.000Z",
+          feeEligible: true,
+          myAttempt: null,
+        },
+        {
+          id: "ex_closed",
+          title: "English Old",
+          subjectCode: "english",
+          subjectName: "English Language",
+          examType: "CA_TEST",
+          status: "CLOSED",
+          questionCount: 20,
+          durationMinutes: 20,
+          startsAt: "2026-11-26T09:00:00.000Z",
+          endsAt: "2026-11-26T10:00:00.000Z",
+          feeEligible: true,
+          myAttempt: null,
+        },
+      ],
+      now
+    );
+
+    assert.equal(upcomingSummary.length, 2);
+    assert.equal(upcomingSummary[0].id, "ex_live");
+    assert.equal(upcomingSummary[0].status, "LIVE_NOW");
+    assert.equal(upcomingSummary[1].id, "ex_upcoming");
+    assert.equal(upcomingSummary[1].status, "UPCOMING");
+    assert.equal(upcomingSummary[1].startsInMinutes, 30);
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 30: Email Plaintext Multipart & Production Deliverability Readiness
+  // =========================================================================
+  {
+    const plain = htmlToPlainText(
+      "<div><h2>Word of Faith</h2><p>Fee cleared &amp; verified.<br/>Amount: &#8358;10,000</p></div>"
+    );
+    assert.equal(plain.includes("<"), false);
+    assert.equal(plain.includes("Word of Faith"), true);
+    assert.equal(plain.includes("Fee cleared & verified."), true);
+
+    assert.equal(
+      extractDomainFromEmailAddress("Word of Faith <noreply@wordoffaith.edu.ng>"),
+      "wordoffaith.edu.ng"
+    );
+
+    const checks = evaluateProductionEnvReadiness({
+      NEXTAUTH_URL: "https://portal.wordoffaith.edu.ng",
+      EXAM_VAULT_SECRET: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+      CRON_SECRET: "cronsecret123456",
+      KV_REST_API_URL: "https://wofs.upstash.io",
+      KV_REST_API_TOKEN: "tok",
+      RESEND_API_KEY: "re_123",
+      RESEND_FROM: "Portal <noreply@wordoffaith.edu.ng>",
+      PAYSTACK_SECRET_KEY: "sk_live_secret_12345",
+      NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: "pk_test_mismatch",
+    });
+
+    assert.equal(checks.find((c) => c.id === "upstash_rest")?.severity, "PASS");
+    assert.equal(checks.find((c) => c.id === "email_transport")?.severity, "PASS");
+    assert.equal(checks.find((c) => c.id === "paystack_secret")?.severity, "PASS");
+    assert.equal(checks.find((c) => c.id === "paystack_mode_mismatch")?.severity, "FAIL");
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 31: Hybrid Scoring Engine — Tenths Math & Backward Compatibility
+  // =========================================================================
+  {
+    // Allocation validation (must sum to 600 tenths = 60 marks)
+    assert.equal(validateHybridAllocationTenths(400, 200).valid, true);
+    assert.equal(validateHybridAllocationTenths(300, 300).valid, true);
+    assert.equal(validateHybridAllocationTenths(400, 300).valid, false);
+    assert.equal(validateHybridAllocationTenths(0, 600).valid, false);
+
+    // 34/40 + 17/20 = 51/60
+    const r1 = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: 340,
+      theoryTenths: 170,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(r1.valid, true);
+    assert.equal(r1.examScoreTenths, 510);
+    assert.equal(r1.examResultStatus, "COMPLETED");
+
+    // 30/30 + 30/30 = 60/60
+    const r2 = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: 300,
+      theoryTenths: 300,
+      cbtMaxTenths: 300,
+      theoryMaxTenths: 300,
+    });
+    assert.equal(r2.valid, true);
+    assert.equal(r2.examScoreTenths, 600);
+
+    // 34.5/40 + 17.5/20 = 52/60
+    const r3 = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: toScoreTenths(34.5),
+      theoryTenths: toScoreTenths(17.5),
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(r3.valid, true);
+    assert.equal(r3.examScoreTenths, 520);
+
+    // Legacy COMBINED mode unchanged
+    const legacy = computeHybridExamOutcome({
+      examMode: "COMBINED",
+      combinedExamTenths: 480,
+    });
+    assert.equal(legacy.valid, true);
+    assert.equal(legacy.examScoreTenths, 480);
+    assert.equal(legacy.examCbtTenths, null);
+    assert.equal(legacy.examTheoryTenths, null);
+    assert.equal(legacy.examResultStatus, "COMPLETED");
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 32: Missing (NULL) vs Genuine Zero (0) & Completion States
+  // =========================================================================
+  {
+    assert.equal(toScoreTenths(""), null, "Empty string must parse as null (missing)");
+    assert.equal(toScoreTenths(null), null);
+    assert.equal(toScoreTenths(0), 0, "Genuine 0 must remain 0 tenths");
+    assert.equal(toScoreTenths("0"), 0);
+
+    // CBT entered, Theory missing -> PARTIALLY_MARKED, examScoreTenths = null
+    const partialCbt = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: 340,
+      theoryTenths: null,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(partialCbt.examResultStatus, "PARTIALLY_MARKED");
+    assert.equal(partialCbt.examScoreTenths, null);
+    assert.equal(partialCbt.provisionalExamTenths, 340);
+
+    // Theory entered, CBT missing -> PARTIALLY_MARKED
+    const partialTheory = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: null,
+      theoryTenths: 150,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(partialTheory.examResultStatus, "PARTIALLY_MARKED");
+    assert.equal(partialTheory.examScoreTenths, null);
+
+    // Both missing -> PENDING
+    const pendingBoth = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: null,
+      theoryTenths: null,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(pendingBoth.examResultStatus, "PENDING");
+    assert.equal(pendingBoth.examScoreTenths, null);
+
+    // Genuine 0 Theory + 34 CBT -> COMPLETED (34/60)
+    const zeroTheory = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: 340,
+      theoryTenths: 0,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(zeroTheory.examResultStatus, "COMPLETED");
+    assert.equal(zeroTheory.examScoreTenths, 340);
+
+    // Genuine 0 CBT + 0 Theory -> COMPLETED (0/60)
+    const zeroBoth = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: 0,
+      theoryTenths: 0,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(zeroBoth.examResultStatus, "COMPLETED");
+    assert.equal(zeroBoth.examScoreTenths, 0);
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 33: Mandatory Retake Safety Test & Idempotent Component Sync
+  // =========================================================================
+  {
+    // Initial state: CA = 30, CBT Objective = 32/40 (320), Theory = 18/20 (180), Exam Total = 50/60 (500)
+    const initialTotalTenths = 300 + 500; // 80.0%
+    assert.equal(gradeFor(initialTotalTenths).grade, "A1");
+
+    // Student takes CBT retake: new official CBT = 87.5% -> 35/40 (350 tenths)
+    const retakePlan = planStrictExamGradebookSync({
+      targetColumn: "exam",
+      syncTarget: "EXAM_CBT_COMPONENT",
+      maxWeight: 40,
+      examCbtMaxTenths: 400,
+      examTheoryMaxTenths: 200,
+      candidates: [
+        {
+          studentId: 77,
+          attemptId: "att_retake_02",
+          scoreTenths: 875, // 87.5% of 40 = 35.0 (350 tenths)
+          existingCaScore: 30,
+          existingExamScore: 50,
+          existingExamCbtTenths: 320,
+          existingExamTheoryTenths: 180,
+          existingLastSyncAttemptId: "att_initial_01",
+          existingStatus: "ENTERED",
+        },
+      ],
+    });
+
+    assert.equal(retakePlan.updatedCount, 1);
+    const row = retakePlan.rows[0];
+    assert.equal(row.willUpdate, true);
+    assert.equal(row.nextExamCbtTenths, 350, "CBT must update to 35/40 (350 tenths)");
+    assert.equal(row.preservedTheoryTenths, 180, "Saved Theory (18/20) MUST remain untouched");
+    assert.equal(row.resultingHybridTotalTenths, 530, "Exam total must recalculate to 53/60");
+    assert.equal(row.nextExamScore, 53);
+    assert.equal(row.nextCaScore, 30, "CA score must remain untouched");
+
+    // Verify server recomputation & grade parity (30 + 53 = 83.0%)
+    const recomputed = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: row.nextExamCbtTenths,
+      theoryTenths: row.preservedTheoryTenths,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(recomputed.examScoreTenths, 530);
+    assert.equal(gradeFor(300 + (recomputed.examScoreTenths ?? 0)).grade, "A1");
+
+    // Repeated import of identical attempt must be idempotent (UNCHANGED)
+    const duplicateImport = planStrictExamGradebookSync({
+      targetColumn: "exam",
+      syncTarget: "EXAM_CBT_COMPONENT",
+      maxWeight: 40,
+      examCbtMaxTenths: 400,
+      examTheoryMaxTenths: 200,
+      candidates: [
+        {
+          studentId: 77,
+          attemptId: "att_retake_02",
+          scoreTenths: 875,
+          existingCaScore: 30,
+          existingExamScore: 53,
+          existingExamCbtTenths: 350,
+          existingExamTheoryTenths: 180,
+          existingLastSyncAttemptId: "att_retake_02",
+          existingStatus: "ENTERED",
+        },
+      ],
+    });
+    assert.equal(duplicateImport.updatedCount, 0);
+    assert.equal(duplicateImport.unchangedCount, 1);
+    assert.equal(duplicateImport.rows[0].skipReason, "UNCHANGED");
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 34: Invalid Over-Max Rejection & Report Card / Broadsheet Formatting
+  // =========================================================================
+  {
+    const overCbt = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: 420, // 42/40 invalid!
+      theoryTenths: 120,
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(overCbt.valid, false);
+
+    const overTheory = computeHybridExamOutcome({
+      examMode: "HYBRID",
+      cbtTenths: 340,
+      theoryTenths: 250, // 25/20 invalid!
+      cbtMaxTenths: 400,
+      theoryMaxTenths: 200,
+    });
+    assert.equal(overTheory.valid, false);
+
+    const fmtComplete = formatExamScoreForReport(
+      {
+        ExamScore: 51,
+        ExamScoreTenths: 510,
+        ExamCbtTenths: 340,
+        ExamTheoryTenths: 170,
+        ExamCbtMaxTenths: 400,
+        ExamTheoryMaxTenths: 200,
+        ExamResultStatus: "COMPLETED",
+      },
+      true
+    );
+    assert.equal(fmtComplete.primaryText, "51");
+    assert.equal(fmtComplete.breakdownText, "(CBT: 34 + Theory: 17)");
+    assert.equal(fmtComplete.isIncomplete, false);
+
+    const fmtPending = formatExamScoreForReport(
+      {
+        ExamScore: 0,
+        ExamScoreTenths: null,
+        ExamCbtTenths: 340,
+        ExamTheoryTenths: null,
+        ExamCbtMaxTenths: 400,
+        ExamTheoryMaxTenths: 200,
+        ExamResultStatus: "PARTIALLY_MARKED",
+      },
+      true
+    );
+    assert.equal(fmtPending.primaryText, "Pending");
+    assert.equal(fmtPending.isIncomplete, true);
+    passed++;
+  }
+
+  // =========================================================================
+  // SUITE 35: Simulated Concurrent Theory Save + CBT Retake Sync Isolation
+  // =========================================================================
+  {
+    // Simulate serialized row-locked DB state (mirrors PostgreSQL SELECT ... FOR UPDATE)
+    const dbRow = {
+      caTenths: 250,
+      cbtTenths: 320 as number | null,
+      theoryTenths: null as number | null,
+      examTenths: null as number | null,
+      status: "PARTIALLY_MARKED",
+    };
+
+    let lockChain = Promise.resolve();
+    const withRowLock = <T>(fn: () => T): Promise<T> => {
+      const next = lockChain.then(fn);
+      lockChain = next.then(
+        () => undefined,
+        () => undefined
+      );
+      return next;
+    };
+
+    const teacherTheorySave = withRowLock(() => {
+      // Teacher updates ONLY Paper 2 Theory = 18/20 (180), preserving DB CBT
+      const out = computeHybridExamOutcome({
+        examMode: "HYBRID",
+        cbtTenths: dbRow.cbtTenths,
+        theoryTenths: 180,
+        cbtMaxTenths: 400,
+        theoryMaxTenths: 200,
+      });
+      assert.equal(out.valid, true);
+      dbRow.theoryTenths = out.examTheoryTenths;
+      dbRow.examTenths = out.examScoreTenths;
+      dbRow.status = out.examResultStatus;
+    });
+
+    const examOfficerRetakeSync = withRowLock(() => {
+      // Exam Officer simultaneously syncs retake CBT = 35/40 (350), preserving DB Theory
+      const out = computeHybridExamOutcome({
+        examMode: "HYBRID",
+        cbtTenths: 350,
+        theoryTenths: dbRow.theoryTenths,
+        cbtMaxTenths: 400,
+        theoryMaxTenths: 200,
+      });
+      assert.equal(out.valid, true);
+      dbRow.cbtTenths = out.examCbtTenths;
+      dbRow.examTenths = out.examScoreTenths;
+      dbRow.status = out.examResultStatus;
+    });
+
+    await Promise.all([teacherTheorySave, examOfficerRetakeSync]);
+
+    assert.equal(dbRow.cbtTenths, 350, "Concurrent CBT retake must persist");
+    assert.equal(dbRow.theoryTenths, 180, "Concurrent Theory mark must persist");
+    assert.equal(dbRow.examTenths, 530, "Combined Exam total must be 53/60");
+    assert.equal(dbRow.status, "COMPLETED");
+    passed++;
+  }
+
+  console.log(`✅ ALL ${passed}/35 SECURITY & FUNCTIONAL REGRESSION TEST SUITES PASSED.`);
 }
 
 runSecurityRegressionSuite().catch((err) => {

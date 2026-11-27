@@ -1,13 +1,36 @@
 import nodemailer from "nodemailer";
 import { escapeHtml, sanitizeEmailHeader } from "./security";
 
+/**
+ * Generates a clean plaintext fallback from transactional HTML email bodies
+ * so multipart/alternative delivery passes strict Gmail/Outlook/Yahoo spam filters.
+ */
+export function htmlToPlainText(html: string): string {
+  return String(html || "")
+    .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(br|hr)\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 function resolveSmtpConfig() {
   const host = process.env.SMTP_HOST?.trim() || "smtp.gmail.com";
   const port = parseInt(process.env.SMTP_PORT || "465", 10);
   const user = process.env.SMTP_USER?.trim() || "";
   const pass = process.env.SMTP_PASSWORD?.trim() || process.env.SMTP_PASS?.trim() || "";
   const from = process.env.SMTP_FROM?.trim() || user || "noreply@wordoffaith.edu.ng";
-  return { host, port, user, pass, from };
+  const replyTo = process.env.SMTP_REPLY_TO?.trim() || from;
+  return { host, port, user, pass, from, replyTo };
 }
 
 function buildSmtpTransporter(host: string, port: number, user: string, pass: string) {
@@ -33,22 +56,39 @@ function buildSmtpTransporter(host: string, port: number, user: string, pass: st
  */
 async function sendViaResend(
   apiKey: string,
-  { to, subject, html }: { to: string; subject: string; html: string }
+  { to, subject, html, text }: { to: string; subject: string; html: string; text: string }
 ): Promise<{ success: boolean; messageId?: string }> {
-  const fromAddress = process.env.RESEND_FROM || "Word of Faith Schools <onboarding@resend.dev>";
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: fromAddress,
-      to: [sanitizeEmailHeader(to, 160)],
-      subject: sanitizeEmailHeader(subject, 200),
-      html,
-    }),
-  });
+  const smtpFrom = process.env.SMTP_FROM?.trim();
+  const fromAddress =
+    process.env.RESEND_FROM?.trim() ||
+    (smtpFrom ? `Word of Faith Schools <${smtpFrom}>` : "Word of Faith Schools <onboarding@resend.dev>");
+  const replyTo =
+    process.env.SMTP_REPLY_TO?.trim() || smtpFrom || process.env.SMTP_USER?.trim() || undefined;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromAddress,
+        to: [sanitizeEmailHeader(to, 160)],
+        subject: sanitizeEmailHeader(subject, 200),
+        html,
+        text,
+        ...(replyTo ? { reply_to: sanitizeEmailHeader(replyTo, 160) } : {}),
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const errorData = await res.text();
@@ -75,10 +115,16 @@ export async function sendEmail({
 }) {
   const safeTo = sanitizeEmailHeader(to, 160);
   const safeSubject = sanitizeEmailHeader(subject, 200);
+  const plainText = htmlToPlainText(html);
   const resendApiKey = process.env.RESEND_API_KEY?.trim();
   if (resendApiKey) {
     try {
-      const result = await sendViaResend(resendApiKey, { to: safeTo, subject: safeSubject, html });
+      const result = await sendViaResend(resendApiKey, {
+        to: safeTo,
+        subject: safeSubject,
+        html,
+        text: plainText,
+      });
       console.log("[Email] Dispatched via Resend API:", result.messageId);
       return result;
     } catch (err: any) {
@@ -86,7 +132,7 @@ export async function sendEmail({
     }
   }
 
-  const { host, port, user, pass, from } = resolveSmtpConfig();
+  const { host, port, user, pass, from, replyTo } = resolveSmtpConfig();
   if (!user || !pass) {
     console.warn("[Email] Skipped SMTP dispatch: SMTP_USER / SMTP_PASSWORD not configured in environment.");
     return { success: false, error: "SMTP credentials not configured" };
@@ -97,8 +143,10 @@ export async function sendEmail({
   try {
     const info = await primaryTransporter.sendMail({
       from: `Word of Faith Schools <${from}>`,
+      replyTo,
       to: safeTo,
       subject: safeSubject,
+      text: plainText,
       html,
     });
     console.log("[Email] Dispatched via SMTP (%d): %s", port, info.messageId);
@@ -109,8 +157,10 @@ export async function sendEmail({
       const secondaryTransporter = buildSmtpTransporter(host, fallbackPort, user, pass);
       const retryInfo = await secondaryTransporter.sendMail({
         from: `Word of Faith Schools <${from}>`,
+        replyTo,
         to: safeTo,
         subject: safeSubject,
+        text: plainText,
         html,
       });
       console.log("[Email] Dispatched via fallback SMTP (%d): %s", fallbackPort, retryInfo.messageId);

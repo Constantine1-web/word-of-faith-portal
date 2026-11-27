@@ -29,11 +29,30 @@ import {
 import { SAFE_USER_SELECT, requireStepUpIfTotpEnabled } from "@/lib/security";
 import { sendResultPublishedNotification } from "@/lib/email";
 import { mapSubjectNameToCbtCodes } from "@/lib/cbt-constants";
+import {
+  planStrictExamGradebookSync,
+  type CommitMode,
+  type GradebookOverwriteMode,
+  type SyncTarget,
+} from "@/lib/cbt-exam-policy";
+import {
+  computeHybridExamOutcome,
+  DEFAULT_HYBRID_CBT_MAX_TENTHS,
+  DEFAULT_HYBRID_THEORY_MAX_TENTHS,
+  toScoreTenths,
+  validateHybridAllocationTenths,
+  type ExamModeValue,
+} from "@/lib/hybrid-scoring";
 
 const ScoreRowSchema = z.object({
   studentId: z.number().int().positive(),
   caScore: z.number().min(0).max(40).nullable().optional(),
   examScore: z.number().min(0).max(60).nullable().optional(),
+  examCbtScore: z.number().min(0).max(60).nullable().optional(),
+  examTheoryScore: z.number().min(0).max(60).nullable().optional(),
+  syncExamId: z.string().nullable().optional(),
+  syncAttemptId: z.string().nullable().optional(),
+  cbtOverrideReason: z.string().max(300).optional(),
   status: z.enum(["PENDING", "ENTERED", "ABSENT", "EXEMPT"]).optional(),
   expectedVersion: z.number().int().positive().optional(),
 });
@@ -184,40 +203,60 @@ export async function getStudentsAndScoresForSubject(classId: number, subjectId:
     if (!targetTermId) return { success: false, error: "No active term" };
 
     // Layer 3 Tenant Boundary Check
-    await assertTeacherAssigned(Number(classId), Number(subjectId), Number(targetTermId));
+    const { roles, user } = await assertTeacherAssigned(
+      Number(classId),
+      Number(subjectId),
+      Number(targetTermId)
+    );
 
-    const students = await prisma.student.findMany({
-      where: { ClassID: Number(classId) },
-      include: {
-        User: { select: SAFE_USER_SELECT },
-        Results: {
-          where: {
+    const [students, submission, term, examConfigRow] = await Promise.all([
+      prisma.student.findMany({
+        where: { ClassID: Number(classId) },
+        include: {
+          User: { select: SAFE_USER_SELECT },
+          Results: {
+            where: {
+              SubjectID: Number(subjectId),
+              TermID: Number(targetTermId),
+            },
+          },
+        },
+        orderBy: { AdmissionNo: "asc" },
+      }),
+      prisma.subject_Submission.findUnique({
+        where: {
+          SubjectID_ClassID_TermID: {
+            SubjectID: Number(subjectId),
+            ClassID: Number(classId),
+            TermID: Number(targetTermId),
+          },
+        },
+        include: {
+          ImportBatches: {
+            orderBy: { createdAt: "desc" },
+            take: 3,
+            include: { rows: true },
+          },
+        },
+      }),
+      prisma.academic_Term.findUnique({ where: { TermID: Number(targetTermId) } }),
+      prisma.subjectExamConfig.findUnique({
+        where: {
+          ClassID_SubjectID_TermID: {
+            ClassID: Number(classId),
             SubjectID: Number(subjectId),
             TermID: Number(targetTermId),
           },
         },
-      },
-      orderBy: { AdmissionNo: "asc" },
-    });
+      }),
+    ]);
 
-    const submission = await prisma.subject_Submission.findUnique({
-      where: {
-        SubjectID_ClassID_TermID: {
-          SubjectID: Number(subjectId),
-          ClassID: Number(classId),
-          TermID: Number(targetTermId),
-        },
-      },
-      include: {
-        ImportBatches: {
-          orderBy: { createdAt: "desc" },
-          take: 3,
-          include: { rows: true },
-        },
-      },
-    });
-
-    const term = await prisma.academic_Term.findUnique({ where: { TermID: Number(targetTermId) } });
+    const canConfigureExamMode =
+      roles.has("SUPER_ADMIN") ||
+      roles.has("PRINCIPAL") ||
+      roles.has("ADMIN") ||
+      roles.has("Admin") ||
+      (Array.isArray(user.Capabilities) && user.Capabilities.includes("MANAGE_CBT"));
 
     return {
       success: true,
@@ -225,10 +264,196 @@ export async function getStudentsAndScoresForSubject(classId: number, subjectId:
       isSubmitted: submission?.Status === "Submitted" || submission?.Status === "Approved",
       submission,
       isTermLocked: term?.IsLocked || false,
+      canConfigureExamMode,
+      examConfig: {
+        examMode: (examConfigRow?.ExamMode || "COMBINED") as ExamModeValue,
+        examCbtMaxTenths: examConfigRow?.ExamCbtMaxTenths ?? DEFAULT_HYBRID_CBT_MAX_TENTHS,
+        examTheoryMaxTenths: examConfigRow?.ExamTheoryMaxTenths ?? DEFAULT_HYBRID_THEORY_MAX_TENTHS,
+      },
     };
   } catch (error: any) {
     console.error("getStudentsAndScoresForSubject error:", error);
     return { success: false, error: error.message || "Failed to fetch student scores" };
+  }
+}
+
+/**
+ * Configures the official examination mode (COMBINED vs HYBRID) and component
+ * allocations for a specific Class + Subject + Academic Term.
+ * Restricted to Administrators, Principal, and Exam Officers (`MANAGE_CBT`).
+ */
+export async function configureSubjectExamMode(params: {
+  classId: number;
+  subjectId: number;
+  termId: number;
+  examMode: ExamModeValue;
+  examCbtMaxMarks?: number;
+  examTheoryMaxMarks?: number;
+  confirmImpact?: boolean;
+}) {
+  try {
+    const actor = await requireActiveUser();
+    const isAuthorized =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("ADMIN") ||
+      actor.roles.has("Admin") ||
+      can(actor, "MANAGE_CBT");
+
+    if (!isAuthorized) {
+      return {
+        success: false,
+        error: "Forbidden: Only Administrators, Principal, or Exam Officers may configure examination mode.",
+      };
+    }
+
+    const classId = Number(params.classId);
+    const subjectId = Number(params.subjectId);
+    const termId = Number(params.termId);
+    const examMode: ExamModeValue = params.examMode === "HYBRID" ? "HYBRID" : "COMBINED";
+    const cbtMaxTenths =
+      examMode === "HYBRID"
+        ? Math.round((Number(params.examCbtMaxMarks) || 40) * 10)
+        : DEFAULT_HYBRID_CBT_MAX_TENTHS;
+    const theoryMaxTenths =
+      examMode === "HYBRID"
+        ? Math.round((Number(params.examTheoryMaxMarks) || 20) * 10)
+        : DEFAULT_HYBRID_THEORY_MAX_TENTHS;
+
+    if (examMode === "HYBRID") {
+      const alloc = validateHybridAllocationTenths(cbtMaxTenths, theoryMaxTenths);
+      if (!alloc.valid) {
+        return { success: false, error: alloc.error };
+      }
+    }
+
+    const [existingConfig, existingResults] = await Promise.all([
+      prisma.subjectExamConfig.findUnique({
+        where: {
+          ClassID_SubjectID_TermID: {
+            ClassID: classId,
+            SubjectID: subjectId,
+            TermID: termId,
+          },
+        },
+      }),
+      prisma.result.findMany({
+        where: {
+          SubjectID: subjectId,
+          TermID: termId,
+          Student: { ClassID: classId },
+        },
+        select: {
+          ResultID: true,
+          ExamScoreTenths: true,
+          ExamCbtTenths: true,
+          ExamTheoryTenths: true,
+        },
+      }),
+    ]);
+
+    const currentMode: ExamModeValue = (existingConfig?.ExamMode || "COMBINED") as ExamModeValue;
+    const modeChanged =
+      currentMode !== examMode ||
+      (examMode === "HYBRID" &&
+        existingConfig &&
+        (existingConfig.ExamCbtMaxTenths !== cbtMaxTenths ||
+          existingConfig.ExamTheoryMaxTenths !== theoryMaxTenths));
+
+    const existingWithExamCount = existingResults.filter(
+      (r) =>
+        r.ExamScoreTenths !== null ||
+        r.ExamCbtTenths !== null ||
+        r.ExamTheoryTenths !== null
+    ).length;
+
+    if (modeChanged && existingWithExamCount > 0 && !params.confirmImpact) {
+      return {
+        success: false,
+        requiresConfirmation: true,
+        impact: {
+          existingResultsCount: existingResults.length,
+          existingWithExamCount,
+          currentMode,
+          requestedMode: examMode,
+          examCbtMaxMarks: cbtMaxTenths / 10,
+          examTheoryMaxMarks: theoryMaxTenths / 10,
+        },
+        error: `${existingWithExamCount} student(s) already have recorded examination scores. Confirm mode change to proceed without altering existing legacy records.`,
+      };
+    }
+
+    const saved = await prisma.subjectExamConfig.upsert({
+      where: {
+        ClassID_SubjectID_TermID: {
+          ClassID: classId,
+          SubjectID: subjectId,
+          TermID: termId,
+        },
+      },
+      update: {
+        ExamMode: examMode,
+        ExamCbtMaxTenths: cbtMaxTenths,
+        ExamTheoryMaxTenths: theoryMaxTenths,
+        ConfiguredById: actor.UserID,
+      },
+      create: {
+        ClassID: classId,
+        SubjectID: subjectId,
+        TermID: termId,
+        ExamMode: examMode,
+        ExamCbtMaxTenths: cbtMaxTenths,
+        ExamTheoryMaxTenths: theoryMaxTenths,
+        ConfiguredById: actor.UserID,
+      },
+    });
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "SUBJECT_EXAM_MODE_CONFIGURED",
+      entity: "SubjectExamConfig",
+      entityId: saved.id,
+      oldValue: existingConfig
+        ? {
+            examMode: existingConfig.ExamMode,
+            examCbtMaxTenths: existingConfig.ExamCbtMaxTenths,
+            examTheoryMaxTenths: existingConfig.ExamTheoryMaxTenths,
+          }
+        : null,
+      newValue: {
+        classId,
+        subjectId,
+        termId,
+        examMode,
+        examCbtMaxTenths: cbtMaxTenths,
+        examTheoryMaxTenths: theoryMaxTenths,
+        existingWithExamCount,
+      },
+    });
+
+    revalidatePath("/portal/teacher");
+    revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/admin/cbt");
+    revalidatePath("/portal/admin/results");
+
+    return {
+      success: true,
+      examConfig: {
+        examMode: saved.ExamMode as ExamModeValue,
+        examCbtMaxTenths: saved.ExamCbtMaxTenths,
+        examTheoryMaxTenths: saved.ExamTheoryMaxTenths,
+      },
+      message:
+        examMode === "HYBRID"
+          ? `Configured Hybrid Examination Mode: CBT Objective (/${cbtMaxTenths / 10}) + Paper 2 Theory (/${theoryMaxTenths / 10}).`
+          : "Configured Combined Examination Mode (/60).",
+    };
+  } catch (error: unknown) {
+    console.error("configureSubjectExamMode error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to configure examination mode.",
+    };
   }
 }
 
@@ -243,12 +468,19 @@ async function upsertSheetScoresInternal(params: {
   termId: number;
   scores: {
     studentId: number;
-    caScore: number | null;
-    examScore: number | null;
+    caScore?: number | null;
+    examScore?: number | null;
+    examCbtScore?: number | null;
+    examTheoryScore?: number | null;
+    syncExamId?: string | null;
+    syncAttemptId?: string | null;
+    cbtOverrideReason?: string;
     status?: "PENDING" | "ENTERED" | "ABSENT" | "EXEMPT";
     expectedVersion?: number;
   }[];
   source: "GRID" | "IMPORT" | "ADMIN_CORRECTION";
+  updateScope?: "FULL" | "THEORY_ONLY" | "CBT_ONLY";
+  syncBatchId?: string;
   importBatchId?: string;
   adminCorrectionReason?: string;
 }) {
@@ -266,6 +498,21 @@ async function upsertSheetScoresInternal(params: {
         s.examScore === null || s.examScore === undefined || Number.isNaN(Number(s.examScore))
           ? null
           : Number(s.examScore),
+      examCbtScore:
+        s.examCbtScore === undefined
+          ? undefined
+          : s.examCbtScore === null || Number.isNaN(Number(s.examCbtScore))
+          ? null
+          : Number(s.examCbtScore),
+      examTheoryScore:
+        s.examTheoryScore === undefined
+          ? undefined
+          : s.examTheoryScore === null || Number.isNaN(Number(s.examTheoryScore))
+          ? null
+          : Number(s.examTheoryScore),
+      syncExamId: s.syncExamId ?? null,
+      syncAttemptId: s.syncAttemptId ?? null,
+      cbtOverrideReason: s.cbtOverrideReason,
       status: s.status,
       expectedVersion: s.expectedVersion,
     })),
@@ -350,13 +597,53 @@ async function upsertSheetScoresInternal(params: {
     }
 
     const bands = await resolveSheetGradeBands(tx, existingSubmission?.ScaleID, cls?.Level);
+    const examConfigRow = await tx.subjectExamConfig.findUnique({
+      where: {
+        ClassID_SubjectID_TermID: {
+          ClassID: validData.classId,
+          SubjectID: validData.subjectId,
+          TermID: validData.termId,
+        },
+      },
+    });
+    const examMode: ExamModeValue = (examConfigRow?.ExamMode || "COMBINED") as ExamModeValue;
+    const examCbtMaxTenths = examConfigRow?.ExamCbtMaxTenths ?? DEFAULT_HYBRID_CBT_MAX_TENTHS;
+    const examTheoryMaxTenths = examConfigRow?.ExamTheoryMaxTenths ?? DEFAULT_HYBRID_THEORY_MAX_TENTHS;
+    const updateScope = params.updateScope ?? "FULL";
+
+    if (examMode === "COMBINED" && updateScope === "CBT_ONLY") {
+      throw new Error(
+        "Component-only CBT synchronization requires the subject to be explicitly configured in HYBRID examination mode."
+      );
+    }
+
+    const canOverrideCbtDirectly =
+      can(actor, "CORRECT_SCORES") ||
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL");
 
     for (const item of validData.scores) {
-      const status = item.status || (item.caScore === null && item.examScore === null ? "PENDING" : "ENTERED");
+      const hasAnyInput =
+        item.caScore !== null ||
+        item.examScore !== null ||
+        (item.examCbtScore !== undefined && item.examCbtScore !== null) ||
+        (item.examTheoryScore !== undefined && item.examTheoryScore !== null);
 
-      if (status === "PENDING" && item.caScore === null && item.examScore === null) {
+      const status = item.status || (!hasAnyInput ? "PENDING" : "ENTERED");
+
+      if (status === "PENDING" && !hasAnyInput) {
         continue;
       }
+
+      // Row-level PostgreSQL lock so concurrent Teacher Theory saves & Exam Officer CBT retake syncs
+      // serialize safely on the exact Result row without overwriting each other's component.
+      await tx.$queryRaw`
+        SELECT "ResultID" FROM "Result"
+        WHERE "StudentID" = ${item.studentId}
+          AND "SubjectID" = ${validData.subjectId}
+          AND "TermID" = ${validData.termId}
+        FOR UPDATE
+      `;
 
       const existingResult = await tx.result.findUnique({
         where: {
@@ -382,15 +669,83 @@ async function upsertSheetScoresInternal(params: {
       }
 
       const isAbsentOrExempt = status === "ABSENT" || status === "EXEMPT";
-      const caTenths =
-        !isAbsentOrExempt && item.caScore !== null && item.caScore !== undefined
-          ? Math.round(item.caScore * 10)
-          : null;
-      const examTenths =
-        !isAbsentOrExempt && item.examScore !== null && item.examScore !== undefined
-          ? Math.round(item.examScore * 10)
-          : null;
-      const totalTenths = isAbsentOrExempt ? 0 : (caTenths ?? 0) + (examTenths ?? 0);
+      // CBT_ONLY sync never modifies existing CA score
+      const caTenths = isAbsentOrExempt
+        ? null
+        : updateScope === "CBT_ONLY"
+        ? existingResult?.CAScoreTenths ?? null
+        : toScoreTenths(item.caScore);
+
+      let nextCbtTenths: number | null = existingResult?.ExamCbtTenths ?? null;
+      let nextTheoryTenths: number | null = existingResult?.ExamTheoryTenths ?? null;
+      let combinedExamTenthsInput: number | null = toScoreTenths(item.examScore);
+      let overrideReasonUsed: string | undefined = params.adminCorrectionReason;
+
+      if (examMode === "HYBRID" && !isAbsentOrExempt) {
+        if (updateScope === "CBT_ONLY") {
+          nextCbtTenths = toScoreTenths(item.examCbtScore);
+          // Strictly preserve locked DB Theory component!
+          nextTheoryTenths = existingResult?.ExamTheoryTenths ?? null;
+        } else if (
+          updateScope === "THEORY_ONLY" ||
+          (params.source === "GRID" && item.examCbtScore === undefined)
+        ) {
+          // Strictly preserve locked DB CBT component!
+          nextCbtTenths = existingResult?.ExamCbtTenths ?? null;
+          nextTheoryTenths =
+            item.examTheoryScore !== undefined
+              ? toScoreTenths(item.examTheoryScore)
+              : existingResult?.ExamTheoryTenths ?? null;
+        } else {
+          const requestedCbtTenths = toScoreTenths(item.examCbtScore);
+          if (requestedCbtTenths !== (existingResult?.ExamCbtTenths ?? null)) {
+            if (!canOverrideCbtDirectly) {
+              throw new Error(
+                "Forbidden: Only Principal, Super Admin, or authorized score correctors may override official CBT Objective marks directly."
+              );
+            }
+            const reasonStr = (item.cbtOverrideReason || params.adminCorrectionReason || "").trim();
+            if (reasonStr.length < 5) {
+              throw new Error(
+                "A written override reason (minimum 5 characters) is mandatory when overriding an official CBT Objective score."
+              );
+            }
+            overrideReasonUsed = reasonStr;
+          }
+          nextCbtTenths = requestedCbtTenths;
+          nextTheoryTenths =
+            item.examTheoryScore !== undefined
+              ? toScoreTenths(item.examTheoryScore)
+              : existingResult?.ExamTheoryTenths ?? null;
+        }
+        combinedExamTenthsInput = null;
+      }
+
+      const examOutcome = computeHybridExamOutcome({
+        examMode,
+        cbtTenths: nextCbtTenths,
+        theoryTenths: nextTheoryTenths,
+        cbtMaxTenths: examCbtMaxTenths,
+        theoryMaxTenths: examTheoryMaxTenths,
+        combinedExamTenths: combinedExamTenthsInput,
+        scoreStatus: status,
+        preserveApprovedStatus: existingSubmission?.Status === "Approved",
+      });
+
+      if (!examOutcome.valid) {
+        throw new Error(
+          `Student ID ${item.studentId}: ${examOutcome.error || "Invalid examination component score."}`
+        );
+      }
+
+      const examTenths = examOutcome.examScoreTenths;
+      const isHybridIncomplete = examMode === "HYBRID" && !isAbsentOrExempt && !examOutcome.isComplete;
+
+      const totalTenths = isAbsentOrExempt
+        ? 0
+        : isHybridIncomplete
+        ? caTenths ?? 0
+        : (caTenths ?? 0) + (examTenths ?? 0);
 
       const caFloat = caTenths !== null ? caTenths / 10 : 0;
       const examFloat = examTenths !== null ? examTenths / 10 : 0;
@@ -401,7 +756,28 @@ async function upsertSheetScoresInternal(params: {
           ? { grade: "ABS", remark: "Absent" }
           : status === "EXEMPT"
           ? { grade: "EXM", remark: "Exempt" }
+          : isHybridIncomplete
+          ? {
+              grade: "INC",
+              remark:
+                examOutcome.examCbtTenths !== null && examOutcome.examTheoryTenths === null
+                  ? "Pending Paper 2 Theory"
+                  : examOutcome.examCbtTenths === null && examOutcome.examTheoryTenths !== null
+                  ? "Pending CBT Objective"
+                  : "Pending Examination",
+            }
           : gradeFor(totalTenths, bands);
+
+      const shouldUpdateSyncProvenance =
+        updateScope === "CBT_ONLY" || Boolean(item.syncExamId);
+
+      const syncMetaUpdate = shouldUpdateSyncProvenance
+        ? {
+            LastCbtSyncExamId: item.syncExamId ?? existingResult?.LastCbtSyncExamId ?? null,
+            LastCbtSyncAttemptId: item.syncAttemptId ?? existingResult?.LastCbtSyncAttemptId ?? null,
+            LastCbtSyncAt: new Date(),
+          }
+        : {};
 
       const saved = await tx.result.upsert({
         where: {
@@ -418,6 +794,12 @@ async function upsertSheetScoresInternal(params: {
           CAScoreTenths: caTenths,
           ExamScoreTenths: examTenths,
           TotalScoreTenths: totalTenths,
+          ExamCbtTenths: examOutcome.examCbtTenths,
+          ExamTheoryTenths: examOutcome.examTheoryTenths,
+          ExamCbtMaxTenths: examOutcome.examCbtMaxTenths,
+          ExamTheoryMaxTenths: examOutcome.examTheoryMaxTenths,
+          ExamResultStatus: examOutcome.examResultStatus,
+          ...syncMetaUpdate,
           Grade: grade,
           Remark: remark,
           Status: status,
@@ -436,6 +818,14 @@ async function upsertSheetScoresInternal(params: {
           CAScoreTenths: caTenths,
           ExamScoreTenths: examTenths,
           TotalScoreTenths: totalTenths,
+          ExamCbtTenths: examOutcome.examCbtTenths,
+          ExamTheoryTenths: examOutcome.examTheoryTenths,
+          ExamCbtMaxTenths: examOutcome.examCbtMaxTenths,
+          ExamTheoryMaxTenths: examOutcome.examTheoryMaxTenths,
+          ExamResultStatus: examOutcome.examResultStatus,
+          LastCbtSyncExamId: item.syncExamId ?? null,
+          LastCbtSyncAttemptId: item.syncAttemptId ?? null,
+          LastCbtSyncAt: shouldUpdateSyncProvenance ? new Date() : null,
           Grade: grade,
           Remark: remark,
           Status: status,
@@ -453,6 +843,8 @@ async function upsertSheetScoresInternal(params: {
         action:
           params.source === "ADMIN_CORRECTION"
             ? "ADMIN_SCORE_CORRECTION"
+            : updateScope === "CBT_ONLY"
+            ? "HYBRID_CBT_COMPONENT_SYNC"
             : params.source === "IMPORT"
             ? "SCORE_IMPORT_COMMIT"
             : isSupervisoryOverride
@@ -460,19 +852,39 @@ async function upsertSheetScoresInternal(params: {
             : "SCORE_DRAFT_SAVE",
         entity: "Result",
         entityId: saved.ResultID,
-        reason: params.adminCorrectionReason,
+        reason: overrideReasonUsed,
         oldValue: existingResult
           ? {
+              examMode,
               caTenths: existingResult.CAScoreTenths,
+              examCbtTenths: existingResult.ExamCbtTenths,
+              examTheoryTenths: existingResult.ExamTheoryTenths,
               examTenths: existingResult.ExamScoreTenths,
+              examResultStatus: existingResult.ExamResultStatus,
               grade: existingResult.Grade,
               status: existingResult.Status,
             }
           : null,
         newValue: {
+          studentId: item.studentId,
+          classId: validData.classId,
+          subjectId: validData.subjectId,
+          termId: validData.termId,
+          examMode,
+          updateScope,
           caTenths,
+          examCbtTenths: examOutcome.examCbtTenths,
+          examTheoryTenths: examOutcome.examTheoryTenths,
+          theoryPreserved:
+            updateScope === "CBT_ONLY"
+              ? (existingResult?.ExamTheoryTenths ?? null) === examOutcome.examTheoryTenths
+              : undefined,
           examTenths,
           totalTenths,
+          examResultStatus: examOutcome.examResultStatus,
+          sourceExamId: item.syncExamId ?? null,
+          sourceAttemptId: item.syncAttemptId ?? null,
+          syncBatchId: params.syncBatchId ?? null,
           grade,
           status,
           source: params.source,
@@ -511,7 +923,10 @@ export async function saveSubjectScoresBatch(data: {
   scores: {
     studentId: number;
     caScore: number | null;
-    examScore: number | null;
+    examScore?: number | null;
+    examCbtScore?: number | null;
+    examTheoryScore?: number | null;
+    cbtOverrideReason?: string;
     status?: "PENDING" | "ENTERED" | "ABSENT" | "EXEMPT";
     expectedVersion?: number;
   }[];
@@ -961,6 +1376,55 @@ export async function submitSubjectToFormMaster(subjectId: number, classId: numb
       const term = await tx.academic_Term.findUnique({ where: { TermID: Number(termId) } });
       if (term?.IsLocked) {
         throw new Error("Cannot submit results: academic term is frozen.");
+      }
+
+      const examConfig = await tx.subjectExamConfig.findUnique({
+        where: {
+          ClassID_SubjectID_TermID: {
+            ClassID: Number(classId),
+            SubjectID: Number(subjectId),
+            TermID: Number(termId),
+          },
+        },
+      });
+
+      if (examConfig?.ExamMode === "HYBRID") {
+        const classStudents = await tx.student.findMany({
+          where: { ClassID: Number(classId) },
+          select: {
+            StudentID: true,
+            Results: {
+              where: {
+                SubjectID: Number(subjectId),
+                TermID: Number(termId),
+              },
+              select: {
+                Status: true,
+                ExamResultStatus: true,
+                ExamCbtTenths: true,
+                ExamTheoryTenths: true,
+              },
+            },
+          },
+        });
+
+        const incompleteCount = classStudents.filter((st) => {
+          const r = st.Results[0];
+          if (!r) return true;
+          if (r.Status === "ABSENT" || r.Status === "EXEMPT") return false;
+          return (
+            r.ExamResultStatus === "PENDING" ||
+            r.ExamResultStatus === "PARTIALLY_MARKED" ||
+            r.ExamCbtTenths === null ||
+            r.ExamTheoryTenths === null
+          );
+        }).length;
+
+        if (incompleteCount > 0) {
+          throw new Error(
+            `Cannot submit Hybrid subject sheet: ${incompleteCount} student(s) still have incomplete CBT Objective or Paper 2 Theory marks. Complete all marks (or mark absent/exempt) before submitting.`
+          );
+        }
       }
 
       const sub = await tx.subject_Submission.upsert({
@@ -2206,6 +2670,404 @@ export async function previewCbtScoresForSubjectCa(params: {
     return {
       success: false,
       error: error.message || "Failed to fetch CBT scores for CA sync.",
+    };
+  }
+}
+
+// ==========================================================================
+// OFFICIAL SCHEDULED CBT EXAM -> TERMINAL GRADEBOOK ECOSYSTEM SYNC
+// ==========================================================================
+
+export async function listClassSubjectScheduledExamsForGradebook(params: {
+  classId: number;
+  subjectId: number;
+  termId: number;
+}) {
+  try {
+    const classId = Number(params.classId);
+    const subjectId = Number(params.subjectId);
+    const termId = Number(params.termId);
+
+    await assertTeacherAssigned(classId, subjectId, termId);
+
+    const [exams, submission, term] = await Promise.all([
+      prisma.cbtScheduledExam.findMany({
+        where: {
+          classId,
+          subjectId,
+          termId,
+        },
+        include: {
+          attempts: {
+            where: { isRetakeCleared: false },
+            select: {
+              studentId: true,
+              status: true,
+              scoreTenths: true,
+            },
+          },
+        },
+        orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }],
+      }),
+      prisma.subject_Submission.findUnique({
+        where: {
+          SubjectID_ClassID_TermID: {
+            SubjectID: subjectId,
+            ClassID: classId,
+            TermID: termId,
+          },
+        },
+        select: { Status: true, WindowEndsAt: true },
+      }),
+      prisma.academic_Term.findUnique({
+        where: { TermID: termId },
+        select: { IsLocked: true },
+      }),
+    ]);
+
+    const examIds = exams.map((e) => e.id);
+    const syncLogs = examIds.length
+      ? await prisma.auditLog.findMany({
+          where: {
+            Action: "CBT_EXAM_GRADEBOOK_SYNC",
+            Entity: "CbtScheduledExam",
+            EntityID: { in: examIds },
+          },
+          orderBy: { CreatedAt: "desc" },
+          select: {
+            EntityID: true,
+            CreatedAt: true,
+            NewValue: true,
+            Actor: { select: { Email: true } },
+          },
+        })
+      : [];
+
+    const latestSyncByExam = new Map<
+      string,
+      { createdAt: Date; actorEmail: string | null; newValue: unknown }
+    >();
+    for (const log of syncLogs) {
+      if (log.EntityID && !latestSyncByExam.has(log.EntityID)) {
+        latestSyncByExam.set(log.EntityID, {
+          createdAt: log.CreatedAt,
+          actorEmail: log.Actor?.Email || null,
+          newValue: log.NewValue,
+        });
+      }
+    }
+
+    const sheetStatus = submission?.Status || "Draft";
+    const unlockOpen = Boolean(
+      submission?.WindowEndsAt && new Date(submission.WindowEndsAt) > new Date()
+    );
+    const isSheetLocked = Boolean(
+      term?.IsLocked || ((sheetStatus === "Submitted" || sheetStatus === "Approved") && !unlockOpen)
+    );
+
+    return {
+      success: true,
+      sheetStatus,
+      isSheetLocked,
+      isTermLocked: Boolean(term?.IsLocked),
+      exams: exams.map((ex) => {
+        const gradableStudents = new Set<number>();
+        let terminatedCount = 0;
+        for (const att of ex.attempts) {
+          if (att.status === "TERMINATED") terminatedCount++;
+          if (
+            (att.status === "SUBMITTED" || att.status === "EXPIRED") &&
+            typeof att.scoreTenths === "number"
+          ) {
+            gradableStudents.add(att.studentId);
+          }
+        }
+        const latestSync = latestSyncByExam.get(ex.id);
+        return {
+          id: ex.id,
+          title: ex.title,
+          examType: ex.examType,
+          status: ex.status,
+          questionCount: ex.questionCount,
+          durationMinutes: ex.durationMinutes,
+          startsAt: ex.startsAt ? ex.startsAt.toISOString() : null,
+          endsAt: ex.endsAt ? ex.endsAt.toISOString() : null,
+          gradableStudentCount: gradableStudents.size,
+          terminatedCount,
+          lastSyncedAt: latestSync?.createdAt ? latestSync.createdAt.toISOString() : null,
+          lastSyncedBy: latestSync?.actorEmail || null,
+        };
+      }),
+    };
+  } catch (error: unknown) {
+    console.error("listClassSubjectScheduledExamsForGradebook error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load official CBT exams.",
+      exams: [],
+    };
+  }
+}
+
+export async function commitStrictExamScoresToGradebook(params: {
+  examId: string;
+  targetColumn: "ca" | "exam";
+  maxWeight: number;
+  commitMode?: CommitMode;
+  overwriteMode?: GradebookOverwriteMode;
+}) {
+  try {
+    const exam = await prisma.cbtScheduledExam.findUnique({
+      where: { id: params.examId },
+      include: {
+        classArm: { select: { ClassID: true, ClassName: true } },
+        subject: { select: { SubjectID: true, SubjectName: true } },
+      },
+    });
+
+    if (!exam) {
+      return { success: false, error: "Scheduled CBT exam not found." };
+    }
+    if (!exam.subjectId) {
+      return {
+        success: false,
+        error: "This scheduled exam is not linked to a school Subject ID and cannot sync to a gradebook.",
+      };
+    }
+
+    const { user: actor } = await assertTeacherAssigned(exam.classId, exam.subjectId, exam.termId);
+
+    const [students, attempts, examConfigRow] = await Promise.all([
+      prisma.student.findMany({
+        where: { ClassID: exam.classId },
+        include: {
+          Results: {
+            where: {
+              SubjectID: exam.subjectId,
+              TermID: exam.termId,
+            },
+          },
+        },
+        orderBy: { AdmissionNo: "asc" },
+      }),
+      prisma.cbtAttempt.findMany({
+        where: {
+          scheduledExamId: exam.id,
+          isRetakeCleared: false,
+          status: { in: ["SUBMITTED", "EXPIRED"] },
+          scoreTenths: { not: null },
+        },
+        orderBy: [{ scoreTenths: "desc" }, { submittedAt: "desc" }, { startedAt: "desc" }],
+      }),
+      prisma.subjectExamConfig.findUnique({
+        where: {
+          ClassID_SubjectID_TermID: {
+            ClassID: exam.classId,
+            SubjectID: exam.subjectId,
+            TermID: exam.termId,
+          },
+        },
+      }),
+    ]);
+
+    const configuredExamMode: ExamModeValue = (examConfigRow?.ExamMode || "COMBINED") as ExamModeValue;
+    const examCbtMaxTenths = examConfigRow?.ExamCbtMaxTenths ?? DEFAULT_HYBRID_CBT_MAX_TENTHS;
+    const examTheoryMaxTenths = examConfigRow?.ExamTheoryMaxTenths ?? DEFAULT_HYBRID_THEORY_MAX_TENTHS;
+
+    // Server-authoritative commit mode: HYBRID subjects syncing to Exam ALWAYS use HYBRID_CBT_COMPONENT
+    const isHybridExamSync =
+      params.targetColumn === "exam" && configuredExamMode === "HYBRID";
+    if (
+      params.commitMode === "HYBRID_CBT_COMPONENT" &&
+      configuredExamMode !== "HYBRID"
+    ) {
+      return {
+        success: false,
+        error:
+          "This subject is configured in COMBINED examination mode. Configure HYBRID mode before performing CBT component-only synchronization.",
+      };
+    }
+
+    const effectiveCommitMode: CommitMode = isHybridExamSync
+      ? "HYBRID_CBT_COMPONENT"
+      : "FULL_EXAM";
+    const syncTarget: SyncTarget =
+      params.targetColumn === "ca"
+        ? "CA"
+        : isHybridExamSync
+        ? "EXAM_CBT_COMPONENT"
+        : "EXAM_TOTAL";
+
+    const bestAttemptByStudent = new Map<number, { id: string; scoreTenths: number }>();
+    for (const att of attempts) {
+      if (!bestAttemptByStudent.has(att.studentId) && typeof att.scoreTenths === "number") {
+        bestAttemptByStudent.set(att.studentId, {
+          id: att.id,
+          scoreTenths: att.scoreTenths,
+        });
+      }
+    }
+
+    const plan = planStrictExamGradebookSync({
+      candidates: students.map((st) => {
+        const resRow = st.Results?.[0];
+        const bestAtt = bestAttemptByStudent.get(st.StudentID);
+        return {
+          studentId: st.StudentID,
+          attemptId: bestAtt?.id ?? null,
+          scoreTenths: bestAtt?.scoreTenths ?? null,
+          existingCaScore: resRow ? resRow.CAScore : null,
+          existingExamScore: resRow ? resRow.ExamScore : null,
+          existingExamCbtTenths: resRow ? resRow.ExamCbtTenths : null,
+          existingExamTheoryTenths: resRow ? resRow.ExamTheoryTenths : null,
+          existingLastSyncAttemptId: resRow ? resRow.LastCbtSyncAttemptId : null,
+          existingStatus: resRow ? resRow.Status : null,
+        };
+      }),
+      targetColumn: params.targetColumn,
+      syncTarget,
+      maxWeight: isHybridExamSync ? examCbtMaxTenths / 10 : params.maxWeight,
+      examCbtMaxTenths: isHybridExamSync ? examCbtMaxTenths : undefined,
+      examTheoryMaxTenths: isHybridExamSync ? examTheoryMaxTenths : undefined,
+      overwriteMode: params.overwriteMode,
+    });
+
+    const batchScores = plan.rows
+      .filter((r) => r.willUpdate)
+      .map((r) =>
+        isHybridExamSync
+          ? {
+              studentId: r.studentId,
+              examCbtScore: r.scaledScore,
+              syncExamId: exam.id,
+              syncAttemptId: r.attemptId ?? null,
+              status: "ENTERED" as const,
+            }
+          : {
+              studentId: r.studentId,
+              caScore: r.nextCaScore,
+              examScore: r.nextExamScore,
+              syncExamId: exam.id,
+              syncAttemptId: r.attemptId ?? null,
+              status: "ENTERED" as const,
+            }
+      );
+
+    if (batchScores.length === 0) {
+      if (plan.unchangedCount > 0 && plan.blockedCount === 0) {
+        return {
+          success: true,
+          updatedCount: 0,
+          unchangedCount: plan.unchangedCount,
+          partiallyMarkedCount: plan.partiallyMarkedCount,
+          blockedCount: plan.blockedCount,
+          skippedCount: plan.skippedCount,
+          preservedCount: plan.preservedCount,
+          absentOrExemptCount: plan.absentOrExemptCount,
+          commitMode: effectiveCommitMode,
+          targetColumn: plan.targetColumn,
+          maxWeight: plan.maxWeight,
+          message: `All ${plan.unchangedCount} matched CBT score(s) are already up to date (idempotent skip — no duplicate audit logs written).`,
+        };
+      }
+      return {
+        success: false,
+        error:
+          plan.blockedCount > 0
+            ? `Import blocked for ${plan.blockedCount} student(s) due to score allocation overflow.`
+            : plan.preservedCount > 0
+            ? `No rows updated (${plan.preservedCount} existing score(s) preserved under Fill Blanks mode).`
+            : "No completed CBT exam attempts found to commit into the gradebook.",
+      };
+    }
+
+    const syncBatchId = crypto.randomUUID();
+
+    const { conflicts } = await upsertSheetScoresInternal({
+      subjectId: exam.subjectId,
+      classId: exam.classId,
+      termId: exam.termId,
+      scores: batchScores,
+      source: "IMPORT",
+      updateScope: isHybridExamSync ? "CBT_ONLY" : "FULL",
+      syncBatchId,
+    });
+
+    await prisma.subject_Submission.upsert({
+      where: {
+        SubjectID_ClassID_TermID: {
+          SubjectID: exam.subjectId,
+          ClassID: exam.classId,
+          TermID: exam.termId,
+        },
+      },
+      update: {},
+      create: {
+        TeacherID: actor.UserID,
+        SubjectID: exam.subjectId,
+        ClassID: exam.classId,
+        TermID: exam.termId,
+        Status: "Draft",
+      },
+    });
+
+    await writeAuditLog({
+      actorId: actor.UserID,
+      action: "CBT_EXAM_GRADEBOOK_SYNC",
+      entity: "CbtScheduledExam",
+      entityId: exam.id,
+      newValue: {
+        syncBatchId,
+        examId: exam.id,
+        title: exam.title,
+        classId: exam.classId,
+        subjectId: exam.subjectId,
+        termId: exam.termId,
+        examMode: configuredExamMode,
+        commitMode: effectiveCommitMode,
+        syncTarget: plan.syncTarget,
+        targetColumn: plan.targetColumn,
+        maxWeight: plan.maxWeight,
+        overwriteMode: plan.overwriteMode,
+        updatedCount: plan.updatedCount,
+        unchangedCount: plan.unchangedCount,
+        partiallyMarkedCount: plan.partiallyMarkedCount,
+        blockedCount: plan.blockedCount,
+        skippedCount: plan.skippedCount,
+        preservedCount: plan.preservedCount,
+        absentOrExemptCount: plan.absentOrExemptCount,
+        conflicts: conflicts.length,
+      },
+    });
+
+    revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/teacher");
+    revalidatePath("/portal/admin/cbt");
+    revalidatePath("/portal/admin/results");
+    revalidatePath(`/portal/broadsheet/${exam.classId}`);
+
+    return {
+      success: true,
+      syncBatchId,
+      commitMode: effectiveCommitMode,
+      updatedCount: plan.updatedCount,
+      unchangedCount: plan.unchangedCount,
+      partiallyMarkedCount: plan.partiallyMarkedCount,
+      blockedCount: plan.blockedCount,
+      skippedCount: plan.skippedCount,
+      preservedCount: plan.preservedCount,
+      absentOrExemptCount: plan.absentOrExemptCount,
+      targetColumn: plan.targetColumn,
+      maxWeight: plan.maxWeight,
+      message: isHybridExamSync
+        ? `Synced ${plan.updatedCount} CBT Objective score(s) (/${plan.maxWeight}) into Hybrid Gradebook while preserving all saved Paper 2 Theory marks${plan.partiallyMarkedCount > 0 ? ` (${plan.partiallyMarkedCount} pending Paper 2 Theory)` : ""}${plan.unchangedCount > 0 ? ` · ${plan.unchangedCount} unchanged` : ""}.`
+        : `Committed ${plan.updatedCount} CBT exam score(s) into ${exam.classArm?.ClassName || "Class"} ${exam.subject?.SubjectName || "Subject"} (${plan.targetColumn.toUpperCase()} /${plan.maxWeight}).`,
+    };
+  } catch (error: unknown) {
+    console.error("commitStrictExamScoresToGradebook error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to commit CBT exam scores to gradebook.",
     };
   }
 }

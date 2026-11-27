@@ -13,6 +13,7 @@ import {
   escapeHtml,
   incrementOtpAttemptAndCheckLocked,
   clearOtpAttempts,
+  extractClientIp,
 } from "@/lib/security";
 import { writeAuditLog } from "@/lib/authz";
 import {
@@ -43,7 +44,7 @@ export async function initiateRegistration(admissionNo: string, email: string, c
     }
 
     const headersList = await headers();
-    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const ip = extractClientIp(headersList);
     const rlIp = await rateLimit(`register_init:${ip}`, 5, 300); // 5 attempts per 5 minutes per IP
     const rlAcct = await rateLimit(`register_init:acct:${cleanAdmissionNo.toLowerCase()}`, 5, 300);
     if (!rlIp.success || !rlAcct.success) {
@@ -201,7 +202,7 @@ export async function verifyRegistration(
     const cleanPhone = (phone || "").trim();
 
     const headersList = await headers();
-    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const ip = extractClientIp(headersList);
     const rlIp = await rateLimit(`register_verify:${ip}`, 5, 300); // 5 attempts per 5 mins
     const rlEmail = await rateLimit(`register_verify:email:${cleanEmail}`, 5, 300);
     if (!rlIp.success || !rlEmail.success) {
@@ -366,7 +367,7 @@ export async function requestPasswordReset(identifier: string) {
     }
 
     const headersList = await headers();
-    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const ip = extractClientIp(headersList);
     const normalized = cleanInput.toLowerCase();
 
     const rlIp = await rateLimit(`reset_req:${ip}`, 5, 300); // 5 attempts per 5 mins per IP
@@ -496,7 +497,7 @@ export async function resetPassword(email: string, otp: string, newPassword: str
     const cleanOtp = (otp || "").trim();
 
     const headersList = await headers();
-    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const ip = extractClientIp(headersList);
     const rlIp = await rateLimit(`reset_verify:${ip}`, 5, 300); // 5 attempts per 5 mins
     const rlEmail = await rateLimit(`reset_verify:email:${cleanEmail}`, 5, 300);
     if (!rlIp.success || !rlEmail.success) {
@@ -721,7 +722,7 @@ export async function getPublicRegistrationClasses() {
 export async function validateRegistrationInvitation(inviteCodeOrToken: string) {
   try {
     const headersList = await headers();
-    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const ip = extractClientIp(headersList);
     const rl = await rateLimit(`invite_validate:${ip}`, 10, 300);
     if (!rl.success) {
       return {
@@ -784,7 +785,7 @@ export async function sendInvitationGuardianOtp(params: {
     }
 
     const headersList = await headers();
-    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const ip = extractClientIp(headersList);
     const rl = await rateLimit(`invite_otp:${ip}`, 5, 300);
     if (!rl.success) {
       return { success: false, error: "Too many OTP requests. Please wait a few minutes." };
@@ -1170,7 +1171,7 @@ export async function submitManualVerificationRequest(params: {
 }) {
   try {
     const headersList = await headers();
-    const ip = (headersList.get("x-forwarded-for") || "127.0.0.1").split(",")[0].trim();
+    const ip = extractClientIp(headersList);
     const rl = await rateLimit(`manual_verify_req:${ip}`, 5, 900);
     if (!rl.success) {
       return {

@@ -2,7 +2,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { streamText } from "ai";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { rateLimit } from "@/lib/rateLimit";
+import { extractClientIp, rateLimit } from "@/lib/security";
 
 export const maxDuration = 60;
 
@@ -13,8 +13,7 @@ const MAX_IMAGE_BASE64_LENGTH = 5_500_000; // ~4MB binary payload
 export async function POST(req: Request) {
   try {
     // 1. Per-IP Rate Limiting (25 requests per 5 minutes)
-    const forwardedFor = req.headers.get("x-forwarded-for");
-    const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : "local-client";
+    const ip = extractClientIp(req.headers, "local-client");
     const rl = await rateLimit(`chat:${ip}`, 25, 300);
     if (!rl.success) {
       return new Response(
