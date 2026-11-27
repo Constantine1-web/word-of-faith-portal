@@ -133,6 +133,10 @@ export default function TeacherDashboard({
   const [modeDraftCbtMax, setModeDraftCbtMax] = useState<number>(40);
   const [modeImpactWarning, setModeImpactWarning] = useState<any | null>(null);
   const [savingExamMode, setSavingExamMode] = useState(false);
+  const [overrideTargetStudent, setOverrideTargetStudent] = useState<any | null>(null);
+  const [overrideCbtScoreInput, setOverrideCbtScoreInput] = useState<string>("");
+  const [overrideReasonInput, setOverrideReasonInput] = useState<string>("");
+  const [savingCbtOverride, setSavingCbtOverride] = useState(false);
   const [isSubjectSubmitted, setIsSubjectSubmitted] = useState(false);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [savingScores, setSavingScores] = useState(false);
@@ -518,6 +522,62 @@ export default function TeacherDashboard({
       await refreshActiveSubjectSheet();
     } else {
       setError(res.error || "Failed to update examination mode.");
+    }
+  };
+
+  const handleSaveCbtObjectiveOverride = async () => {
+    if (!overrideTargetStudent || !selectedAllocation || !dashboardData?.activeTerm) return;
+    const trimmedReason = overrideReasonInput.trim();
+    if (trimmedReason.length < 5) {
+      setError("A written override reason (minimum 5 characters) is mandatory.");
+      return;
+    }
+    const parsedCbt = overrideCbtScoreInput.trim() === "" ? null : parseFloat(overrideCbtScoreInput);
+    const cbtMax = examConfig.examCbtMaxTenths / 10;
+    if (parsedCbt !== null && (Number.isNaN(parsedCbt) || parsedCbt < 0 || parsedCbt > cbtMax)) {
+      setError(`CBT Objective override must be between 0 and ${cbtMax}.`);
+      return;
+    }
+
+    const r = overrideTargetStudent.Results?.[0];
+    const caVal =
+      (scoreInputs[overrideTargetStudent.StudentID]?.ca ?? "").trim() === ""
+        ? null
+        : parseFloat(scoreInputs[overrideTargetStudent.StudentID]?.ca);
+    const theoryVal =
+      (scoreInputs[overrideTargetStudent.StudentID]?.theory ?? "").trim() === ""
+        ? r?.ExamTheoryTenths !== null && r?.ExamTheoryTenths !== undefined
+          ? r.ExamTheoryTenths / 10
+          : null
+        : parseFloat(scoreInputs[overrideTargetStudent.StudentID]?.theory || "");
+
+    setSavingCbtOverride(true);
+    setError("");
+    setSuccess("");
+    const res = await saveSubjectScoresBatch({
+      subjectId: selectedAllocation.SubjectID,
+      classId: selectedAllocation.ClassID,
+      termId: dashboardData.activeTerm.TermID,
+      scores: [
+        {
+          studentId: overrideTargetStudent.StudentID,
+          caScore: caVal,
+          examCbtScore: parsedCbt,
+          examTheoryScore: theoryVal,
+          cbtOverrideReason: trimmedReason,
+        },
+      ],
+    });
+    setSavingCbtOverride(false);
+
+    if (res.success) {
+      setOverrideTargetStudent(null);
+      setOverrideCbtScoreInput("");
+      setOverrideReasonInput("");
+      await refreshActiveSubjectSheet();
+      setSuccess("Audited CBT Objective score override saved cleanly.");
+    } else {
+      setError(res.error || "Failed to apply CBT Objective override.");
     }
   };
 
@@ -1323,7 +1383,9 @@ export default function TeacherDashboard({
                           <th style={{ padding: "0.5rem", textAlign: "left" }}>Row</th>
                           <th style={{ padding: "0.5rem", textAlign: "left" }}>WOFS Student ID</th>
                           <th style={{ padding: "0.5rem", textAlign: "center" }}>Incoming CA</th>
-                          <th style={{ padding: "0.5rem", textAlign: "center" }}>Incoming Exam</th>
+                          <th style={{ padding: "0.5rem", textAlign: "center" }}>
+                            {examConfig.examMode === "HYBRID" ? "Incoming Paper 2 Theory" : "Incoming Exam"}
+                          </th>
                           <th style={{ padding: "0.5rem", textAlign: "center" }}>Status</th>
                           <th style={{ padding: "0.5rem", textAlign: "center" }}>Diff</th>
                           <th style={{ padding: "0.5rem", textAlign: "left" }}>Validation</th>
@@ -1532,6 +1594,29 @@ export default function TeacherDashboard({
                                   <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
                                     {resRow?.LastCbtSyncAt ? "Synced" : "Awaiting CBT"}
                                   </span>
+                                  {canConfigureExamMode && !isTermLocked && !isSubjectSubmitted && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOverrideTargetStudent(student);
+                                        setOverrideCbtScoreInput(cbtTenths !== null ? String(cbtTenths / 10) : "");
+                                        setOverrideReasonInput("");
+                                      }}
+                                      style={{
+                                        marginTop: "0.2rem",
+                                        fontSize: "0.65rem",
+                                        fontWeight: 700,
+                                        background: "transparent",
+                                        border: "none",
+                                        color: "var(--color-navy-blue)",
+                                        cursor: "pointer",
+                                        textDecoration: "underline",
+                                        padding: 0,
+                                      }}
+                                    >
+                                      Override
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               <td data-label="Paper 2 Theory" style={{ padding: "0.75rem", textAlign: "center" }}>
@@ -2873,6 +2958,65 @@ export default function TeacherDashboard({
                   : modeImpactWarning
                   ? "Confirm Mode Change"
                   : "Save Examination Mode"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audited Principal / Admin CBT Objective Override Modal */}
+      {overrideTargetStudent && (
+        <div className="portal-modal-overlay" onClick={() => setOverrideTargetStudent(null)}>
+          <div
+            className="portal-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "480px", width: "95%", padding: "1.5rem" }}
+          >
+            <h3 style={{ margin: "0 0 0.3rem 0", color: "var(--text-heading)" }}>
+              Audited CBT Objective Override
+            </h3>
+            <p style={{ margin: "0 0 1rem 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+              {overrideTargetStudent.PreferredName || overrideTargetStudent.User?.Email} ({overrideTargetStudent.AdmissionNo}) &middot; Preserves saved Paper 2 Theory marks
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", marginBottom: "1rem" }}>
+              <label style={{ fontSize: "0.84rem", fontWeight: 700 }}>
+                CBT Objective Score (Max {examConfig.examCbtMaxTenths / 10})
+                <input
+                  type="number"
+                  min={0}
+                  max={examConfig.examCbtMaxTenths / 10}
+                  step={0.5}
+                  className="form-input"
+                  style={{ marginTop: "0.25rem" }}
+                  value={overrideCbtScoreInput}
+                  onChange={(e) => setOverrideCbtScoreInput(e.target.value)}
+                />
+              </label>
+              <label style={{ fontSize: "0.84rem", fontWeight: 700 }}>
+                Mandatory Audit Reason
+                <textarea
+                  rows={3}
+                  className="form-input"
+                  style={{ marginTop: "0.25rem" }}
+                  placeholder="State official verification reason (min 5 characters)..."
+                  value={overrideReasonInput}
+                  onChange={(e) => setOverrideReasonInput(e.target.value)}
+                />
+              </label>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
+              <button type="button" onClick={() => setOverrideTargetStudent(null)} className="btn btn-outline">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingCbtOverride}
+                onClick={handleSaveCbtObjectiveOverride}
+                className="btn btn-primary"
+              >
+                {savingCbtOverride ? "Saving Override..." : "Save Audited Override"}
               </button>
             </div>
           </div>

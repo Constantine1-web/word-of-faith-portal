@@ -15,6 +15,11 @@ import {
   revokeExamRoomCodeAction,
   updateScheduledExamStatus,
 } from "@/app/actions/cbtExams";
+import {
+  getExamModeConfigurationMatrix,
+  bulkConfigureSubjectExamModes,
+} from "@/app/actions/results";
+import type { ExamModeValue } from "@/lib/hybrid-scoring";
 import ExamBankAndSchedulerStudio from "@/components/cbt/ExamBankAndSchedulerStudio";
 import {
   FiShield,
@@ -43,7 +48,7 @@ interface GeneratedCodeSlipItem {
 }
 
 export default function ExaminationControlCentre() {
-  const [subTab, setSubTab] = useState<"progress" | "codes" | "studio">("progress");
+  const [subTab, setSubTab] = useState<"progress" | "codes" | "studio" | "exam-modes">("progress");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -78,18 +83,31 @@ export default function ExaminationControlCentre() {
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [issuedCodeSlips, setIssuedCodeSlips] = useState<GeneratedCodeSlipItem[]>([]);
 
+  // Bulk Hybrid vs Combined Exam Mode Matrix State
+  const [matrixTermId, setMatrixTermId] = useState<number>(0);
+  const [matrixRows, setMatrixRows] = useState<any[]>([]);
+  const [matrixClassFilter, setMatrixClassFilter] = useState<string>("ALL");
+  const [matrixSearch, setMatrixSearch] = useState<string>("");
+  const [selectedMatrixKeys, setSelectedMatrixKeys] = useState<string[]>([]);
+  const [bulkModeType, setBulkModeType] = useState<ExamModeValue>("HYBRID");
+  const [bulkCbtMaxMarks, setBulkCbtMaxMarks] = useState<number>(40);
+  const [bulkImpactWarning, setBulkImpactWarning] = useState<any | null>(null);
+  const [savingBulkModes, setSavingBulkModes] = useState(false);
+
   const fetchDashboardSnapshot = useCallback(async (targetExamType: string) => {
-    const [progressRes, roomsRes] = await Promise.all([
+    const [progressRes, roomsRes, matrixRes] = await Promise.all([
       getExamUploadProgressDashboard({ examType: targetExamType }),
       getAdminScheduledExamsDashboard(),
+      getExamModeConfigurationMatrix(),
     ]);
-    return { progressRes, roomsRes };
+    return { progressRes, roomsRes, matrixRes };
   }, []);
 
   const applyDashboardSnapshot = useCallback(
     ({
       progressRes,
       roomsRes,
+      matrixRes,
     }: Awaited<ReturnType<typeof fetchDashboardSnapshot>>) => {
       if (progressRes.success) {
         setTermLabel(progressRes.termLabel || "");
@@ -102,6 +120,10 @@ export default function ExaminationControlCentre() {
 
       if (roomsRes.success) {
         setScheduledExams(roomsRes.exams || []);
+      }
+      if (matrixRes?.success) {
+        setMatrixTermId((matrixRes as any).term?.TermID || 0);
+        setMatrixRows(matrixRes.rows || []);
       }
       setLoading(false);
     },
@@ -279,6 +301,54 @@ export default function ExaminationControlCentre() {
     }
   };
 
+  const handleBulkSaveExamModes = async (confirmImpact = false) => {
+    if (!matrixTermId || selectedMatrixKeys.length === 0) return;
+    setError("");
+    setSuccess("");
+    setSavingBulkModes(true);
+    const items = selectedMatrixKeys
+      .map((k) => {
+        const [cId, sId] = k.split(":").map(Number);
+        return { classId: cId, subjectId: sId };
+      })
+      .filter((x) => Number.isInteger(x.classId) && Number.isInteger(x.subjectId));
+
+    const res = await bulkConfigureSubjectExamModes({
+      termId: matrixTermId,
+      items,
+      examMode: bulkModeType,
+      examCbtMaxMarks: bulkCbtMaxMarks,
+      examTheoryMaxMarks: 60 - bulkCbtMaxMarks,
+      confirmImpact,
+    });
+    setSavingBulkModes(false);
+
+    if ((res as any).requiresConfirmation) {
+      setBulkImpactWarning((res as any).impact);
+      return;
+    }
+
+    if (res.success) {
+      setBulkImpactWarning(null);
+      setSelectedMatrixKeys([]);
+      setSuccess(res.message || "Bulk examination mode configuration updated.");
+      await refreshAll();
+    } else {
+      setError(res.error || "Failed to bulk configure examination modes.");
+    }
+  };
+
+  const matrixClasses = Array.from(new Set(matrixRows.map((r) => r.className))).sort();
+  const matrixQ = matrixSearch.trim().toLowerCase();
+  const filteredMatrixRows = matrixRows.filter((r) => {
+    if (matrixClassFilter !== "ALL" && r.className !== matrixClassFilter) return false;
+    if (matrixQ) {
+      const hay = `${r.className} ${r.subjectName} ${(r.teacherEmails || []).join(" ")} ${r.examMode}`.toLowerCase();
+      if (!hay.includes(matrixQ)) return false;
+    }
+    return true;
+  });
+
   const distinctClasses = Array.from(new Set(timeline.map((r) => r.className))).sort();
   const qLower = searchQuery.trim().toLowerCase();
   const filteredTimeline = timeline
@@ -364,6 +434,14 @@ export default function ExaminationControlCentre() {
           style={{ fontSize: "0.86rem" }}
         >
           <FiSliders style={{ marginRight: "0.35rem" }} /> 3. Paper Scanner, Scheduler &amp; Room Monitor
+        </button>
+        <button
+          type="button"
+          onClick={() => setSubTab("exam-modes")}
+          className={subTab === "exam-modes" ? "btn btn-primary" : "btn btn-outline"}
+          style={{ fontSize: "0.86rem" }}
+        >
+          <FiShield style={{ marginRight: "0.35rem" }} /> 4. Exam Modes (Hybrid / Combined) ({matrixRows.filter((r) => r.examMode === "HYBRID").length} Hybrid)
         </button>
       </div>
 
@@ -895,6 +973,174 @@ export default function ExaminationControlCentre() {
       {/* VIEW 3: EMBEDDED SCANNER, SCHEDULER & LIVE MONITOR STUDIO           */}
       {/* =================================================================== */}
       {subTab === "studio" && <ExamBankAndSchedulerStudio mode="admin" />}
+
+      {/* =================================================================== */}
+      {/* VIEW 4: BULK HYBRID / COMBINED EXAMINATION MODE MATRIX              */}
+      {/* =================================================================== */}
+      {subTab === "exam-modes" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "12px", padding: "1rem 1.25rem", display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", gap: "0.55rem", flexWrap: "wrap", alignItems: "center" }}>
+              <select className="form-input" value={matrixClassFilter} onChange={(e) => setMatrixClassFilter(e.target.value)} style={{ width: "auto" }}>
+                <option value="ALL">All Class Arms</option>
+                {matrixClasses.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              <input
+                type="search"
+                className="form-input"
+                placeholder="Filter subject or teacher..."
+                value={matrixSearch}
+                onChange={(e) => setMatrixSearch(e.target.value)}
+                style={{ width: "210px" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: "0.55rem", flexWrap: "wrap", alignItems: "center" }}>
+              <select
+                className="form-input"
+                value={bulkModeType}
+                onChange={(e) => {
+                  setBulkModeType(e.target.value as ExamModeValue);
+                  setBulkImpactWarning(null);
+                }}
+                style={{ width: "auto" }}
+              >
+                <option value="HYBRID">Set Selected -&gt; HYBRID (CBT + Paper 2 Theory)</option>
+                <option value="COMBINED">Set Selected -&gt; COMBINED (/60 Single Exam)</option>
+              </select>
+              {bulkModeType === "HYBRID" && (
+                <select
+                  className="form-input"
+                  value={bulkCbtMaxMarks}
+                  onChange={(e) => {
+                    setBulkCbtMaxMarks(parseInt(e.target.value, 10));
+                    setBulkImpactWarning(null);
+                  }}
+                  style={{ width: "auto" }}
+                >
+                  <option value={40}>40 CBT Obj + 20 Theory</option>
+                  <option value={30}>30 CBT Obj + 30 Theory</option>
+                  <option value={35}>35 CBT Obj + 25 Theory</option>
+                  <option value={20}>20 CBT Obj + 40 Theory</option>
+                </select>
+              )}
+              <button
+                type="button"
+                disabled={savingBulkModes || selectedMatrixKeys.length === 0}
+                onClick={() => handleBulkSaveExamModes(Boolean(bulkImpactWarning))}
+                className="btn btn-primary"
+                style={{ fontSize: "0.8rem" }}
+              >
+                {savingBulkModes
+                  ? "Applying..."
+                  : bulkImpactWarning
+                  ? `Confirm Bulk Update (${selectedMatrixKeys.length})`
+                  : `Apply to ${selectedMatrixKeys.length} Selected`}
+              </button>
+            </div>
+          </div>
+
+          {bulkImpactWarning && (
+            <div style={{ background: "var(--status-warning-bg)", color: "var(--status-warning-text)", border: "1px solid var(--status-warning-border)", borderRadius: "10px", padding: "0.85rem 1rem", fontSize: "0.83rem", fontWeight: 600 }}>
+              Impact Preview: {bulkImpactWarning.totalExistingWithExam} recorded exam score(s) exist across {bulkImpactWarning.impactedPairsCount} selected subject(s). Legacy scores will NOT be erased. Click <strong>Confirm Bulk Update</strong> above to proceed.
+            </div>
+          )}
+
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "12px", overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "740px", fontSize: "0.84rem" }}>
+              <thead>
+                <tr style={{ background: "var(--bg-secondary)", borderBottom: "2px solid var(--border-primary)", textAlign: "left" }}>
+                  <th style={{ padding: "0.8rem", width: "40px" }}>
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredMatrixRows.length > 0 &&
+                        filteredMatrixRows.every((r) => selectedMatrixKeys.includes(`${r.classId}:${r.subjectId}`))
+                      }
+                      onChange={(e) => {
+                        setBulkImpactWarning(null);
+                        if (e.target.checked) {
+                          setSelectedMatrixKeys(
+                            filteredMatrixRows.map((r) => `${r.classId}:${r.subjectId}`)
+                          );
+                        } else {
+                          setSelectedMatrixKeys([]);
+                        }
+                      }}
+                    />
+                  </th>
+                  <th style={{ padding: "0.8rem" }}>Class &amp; Subject</th>
+                  <th style={{ padding: "0.8rem" }}>Assigned Teacher(s)</th>
+                  <th style={{ padding: "0.8rem" }}>Configured Mode</th>
+                  <th style={{ padding: "0.8rem", textAlign: "center" }}>Allocation Split</th>
+                  <th style={{ padding: "0.8rem", textAlign: "center" }}>Existing Exam Scores</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMatrixRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
+                      No subject allocations found for this filter.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMatrixRows.map((row) => {
+                    const rowKey = `${row.classId}:${row.subjectId}`;
+                    const checked = selectedMatrixKeys.includes(rowKey);
+                    return (
+                      <tr key={rowKey} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                        <td style={{ padding: "0.75rem" }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              setBulkImpactWarning(null);
+                              setSelectedMatrixKeys((prev) =>
+                                e.target.checked ? [...prev, rowKey] : prev.filter((id) => id !== rowKey)
+                              );
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "0.75rem" }}>
+                          <div style={{ fontWeight: 800, color: "var(--color-navy-blue)" }}>{row.subjectName}</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{row.className}</div>
+                        </td>
+                        <td style={{ padding: "0.75rem", fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                          {row.teacherEmails?.length ? row.teacherEmails.join(", ") : "Unassigned"}
+                        </td>
+                        <td style={{ padding: "0.75rem" }}>
+                          <span
+                            style={{
+                              padding: "0.2rem 0.55rem",
+                              borderRadius: "999px",
+                              fontSize: "0.72rem",
+                              fontWeight: 800,
+                              background: row.examMode === "HYBRID" ? "var(--status-info-bg)" : "var(--bg-secondary)",
+                              color: row.examMode === "HYBRID" ? "var(--status-info-text)" : "var(--text-secondary)",
+                            }}
+                          >
+                            {row.examMode}
+                          </span>
+                        </td>
+                        <td style={{ padding: "0.75rem", textAlign: "center", fontWeight: 700 }}>
+                          {row.examMode === "HYBRID"
+                            ? `CBT /${row.examCbtMaxMarks} + Theory /${row.examTheoryMaxMarks}`
+                            : "Combined /60"}
+                        </td>
+                        <td style={{ padding: "0.75rem", textAlign: "center", color: row.existingExamScoresCount > 0 ? "var(--status-warning-text)" : "var(--text-muted)", fontWeight: 700 }}>
+                          {row.existingExamScoresCount}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* =================================================================== */}
       {/* SUBMISSION INSPECTION & SINGLE-TIER APPROVAL MODAL                  */}

@@ -458,6 +458,328 @@ export async function configureSubjectExamMode(params: {
 }
 
 /**
+ * Loads the term-wide Examination Mode matrix across all assigned Class + Subject pairs
+ * for bulk configuration inside the Examination Control Centre.
+ */
+export async function getExamModeConfigurationMatrix(termId?: number) {
+  try {
+    const actor = await requireActiveUser();
+    const isAuthorized =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("ADMIN") ||
+      actor.roles.has("Admin") ||
+      can(actor, "MANAGE_CBT");
+
+    if (!isAuthorized) {
+      return { success: false, error: "Forbidden", rows: [] };
+    }
+
+    const term = termId
+      ? await prisma.academic_Term.findUnique({ where: { TermID: Number(termId) } })
+      : await prisma.academic_Term.findFirst({ where: { IsActive: true } });
+
+    if (!term) {
+      return { success: false, error: "No active academic term found.", rows: [] };
+    }
+
+    const [allocations, configs, existingResults] = await Promise.all([
+      prisma.teacher_Subject_Map.findMany({
+        where: { OR: [{ TermID: term.TermID }, { TermID: null }] },
+        include: {
+          Class: { select: { ClassID: true, ClassName: true, Level: true } },
+          Subject: { select: { SubjectID: true, SubjectName: true } },
+          Teacher: { select: { Email: true } },
+        },
+        orderBy: [{ Class: { ClassName: "asc" } }, { Subject: { SubjectName: "asc" } }],
+      }),
+      prisma.subjectExamConfig.findMany({
+        where: { TermID: term.TermID },
+      }),
+      prisma.result.findMany({
+        where: {
+          TermID: term.TermID,
+          OR: [
+            { ExamScoreTenths: { not: null } },
+            { ExamCbtTenths: { not: null } },
+            { ExamTheoryTenths: { not: null } },
+          ],
+        },
+        select: {
+          SubjectID: true,
+          Student: { select: { ClassID: true } },
+        },
+      }),
+    ]);
+
+    const configMap = new Map(
+      configs.map((c) => [`${c.ClassID}:${c.SubjectID}`, c])
+    );
+
+    const scoreCountMap = new Map<string, number>();
+    for (const r of existingResults) {
+      if (!r.Student?.ClassID) continue;
+      const key = `${r.Student.ClassID}:${r.SubjectID}`;
+      scoreCountMap.set(key, (scoreCountMap.get(key) || 0) + 1);
+    }
+
+    // Deduplicate ClassID + SubjectID if multiple teachers share a class arm
+    const dedupMap = new Map<
+      string,
+      {
+        classId: number;
+        className: string;
+        classLevel: string;
+        subjectId: number;
+        subjectName: string;
+        teacherEmails: string[];
+        examMode: ExamModeValue;
+        examCbtMaxMarks: number;
+        examTheoryMaxMarks: number;
+        existingExamScoresCount: number;
+        configuredAt: string | null;
+      }
+    >();
+
+    for (const alloc of allocations) {
+      const key = `${alloc.ClassID}:${alloc.SubjectID}`;
+      const existing = dedupMap.get(key);
+      if (existing) {
+        if (alloc.Teacher?.Email && !existing.teacherEmails.includes(alloc.Teacher.Email)) {
+          existing.teacherEmails.push(alloc.Teacher.Email);
+        }
+        continue;
+      }
+      const cfg = configMap.get(key);
+      dedupMap.set(key, {
+        classId: alloc.ClassID,
+        className: alloc.Class?.ClassName || `Class ${alloc.ClassID}`,
+        classLevel: alloc.Class?.Level || "",
+        subjectId: alloc.SubjectID,
+        subjectName: alloc.Subject?.SubjectName || `Subject ${alloc.SubjectID}`,
+        teacherEmails: alloc.Teacher?.Email ? [alloc.Teacher.Email] : [],
+        examMode: (cfg?.ExamMode || "COMBINED") as ExamModeValue,
+        examCbtMaxMarks: (cfg?.ExamCbtMaxTenths ?? DEFAULT_HYBRID_CBT_MAX_TENTHS) / 10,
+        examTheoryMaxMarks: (cfg?.ExamTheoryMaxTenths ?? DEFAULT_HYBRID_THEORY_MAX_TENTHS) / 10,
+        existingExamScoresCount: scoreCountMap.get(key) || 0,
+        configuredAt: cfg?.UpdatedAt ? cfg.UpdatedAt.toISOString() : null,
+      });
+    }
+
+    return {
+      success: true,
+      term: {
+        TermID: term.TermID,
+        SessionName: term.SessionName,
+        TermName: term.TermName,
+        IsLocked: term.IsLocked,
+      },
+      rows: Array.from(dedupMap.values()),
+    };
+  } catch (error: unknown) {
+    console.error("getExamModeConfigurationMatrix error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load exam mode matrix.",
+      rows: [],
+    };
+  }
+}
+
+/**
+ * Bulk configures COMBINED or HYBRID examination mode across multiple Class + Subject pairs.
+ * Requires Admin, Principal, or Exam Officer (`MANAGE_CBT`) authority.
+ */
+export async function bulkConfigureSubjectExamModes(params: {
+  termId: number;
+  items: Array<{ classId: number; subjectId: number }>;
+  examMode: ExamModeValue;
+  examCbtMaxMarks?: number;
+  examTheoryMaxMarks?: number;
+  confirmImpact?: boolean;
+}) {
+  try {
+    const actor = await requireActiveUser();
+    const isAuthorized =
+      actor.roles.has("SUPER_ADMIN") ||
+      actor.roles.has("PRINCIPAL") ||
+      actor.roles.has("ADMIN") ||
+      actor.roles.has("Admin") ||
+      can(actor, "MANAGE_CBT");
+
+    if (!isAuthorized) {
+      return {
+        success: false,
+        error: "Forbidden: Only Administrators, Principal, or Exam Officers may bulk configure examination modes.",
+      };
+    }
+
+    const termId = Number(params.termId);
+    if (!Number.isInteger(termId) || termId <= 0) {
+      return { success: false, error: "Invalid academic term ID." };
+    }
+
+    const uniqueItemsMap = new Map<string, { classId: number; subjectId: number }>();
+    for (const item of params.items || []) {
+      const cId = Number(item.classId);
+      const sId = Number(item.subjectId);
+      if (Number.isInteger(cId) && cId > 0 && Number.isInteger(sId) && sId > 0) {
+        uniqueItemsMap.set(`${cId}:${sId}`, { classId: cId, subjectId: sId });
+      }
+    }
+    const items = Array.from(uniqueItemsMap.values());
+    if (items.length === 0) {
+      return { success: false, error: "Select at least one Class + Subject row to configure." };
+    }
+    if (items.length > 200) {
+      return { success: false, error: "Bulk update limited to 200 Class + Subject rows at once." };
+    }
+
+    const examMode: ExamModeValue = params.examMode === "HYBRID" ? "HYBRID" : "COMBINED";
+    const cbtMaxTenths =
+      examMode === "HYBRID"
+        ? Math.round((Number(params.examCbtMaxMarks) || 40) * 10)
+        : DEFAULT_HYBRID_CBT_MAX_TENTHS;
+    const theoryMaxTenths =
+      examMode === "HYBRID"
+        ? Math.round((Number(params.examTheoryMaxMarks) || 20) * 10)
+        : DEFAULT_HYBRID_THEORY_MAX_TENTHS;
+
+    if (examMode === "HYBRID") {
+      const alloc = validateHybridAllocationTenths(cbtMaxTenths, theoryMaxTenths);
+      if (!alloc.valid) {
+        return { success: false, error: alloc.error };
+      }
+    }
+
+    const existingConfigs = await prisma.subjectExamConfig.findMany({
+      where: { TermID: termId },
+    });
+    const configByPair = new Map(existingConfigs.map((c) => [`${c.ClassID}:${c.SubjectID}`, c]));
+
+    const changedPairs = items.filter((item) => {
+      const cur = configByPair.get(`${item.classId}:${item.subjectId}`);
+      const curMode = (cur?.ExamMode || "COMBINED") as ExamModeValue;
+      return (
+        curMode !== examMode ||
+        (examMode === "HYBRID" &&
+          (!cur || cur.ExamCbtMaxTenths !== cbtMaxTenths || cur.ExamTheoryMaxTenths !== theoryMaxTenths))
+      );
+    });
+
+    if (changedPairs.length > 0 && !params.confirmImpact) {
+      const existingScores = await prisma.result.findMany({
+        where: {
+          TermID: termId,
+          OR: [
+            { ExamScoreTenths: { not: null } },
+            { ExamCbtTenths: { not: null } },
+            { ExamTheoryTenths: { not: null } },
+          ],
+        },
+        select: {
+          SubjectID: true,
+          Student: { select: { ClassID: true } },
+        },
+      });
+      const changedKeys = new Set(changedPairs.map((p) => `${p.classId}:${p.subjectId}`));
+      let totalExistingWithExam = 0;
+      const impactedPairs = new Set<string>();
+      for (const r of existingScores) {
+        if (!r.Student?.ClassID) continue;
+        const k = `${r.Student.ClassID}:${r.SubjectID}`;
+        if (changedKeys.has(k)) {
+          totalExistingWithExam++;
+          impactedPairs.add(k);
+        }
+      }
+
+      if (totalExistingWithExam > 0) {
+        return {
+          success: false,
+          requiresConfirmation: true,
+          impact: {
+            selectedCount: items.length,
+            changedCount: changedPairs.length,
+            impactedPairsCount: impactedPairs.size,
+            totalExistingWithExam,
+            requestedMode: examMode,
+            examCbtMaxMarks: cbtMaxTenths / 10,
+            examTheoryMaxMarks: theoryMaxTenths / 10,
+          },
+          error: `${totalExistingWithExam} recorded exam score(s) exist across ${impactedPairs.size} selected subject(s). Confirm bulk mode update to proceed without erasing existing legacy marks.`,
+        };
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const item of items) {
+        await tx.subjectExamConfig.upsert({
+          where: {
+            ClassID_SubjectID_TermID: {
+              ClassID: item.classId,
+              SubjectID: item.subjectId,
+              TermID: termId,
+            },
+          },
+          update: {
+            ExamMode: examMode,
+            ExamCbtMaxTenths: cbtMaxTenths,
+            ExamTheoryMaxTenths: theoryMaxTenths,
+            ConfiguredById: actor.UserID,
+          },
+          create: {
+            ClassID: item.classId,
+            SubjectID: item.subjectId,
+            TermID: termId,
+            ExamMode: examMode,
+            ExamCbtMaxTenths: cbtMaxTenths,
+            ExamTheoryMaxTenths: theoryMaxTenths,
+            ConfiguredById: actor.UserID,
+          },
+        });
+      }
+
+      await writeAuditLog({
+        tx,
+        actorId: actor.UserID,
+        action: "SUBJECT_EXAM_MODE_BULK_CONFIGURED",
+        entity: "SubjectExamConfig",
+        entityId: String(termId),
+        newValue: {
+          termId,
+          count: items.length,
+          examMode,
+          examCbtMaxTenths: cbtMaxTenths,
+          examTheoryMaxTenths: theoryMaxTenths,
+          pairs: items,
+        },
+      });
+    });
+
+    revalidatePath("/portal/teacher");
+    revalidatePath("/portal/dashboard");
+    revalidatePath("/portal/admin/cbt");
+    revalidatePath("/portal/admin/results");
+
+    return {
+      success: true,
+      updatedCount: items.length,
+      message:
+        examMode === "HYBRID"
+          ? `Configured ${items.length} subject(s) as Hybrid (CBT /${cbtMaxTenths / 10} + Theory /${theoryMaxTenths / 10}).`
+          : `Configured ${items.length} subject(s) as Combined (/60).`,
+    };
+  } catch (error: unknown) {
+    console.error("bulkConfigureSubjectExamModes error:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to bulk configure examination modes.",
+    };
+  }
+}
+
+/**
  * Section B.4.2 Single Write Path:
  * All score mutations (Teacher Grid, Excel/CSV Import Commit, and Admin Score Correction)
  * flow through this single transactional function.
@@ -1017,7 +1339,7 @@ export async function generateScoreSheetTemplateCsv(
 
     await assertTeacherAssigned(Number(classId), Number(subjectId), Number(targetTermId));
 
-    const [cls, subject, students, submission] = await Promise.all([
+    const [cls, subject, students, submission, examConfigRow] = await Promise.all([
       prisma.class.findUnique({ where: { ClassID: Number(classId) } }),
       prisma.subject.findUnique({ where: { SubjectID: Number(subjectId) } }),
       prisma.student.findMany({
@@ -1038,9 +1360,56 @@ export async function generateScoreSheetTemplateCsv(
           },
         },
       }),
+      prisma.subjectExamConfig.findUnique({
+        where: {
+          ClassID_SubjectID_TermID: {
+            ClassID: Number(classId),
+            SubjectID: Number(subjectId),
+            TermID: Number(targetTermId),
+          },
+        },
+      }),
     ]);
 
     const sheetVersion = submission?.Version ?? 1;
+    const examMode: ExamModeValue = (examConfigRow?.ExamMode || "COMBINED") as ExamModeValue;
+    const examCbtMaxMarks = (examConfigRow?.ExamCbtMaxTenths ?? DEFAULT_HYBRID_CBT_MAX_TENTHS) / 10;
+    const examTheoryMaxMarks = (examConfigRow?.ExamTheoryMaxTenths ?? DEFAULT_HYBRID_THEORY_MAX_TENTHS) / 10;
+
+    if (examMode === "HYBRID") {
+      const header = "AdmissionNo,StudentName,CAScore,Paper2TheoryScore,CbtObjectiveReadOnly,Status,SheetVersion";
+      const rows = students.map((s) => {
+        const r = s.Results[0];
+        const fullName = `${s.FirstName || ""} ${s.LastName || ""}`.trim() || s.AdmissionNo;
+        const ca = r && r.CAScoreTenths !== null ? String(r.CAScoreTenths / 10) : "";
+        const theory = r && r.ExamTheoryTenths !== null ? String(r.ExamTheoryTenths / 10) : "";
+        const cbtRo =
+          r && r.ExamCbtTenths !== null
+            ? `${r.ExamCbtTenths / 10}/${examCbtMaxMarks}`
+            : `Pending (/${examCbtMaxMarks})`;
+        const status = r?.Status || "ENTERED";
+        return [
+          sanitizeCsvCell(s.AdmissionNo),
+          sanitizeCsvCell(fullName),
+          ca,
+          theory,
+          sanitizeCsvCell(cbtRo),
+          status,
+          String(sheetVersion),
+        ].join(",");
+      });
+
+      const csv = [header, ...rows].join("\n");
+      return {
+        success: true,
+        csv,
+        fileName: `WOFS_HYBRID_${(cls?.ClassName || "Class").replace(/\s+/g, "_")}_${(subject?.SubjectName || "Subject").replace(/\s+/g, "_")}_v${sheetVersion}.csv`,
+        sheetVersion,
+        examMode,
+        examTheoryMaxMarks,
+      };
+    }
+
     const header = "AdmissionNo,StudentName,CAScore,ExamScore,Status,SheetVersion";
     const rows = students.map((s) => {
       const r = s.Results[0];
@@ -1064,6 +1433,8 @@ export async function generateScoreSheetTemplateCsv(
       csv,
       fileName: `WOFS_${(cls?.ClassName || "Class").replace(/\s+/g, "_")}_${(subject?.SubjectName || "Subject").replace(/\s+/g, "_")}_v${sheetVersion}.csv`,
       sheetVersion,
+      examMode,
+      examTheoryMaxMarks: 60,
     };
   } catch (error: any) {
     return { success: false, error: error.message || "Failed to generate score sheet template." };
@@ -1145,14 +1516,48 @@ export async function stageScoreSheetImportCsv(data: {
       };
     }
 
-    const enrolledStudents = await prisma.student.findMany({
-      where: { ClassID: classId },
-      include: {
-        Results: {
-          where: { SubjectID: subjectId, TermID: termId },
+    const [enrolledStudents, examConfigRow] = await Promise.all([
+      prisma.student.findMany({
+        where: { ClassID: classId },
+        include: {
+          Results: {
+            where: { SubjectID: subjectId, TermID: termId },
+          },
         },
-      },
-    });
+      }),
+      prisma.subjectExamConfig.findUnique({
+        where: {
+          ClassID_SubjectID_TermID: {
+            ClassID: classId,
+            SubjectID: subjectId,
+            TermID: termId,
+          },
+        },
+      }),
+    ]);
+
+    const examMode: ExamModeValue = (examConfigRow?.ExamMode || "COMBINED") as ExamModeValue;
+    const examTheoryMaxMarks = (examConfigRow?.ExamTheoryMaxTenths ?? DEFAULT_HYBRID_THEORY_MAX_TENTHS) / 10;
+    const headerCols = lines[0]
+      .split(",")
+      .map((c) => c.trim().replace(/^"|"$/g, "").toLowerCase());
+    const hasHybridTheoryCol = headerCols.includes("paper2theoryscore");
+    const hasCombinedExamCol = headerCols.includes("examscore");
+
+    if (examMode === "HYBRID" && !hasHybridTheoryCol) {
+      return {
+        success: false,
+        error:
+          "This subject is in HYBRID mode. Please download and upload the Hybrid template (CAScore + Paper2TheoryScore) so synced CBT Objective marks are never overwritten.",
+      };
+    }
+    if (examMode === "COMBINED" && hasHybridTheoryCol && !hasCombinedExamCol) {
+      return {
+        success: false,
+        error:
+          "This file uses Hybrid Paper2TheoryScore columns, but the subject is configured in COMBINED (/60) mode.",
+      };
+    }
 
     const studentByAdmission = new Map(
       enrolledStudents.map((s) => [s.AdmissionNo.trim().toUpperCase(), s])
@@ -1175,9 +1580,11 @@ export async function stageScoreSheetImportCsv(data: {
       const rawCols = lines[i].split(",").map((c) => c.trim().replace(/^"|"$/g, "").replace(/^'/, ""));
       const admissionNo = (rawCols[0] || "").trim();
       const caStr = rawCols[2] ?? "";
-      const examStr = rawCols[3] ?? "";
-      const rawStatus = (rawCols[4] || "ENTERED").toUpperCase();
-      const verStr = rawCols[5];
+      const examOrTheoryStr = rawCols[3] ?? "";
+      const rawStatus = (
+        (examMode === "HYBRID" ? rawCols[5] : rawCols[4]) || "ENTERED"
+      ).toUpperCase();
+      const verStr = examMode === "HYBRID" ? rawCols[6] : rawCols[5];
 
       if (verStr && !Number.isNaN(Number(verStr))) {
         detectedVersion = Number(verStr);
@@ -1196,7 +1603,7 @@ export async function stageScoreSheetImportCsv(data: {
       seenAdmissions.add(normAdm);
 
       // Reject formulas in score cells (Section B.4.3)
-      if (/^[=+\-@]/.test(caStr) || /^[=+\-@]/.test(examStr)) {
+      if (/^[=+\-@]/.test(caStr) || /^[=+\-@]/.test(examOrTheoryStr)) {
         rowError = rowError || "Formula expressions in score cells are prohibited.";
       }
 
@@ -1210,24 +1617,49 @@ export async function stageScoreSheetImportCsv(data: {
 
       if (status === "ENTERED") {
         const caVal = caStr === "" ? null : Number(caStr);
-        const examVal = examStr === "" ? null : Number(examStr);
+        const examOrTheoryVal = examOrTheoryStr === "" ? null : Number(examOrTheoryStr);
 
-        if (caVal === null || examVal === null || Number.isNaN(caVal) || Number.isNaN(examVal)) {
-          rowError = rowError || "CA and Exam scores must be valid numbers for ENTERED rows.";
-        } else if (caVal < 0 || caVal > 40 || examVal < 0 || examVal > 60) {
-          rowError = rowError || "Out of range: CA must be 0–40 and Exam must be 0–60.";
+        if (examMode === "HYBRID") {
+          if (caVal === null || Number.isNaN(caVal) || caVal < 0 || caVal > 40) {
+            rowError = rowError || "CA score must be a valid number (0–40).";
+          } else {
+            caTenths = Math.round(caVal * 10);
+          }
+
+          if (examOrTheoryVal !== null) {
+            if (Number.isNaN(examOrTheoryVal) || examOrTheoryVal < 0 || examOrTheoryVal > examTheoryMaxMarks) {
+              rowError =
+                rowError ||
+                `Paper 2 Theory score must be 0–${examTheoryMaxMarks} (or blank if not yet marked).`;
+            } else {
+              examTenths = Math.round(examOrTheoryVal * 10);
+            }
+          }
         } else {
-          caTenths = Math.round(caVal * 10);
-          examTenths = Math.round(examVal * 10);
+          if (
+            caVal === null ||
+            examOrTheoryVal === null ||
+            Number.isNaN(caVal) ||
+            Number.isNaN(examOrTheoryVal)
+          ) {
+            rowError = rowError || "CA and Exam scores must be valid numbers for ENTERED rows.";
+          } else if (caVal < 0 || caVal > 40 || examOrTheoryVal < 0 || examOrTheoryVal > 60) {
+            rowError = rowError || "Out of range: CA must be 0–40 and Exam must be 0–60.";
+          } else {
+            caTenths = Math.round(caVal * 10);
+            examTenths = Math.round(examOrTheoryVal * 10);
+          }
         }
       }
 
       const matchedStudent = studentByAdmission.get(normAdm);
       const existingRes = matchedStudent?.Results?.[0];
+      const existingTargetExamOrTheory =
+        examMode === "HYBRID" ? existingRes?.ExamTheoryTenths : existingRes?.ExamScoreTenths;
       const changes =
         !existingRes ||
         existingRes.CAScoreTenths !== caTenths ||
-        existingRes.ExamScoreTenths !== examTenths ||
+        existingTargetExamOrTheory !== examTenths ||
         existingRes.Status !== status;
 
       stagedRows.push({
@@ -1313,18 +1745,39 @@ export async function commitScoreSheetImportBatch(batchId: string) {
       };
     }
 
-    const students = await prisma.student.findMany({
-      where: { ClassID: batch.sheet.ClassID },
-      select: { StudentID: true, AdmissionNo: true },
-    });
+    const [students, examConfigRow] = await Promise.all([
+      prisma.student.findMany({
+        where: { ClassID: batch.sheet.ClassID },
+        select: { StudentID: true, AdmissionNo: true },
+      }),
+      prisma.subjectExamConfig.findUnique({
+        where: {
+          ClassID_SubjectID_TermID: {
+            ClassID: batch.sheet.ClassID,
+            SubjectID: batch.sheet.SubjectID,
+            TermID: batch.sheet.TermID,
+          },
+        },
+      }),
+    ]);
     const studentMap = new Map(
       students.map((s) => [s.AdmissionNo.trim().toUpperCase(), s.StudentID])
     );
+
+    const examMode: ExamModeValue = (examConfigRow?.ExamMode || "COMBINED") as ExamModeValue;
 
     const scoresToUpsert = batch.rows
       .map((r) => {
         const studentId = studentMap.get(r.admissionNo.trim().toUpperCase());
         if (!studentId) return null;
+        if (examMode === "HYBRID") {
+          return {
+            studentId,
+            caScore: r.caTenths !== null ? r.caTenths / 10 : null,
+            examTheoryScore: r.examTenths !== null ? r.examTenths / 10 : null,
+            status: (r.status || "ENTERED") as "PENDING" | "ENTERED" | "ABSENT" | "EXEMPT",
+          };
+        }
         return {
           studentId,
           caScore: r.caTenths !== null ? r.caTenths / 10 : null,
@@ -1334,13 +1787,14 @@ export async function commitScoreSheetImportBatch(batchId: string) {
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
 
-    // Call the Single Write Path with source = IMPORT
+    // Call the Single Write Path with source = IMPORT (HYBRID uses THEORY_ONLY to protect synced CBT marks)
     await upsertSheetScoresInternal({
       subjectId: batch.sheet.SubjectID,
       classId: batch.sheet.ClassID,
       termId: batch.sheet.TermID,
       scores: scoresToUpsert,
       source: "IMPORT",
+      updateScope: examMode === "HYBRID" ? "THEORY_ONLY" : "FULL",
       importBatchId: batch.id,
     });
 

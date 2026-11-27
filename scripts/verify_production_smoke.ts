@@ -98,20 +98,25 @@ async function main() {
   }
 
   // 4c. Paystack Webhook invalid signature rejection (verifies secret is loaded, not 500 unconfigured)
-  const paystackProbe = await fetch(`${targetUrl}/api/webhooks/paystack`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-paystack-signature": "00000000000000000000000000000000",
-    },
-    body: JSON.stringify({ event: "charge.success", data: { reference: "SMOKE_TEST_PROBE" } }),
-  });
-  assert.equal(
-    paystackProbe.status,
-    400,
-    `Expected Paystack webhook invalid signature to return 400 (configured), got ${paystackProbe.status}`
-  );
-  console.log("  [PASS] POST /api/webhooks/paystack (bad signature) -> 400 Invalid signature");
+  const skipPaystack = process.argv.includes("--skip-paystack");
+  if (skipPaystack) {
+    console.log("  [SKIP] POST /api/webhooks/paystack skipped (--skip-paystack active while school awaits Paystack approval)");
+  } else {
+    const paystackProbe = await fetch(`${targetUrl}/api/webhooks/paystack`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-paystack-signature": "00000000000000000000000000000000",
+      },
+      body: JSON.stringify({ event: "charge.success", data: { reference: "SMOKE_TEST_PROBE" } }),
+    });
+    assert.equal(
+      paystackProbe.status,
+      400,
+      `Expected Paystack webhook invalid signature to return 400 (configured), got ${paystackProbe.status}`
+    );
+    console.log("  [PASS] POST /api/webhooks/paystack (bad signature) -> 400 Invalid signature");
+  }
 
   // 4d. Exam room unauthenticated redirect + security headers
   const examRoomRes = await fetch(`${targetUrl}/portal/exam-room`, { redirect: "manual" });
